@@ -101,15 +101,17 @@ SliceAI/
 - ✅ **M1 — Project green (end of Phase 0)** — reached at `30f8068` (2026-04-20). SPM builds clean, CI defined, README/LICENSE in place.
 - ✅ **M2 — Testable core (end of Phase 2)** — reached at `efd31b6` (2026-04-20); hardened at `b1ac4c3` after user P1/P2 review. **56 tests** passing, CI green on `main`, `OpenAICompatibleProvider.stream()` surfaces SSE parse errors and retries 429 once (spec §7.2).
 - ✅ **M3 — Input stack (end of Phase 4)** — reached at `400feec` → `804010f` (2026-04-20). 67 tests passing. `SelectionCapture` (AX + Clipboard fallback with orchestrator), `HotkeyManager` (Hotkey parser + Carbon Registrar) landed.
-- ✅ **M4 — UI stack (end of Phase 7)** — reached at `4b4de43` (2026-04-20). 75 tests passing. `Windowing` (5 files), `Permissions` (monitor + onboarding), `SettingsUI` (Keychain + ConfigurationStore + 5 SwiftUI files) all clean under Swift 6 strict concurrency.
-- ⏳ **M5 — Integrated app (end of Phase 8)**: Full app runs end-to-end. Swift sources + plist + entitlements landed (`fbdc3da` / `bc83608`); **awaits user's Xcode GUI steps (Task 37) + smoke test (Task 40)**.
-- ⏳ **M6 — Shippable (end of Phase 9)**: `SliceAI-0.1.0.dmg` built by CI. `scripts/build-dmg.sh` (`662a993`) + `.github/workflows/release.yml` (`7b33145`) landed; **awaits user's tag push (Task 43)**.
+- ✅ **M4 — UI stack (end of Phase 7)** — reached at `4b4de43` (2026-04-20); hardened at `c106837` after Codex review on 2026-04-21. **76 tests** passing. `Windowing` (5 files incl. spec §7.3 error recovery), `Permissions` (monitor + onboarding), `SettingsUI` (global save bar + Provider add/remove; Keychain routed via `Provider.keychainAccount`) all clean under Swift 6 strict concurrency.
+- ⏳ **M5 — Integrated app (end of Phase 8)**: App shell source files landed (`fbdc3da` / `bc83608` — "wiring only"); **not buildable** until Task 37 creates the Xcode project. Awaits user's Xcode GUI steps (Task 37) + smoke test (Task 40).
+- ⏳ **M6 — Shippable (end of Phase 9)**: Release scripts landed (`scripts/build-dmg.sh` `662a993`, `.github/workflows/release.yml` `7b33145` — "wiring only"); **first exercise happens on Task 43 tag push, after Task 37 produced `SliceAI.xcodeproj`**.
 
 ---
 
 ## Completion Log
 
-> **Status as of 2026-04-20 (session 2)** · Phase 0–7 complete (Tasks 1–36). Phase 8 code artifacts in place (Tasks 38–39); Task 37 (Xcode GUI) and Task 40 (smoke test) are **manual user work**. Phase 9 scripts landed (Tasks 41–42); Task 43 (tag v0.1.0) is **manual user work**. **75 tests, 0 failures.** CI green. Repo: [github.com/yingjialong/SliceAI](https://github.com/yingjialong/SliceAI) (public, MIT).
+> **Status as of 2026-04-21 (session 2, post-Codex review)** · Phase 0–7 fully complete (Tasks 1–36). Phase 8/9 source+script wiring landed (Tasks 38, 39, 41, 42); the actual **release pipeline cannot be exercised** until Task 37 (Xcode project GUI creation) generates `SliceAI.xcodeproj`. Task 40 (smoke test) and Task 43 (tag push) are also manual user work. **76 tests, 0 failures.** CI green. Repo: [github.com/yingjialong/SliceAI](https://github.com/yingjialong/SliceAI) (public, MIT).
+>
+> **Post-review fixes (2026-04-21):** 5 follow-up commits landed after Codex re-review (P1-1, P1-2, P2-5, P1-3, P2-6). See the "Post-review fixes" sub-section below.
 
 ### Completed tasks
 
@@ -153,13 +155,15 @@ SliceAI/
 | 7 | 34 KeychainStore | `3f1aec4` | `SecItemCopyMatching/Add/Update/Delete` wrapper; conforms to `KeychainAccessing`. |
 | 7 | 35 FileConfigurationStore (in SliceCore/) + tests | `1b749c0` | Moved into SliceCore/ per plan (AppKit-free). 4 tests. **Added `os.Logger`** (not `print`/`NSLog`) with `privacy: .public` markers — within Task 16 convention (`os.Logger` is OK, only `print`/`NSLog` forbidden). |
 | 7 | 36 SettingsScene + 4 editor files | `4b4de43` | 5 files, all ≤ 300 lines. `@Sendable` on async closures; `[weak self]` on Task in `SettingsViewModel.init`; `@ToolbarContentBuilder` for toolbar correctness. |
-| 8 | 38 App shell Swift files | `fbdc3da` | `SliceAIApp/{AppContainer,AppDelegate,MenuBarController,SliceAIApp}.swift`. Typechecked against compiled SPM modules via `swiftc -typecheck -strict-concurrency=complete`. NSLog removed per Task 26 precedent. |
-| 8 | 39 Info.plist + entitlements | `bc83608` | `LSUIElement=true`, AX/AppleEvents usage descriptions, app-sandbox=false, cs.disable-library-validation=true. `plutil -lint` clean. |
-| 9 | 41 build-dmg.sh | `662a993` | Unsigned DMG; Xcode + project existence checks + PROJECT_ROOT detection added for robustness. |
-| 9 | 42 release.yml | `7b33145` | Triggers on `v*` tags; `softprops/action-gh-release@v2` draft release with SHA256 in body. |
+| 8 — wiring only¹ | 38 App shell Swift files | `fbdc3da` | `SliceAIApp/{AppContainer,AppDelegate,MenuBarController,SliceAIApp}.swift`. Typechecked against compiled SPM modules via `swiftc -typecheck -strict-concurrency=complete`. NSLog removed per Task 26 precedent. **Not buildable until Task 37 Xcode project exists.** |
+| 8 — wiring only¹ | 39 Info.plist + entitlements | `bc83608` | `LSUIElement=true`, AX/AppleEvents usage descriptions, app-sandbox=false, cs.disable-library-validation=true. `plutil -lint` clean. **Linked into the product by Task 37.** |
+| 9 — wiring only¹ | 41 build-dmg.sh | `662a993` | Unsigned DMG; Xcode + project existence checks + PROJECT_ROOT detection added for robustness. **Running this script before Task 37 deliberately exits with `SliceAI.xcodeproj not found`.** |
+| 9 — wiring only¹ | 42 release.yml | `7b33145` | Triggers on `v*` tags; `softprops/action-gh-release@v2` draft release with SHA256 in body. **First run happens on Task 43's tag push, after Task 37 has landed the Xcode project.** |
 | **Pending (user)** | 37 | — | Manual Xcode GUI: File → New → Project → macOS App → SliceAI. See handoff doc below. |
 | **Pending (user)** | 40 | — | Manual smoke test after Task 37. See handoff doc below. |
 | **Pending (user)** | 43 | — | `git tag v0.1.0 && git push origin v0.1.0`. See handoff doc below. |
+
+¹ **"Wiring only"** means the source files / scripts / workflows are committed and reviewed, but the binary artifact (`.app`, `.dmg`) requires Task 37 (Xcode project creation) before anything builds. A Codex re-review flagged this as confusing when Task 41/42 were marked "completed" — the table now distinguishes "wiring landed" from "release pipeline exercised".
 
 ### Issues resolved during implementation
 
@@ -212,6 +216,19 @@ SliceAI/
 | Important | 20 | `SystemPasteboard.init` allowed injecting non-singleton pasteboards while comment claimed `@unchecked Sendable` is safe only for `.general` singleton | `c2a4e20` — rationale comment updated to reflect caller responsibility for non-singleton pasteboards |
 | Important | 22 | `sendCopy()` silently returned on `CGEvent` creation failure; caller couldn't distinguish sent vs dropped | `8992b76` — added `CopyKeystrokeError.eventCreationFailed` throw path; dropped unused AppKit import |
 | Critical | 26 | 3 `NSLog` calls violated codebase's "no free logging" convention established by Task 16 `8c006df` (NSLog is equivalent to print for release — always-on, not privacy-aware) | `804010f` — removed all NSLog; lifecycle comments retained |
+
+**Post-review fixes (2026-04-21, Codex re-review):**
+
+Codex ran an independent audit on the Phase 3–9 work and flagged 4 P1 + 2 P2 findings. 5 of 6 were accepted and fixed immediately; 1 was a misclassification of the plan-design intent:
+
+| Severity | File / Area | Finding | Fix |
+|---|---|---|---|
+| P1-1 | `ClipboardSelectionSource` | Only `.string` backed up + restored → RTF / HTML / PNG / file-URL items in the user's clipboard were permanently wiped on the happy path | `363766c` — deep-copy `pasteboardItems()` snapshot, restore via `writeObjects(_:)`; added `test_readSelection_restoresFullPasteboardItems` (+1 test) |
+| P1-2 | `ClipboardSelectionSource` + `AppContainer` | `MainActor.assumeIsolated` in non-actor-isolated `async` context → runtime trap when continuation resumed off main actor | `363766c` — `focusProvider` signature now `@MainActor @Sendable () -> FocusInfo?`; call site uses `await`; `AppContainer` closure drops `assumeIsolated`, body runs on `@MainActor` closure. `48ce364` — SourceKit follow-up: test closures explicitly annotated `{ @MainActor @Sendable in ... }` to keep IDE diagnostics clean |
+| P2-5 | `SettingsViewModel` + `SettingsScene` | Settings wrote/read Keychain via `provider.id`, but `ToolExecutor` reads via `Provider.keychainAccount` (from `apiKeyRef`) → silent write-to-wrong-slot on shared-key / renamed-provider configs | `581d7f5` — `setAPIKey(_:for:)` / `readAPIKey(for:)` now take `Provider`, derive account via `keychainAccount`; Settings closures capture `Provider` value |
+| P1-3 | `SettingsScene` | Only Tools tab had 保存 button; Providers had no `+`/`-`; Hotkeys/Triggers edits lost on restart. Violated spec §1.4 ("用户能在 Settings 界面添加新供应商") | `3a6870e` — global save bar with `⌘S` visible on all tabs + inline status feedback; Providers tab `+`/`-` toolbar + `addProvider()`/`deleteSelectedProvider()`; Tools tab toolbar simplified to only `+` |
+| P2-6 | `ResultPanel` + `AppDelegate` | Error state was `Text(err)` + generic "复制" button — no `[打开设置] / [重试] / [复制错误详情]` or detail disclosure as spec §7.3 mandates | `c106837` — `fail(with:onRetry:onOpenSettings:)` extended API; red banner + `DisclosureGroup` detail (reading redaction-safe `developerContext`) + 3 action buttons; `AppDelegate.execute` passes both recovery closures on every error path |
+| P1-4 | Release pipeline | Task 41/42 marked "completed" but `build-dmg.sh` would trap on missing `SliceAI.xcodeproj` → misleading status | *(partial accept)* Plan design is correct: Task 37 is user's manual GUI step, release wiring lands ahead of it to exercise exactly once on first tag push. Codex's concern addressed by adding "— wiring only¹" labels and footnote to the completion table above, replacing the unqualified "completed" marker |
 
 **Swift 6 strict-concurrency adjustments applied proactively (all non-semantic):**
 
