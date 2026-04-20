@@ -36,4 +36,24 @@ final class PromptTemplateTests: XCTestCase {
         let out = PromptTemplate.render("{{selection}}", variables: ["selection": "$pecial/chars\\"])
         XCTAssertEqual(out, "$pecial/chars\\")
     }
+
+    func test_render_unicodeVariableName() {
+        // 配置允许任意字符串作为 key，渲染器必须跟上
+        let out = PromptTemplate.render("目标语言：{{语言}}", variables: ["语言": "中文"])
+        XCTAssertEqual(out, "目标语言：中文")
+    }
+
+    func test_render_mixedScriptVariableName() {
+        let out = PromptTemplate.render(
+            "{{model-version}} + {{版本号}}",
+            variables: ["model-version": "gpt-5", "版本号": "v2"]
+        )
+        XCTAssertEqual(out, "gpt-5 + v2")
+    }
+
+    func test_render_dotInVariableName() {
+        // 允许点号（例如未来命名空间化的变量）
+        let out = PromptTemplate.render("{{user.name}}", variables: ["user.name": "Alice"])
+        XCTAssertEqual(out, "Alice")
+    }
 }

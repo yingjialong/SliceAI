@@ -13,9 +13,10 @@ public enum PromptTemplate {
     public static func render(_ template: String, variables: [String: String]) -> String {
         guard !template.isEmpty else { return template }
 
-        // 用正则匹配 {{identifier}}。identifier 只允许字母数字 / 下划线 / 连字符
-        // 空白、换行都会使占位符保留原样
-        let pattern = #"\{\{([A-Za-z][A-Za-z0-9_\-]*)\}\}"#
+        // 用正则匹配 {{identifier}}。identifier 仅禁止空白与 `{` / `}`，
+        // 以覆盖配置层对 key 没有字符集限制的事实（支持 Unicode、点号、连字符等）
+        // 空白、换行仍会让占位符保留原样，避免 "{{ a b }}" 这类意外匹配
+        let pattern = #"\{\{([^\s{}]+)\}\}"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return template }
 
         let ns = template as NSString
