@@ -1,0 +1,44 @@
+# SliceAI SwiftLint 配置，开源项目的宽松但有原则的风格
+disabled_rules:
+  - trailing_whitespace
+  - identifier_name   # 业务缩写常见 (AX, LLM, SSE)，不做强制
+
+opt_in_rules:
+  - empty_count
+  - explicit_init
+  - first_where
+  - force_unwrapping
+  - implicit_return
+  - redundant_nil_coalescing
+  - sorted_imports
+  - toggle_bool
+  - unused_import
+
+line_length:
+  warning: 120
+  error: 160
+
+file_length:
+  warning: 500
+  error: 700
+
+function_body_length:
+  warning: 40
+  error: 80
+
+type_body_length:
+  warning: 250
+  error: 400
+
+cyclomatic_complexity:
+  warning: 12
+  error: 20
+
+included:
+  - SliceAIKit/Sources
+  - SliceAIApp
+
+excluded:
+  - .build
+  - SliceAIKit/.build
+  - SliceAIKit/Tests
