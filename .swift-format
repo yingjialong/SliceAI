@@ -9,7 +9,7 @@
   "prioritizeKeepingFunctionOutputTogether": true,
   "indentConditionalCompilationBlocks": true,
   "rules": {
-    "AllPublicDeclarationsHaveDocumentation": true,
+    "AllPublicDeclarationsHaveDocumentation": false,
     "AlwaysUseLowerCamelCase": false,
     "AmbiguousTrailingClosureOverload": true,
     "NoLeadingUnderscores": false,

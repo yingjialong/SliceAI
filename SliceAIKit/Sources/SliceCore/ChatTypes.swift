@@ -54,6 +54,7 @@ public enum FinishReason: String, Sendable, Codable {
 }
 
 /// 流式 chunk（delta 为增量文本，finishReason 仅在最后一个 chunk 非 nil）
+/// 不声明 Codable：仅由 SSE 解码器生产，不会作为整体通过网络发送
 public struct ChatChunk: Sendable, Equatable {
     public let delta: String
     public let finishReason: FinishReason?
