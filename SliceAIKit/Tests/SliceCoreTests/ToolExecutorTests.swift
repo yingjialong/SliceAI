@@ -52,6 +52,29 @@ private struct CapturingFactory: LLMProviderFactory {
     }
 }
 
+/// 抛错工厂：make() 同步抛出一个 provider 错误
+/// 用于验证 ToolExecutor 不会吞掉工厂层抛出的错误
+private struct ThrowingFactory: LLMProviderFactory {
+    func make(for provider: Provider, apiKey: String) throws -> any LLMProvider {
+        throw SliceError.provider(.serverError(500))
+    }
+}
+
+/// 抛错型 Provider：stream() 在返回 AsyncThrowingStream 之前就抛错
+/// 用于验证调用方能收到与底层一致的 SliceError
+private struct ThrowingStreamProvider: LLMProvider {
+    func stream(request: ChatRequest) async throws -> AsyncThrowingStream<ChatChunk, any Error> {
+        throw SliceError.provider(.networkTimeout)
+    }
+}
+
+/// 工厂：返回上面那个会直接抛错的 Provider
+private struct ThrowingStreamFactory: LLMProviderFactory {
+    func make(for provider: Provider, apiKey: String) throws -> any LLMProvider {
+        ThrowingStreamProvider()
+    }
+}
+
 final class ToolExecutorTests: XCTestCase {
 
     /// 验证 execute 正常渲染 prompt 并正确转发流式 chunk
@@ -107,6 +130,46 @@ final class ToolExecutorTests: XCTestCase {
         let stream = try await exec.execute(tool: DefaultConfiguration.translate, payload: payload)
         for try await _ in stream {}
         XCTAssertEqual(factory.box.capturedKey, "sk-captured")
+    }
+
+    /// 验证 LLMProviderFactory.make 抛错时，ToolExecutor 原样向上传播
+    /// 覆盖 Task 14 review 指出的未测路径：工厂构造失败
+    func test_execute_factoryThrows_propagatesError() async {
+        let exec = ToolExecutor(
+            configurationProvider: FakeConfig(DefaultConfiguration.initial()),
+            providerFactory: ThrowingFactory(),
+            keychain: FakeKeychain(["openai-official": "sk-anything"])
+        )
+        let payload = SelectionPayload(text: "x", appBundleID: "", appName: "", url: nil,
+                                       screenPoint: .zero, source: .accessibility, timestamp: Date())
+        do {
+            _ = try await exec.execute(tool: DefaultConfiguration.translate, payload: payload)
+            XCTFail("should have thrown factory error")
+        } catch SliceError.provider(.serverError(let code)) {
+            XCTAssertEqual(code, 500)
+        } catch {
+            XCTFail("unexpected error: \(error)")
+        }
+    }
+
+    /// 验证 LLMProvider.stream 同步抛错时，ToolExecutor 原样向上传播
+    /// 覆盖 Task 14 review 指出的未测路径：底层流在启动阶段抛错
+    func test_execute_streamThrows_propagatesError() async {
+        let exec = ToolExecutor(
+            configurationProvider: FakeConfig(DefaultConfiguration.initial()),
+            providerFactory: ThrowingStreamFactory(),
+            keychain: FakeKeychain(["openai-official": "sk-anything"])
+        )
+        let payload = SelectionPayload(text: "x", appBundleID: "", appName: "", url: nil,
+                                       screenPoint: .zero, source: .accessibility, timestamp: Date())
+        do {
+            _ = try await exec.execute(tool: DefaultConfiguration.translate, payload: payload)
+            XCTFail("should have thrown stream error")
+        } catch SliceError.provider(.networkTimeout) {
+            // OK
+        } catch {
+            XCTFail("unexpected error: \(error)")
+        }
     }
 
     /// 验证当 Tool.providerId 在 Configuration.providers 中找不到时抛配置错误
