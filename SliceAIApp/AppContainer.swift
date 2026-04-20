@@ -1,0 +1,95 @@
+// SliceAIApp/AppContainer.swift
+import Foundation
+import AppKit
+import SliceCore
+import LLMProviders
+import SelectionCapture
+import HotkeyManager
+import Windowing
+import Permissions
+import SettingsUI
+
+/// 应用的依赖注入组合根（Composition Root）。
+///
+/// 职责：
+///   - 在应用启动的单点集中创建所有跨模块依赖，避免在业务层四处分散 `init`；
+///   - 对外暴露只读属性，让 `AppDelegate` 在整个生命周期内持有并读取；
+///   - 通过显式依赖注入，使 Swift 6 严格并发下的 `Sendable` 边界清晰可控。
+///
+/// 线程模型：`@MainActor` 限定，保证所有 UI 面板 / 监视器的创建都发生在主线程。
+/// 生命周期：由 `AppDelegate` 在构造函数中实例化一次，随进程存活。
+@MainActor
+final class AppContainer {
+
+    /// 配置文件读写 actor；路径固定为 `~/Library/Application Support/SliceAI/config.json`
+    let configStore: FileConfigurationStore
+    /// macOS Keychain 读写结构体；按 providerId 查 API Key
+    let keychain: KeychainStore
+    /// 选中文字捕获协调器；AX 为主、Clipboard 为备
+    let selectionService: SelectionService
+    /// 全局快捷键注册器（Carbon）
+    let hotkeyRegistrar: HotkeyRegistrar
+    /// 工具执行中枢；渲染 prompt、拉取 key、转发 LLM 流
+    let toolExecutor: ToolExecutor
+    /// 划词浮条面板（A 模式）
+    let floatingToolbar: FloatingToolbarPanel
+    /// 命令面板（⌥Space 调出）
+    let commandPalette: CommandPalettePanel
+    /// 流式结果面板
+    let resultPanel: ResultPanel
+    /// 辅助功能权限轮询监视器
+    let accessibilityMonitor: AccessibilityMonitor
+    /// 设置界面视图模型
+    let settingsViewModel: SettingsViewModel
+
+    /// 组合根构造：所有依赖都在此处装配完毕，外部不再修改
+    init() {
+        // 1. 基础设施层：配置存储 + Keychain
+        configStore = FileConfigurationStore(fileURL: FileConfigurationStore.standardFileURL())
+        keychain = KeychainStore()
+
+        // 2. 选中文字捕获服务：AX 主路径 + 剪贴板备用路径
+        //    focusProvider 被声明为 @Sendable，但内部访问的 NSWorkspace / NSEvent API
+        //    在 macOS SDK 中为 MainActor 隔离。此服务在 AppDelegate 中始终从 MainActor
+        //    调用，因此使用 MainActor.assumeIsolated 显式断言以通过严格并发检查。
+        selectionService = SelectionService(
+            primary: AXSelectionSource(),
+            fallback: ClipboardSelectionSource(
+                pasteboard: SystemPasteboard(),
+                copyInvoker: SystemCopyKeystrokeInvoker(),
+                focusProvider: {
+                    MainActor.assumeIsolated {
+                        guard let app = NSWorkspace.shared.frontmostApplication else {
+                            return nil
+                        }
+                        return FocusInfo(
+                            bundleID: app.bundleIdentifier ?? "",
+                            appName: app.localizedName ?? "",
+                            url: nil,
+                            screenPoint: NSEvent.mouseLocation
+                        )
+                    }
+                }
+            )
+        )
+
+        // 3. 全局快捷键注册器：由 AppDelegate 在运行时按配置注册
+        hotkeyRegistrar = HotkeyRegistrar()
+
+        // 4. 工具执行中枢：注入 configStore（读工具/供应商）+ providerFactory + keychain
+        toolExecutor = ToolExecutor(
+            configurationProvider: configStore,
+            providerFactory: OpenAIProviderFactory(),
+            keychain: keychain
+        )
+
+        // 5. 展示层：三类面板
+        floatingToolbar = FloatingToolbarPanel()
+        commandPalette = CommandPalettePanel()
+        resultPanel = ResultPanel()
+
+        // 6. 权限与设置
+        accessibilityMonitor = AccessibilityMonitor()
+        settingsViewModel = SettingsViewModel(store: configStore, keychain: keychain)
+    }
+}
