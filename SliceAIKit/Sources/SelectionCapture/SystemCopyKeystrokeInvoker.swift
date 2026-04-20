@@ -1,4 +1,3 @@
-import AppKit
 import CoreGraphics
 
 /// 通过 CGEvent 模拟按下 ⌘C 的生产实现
@@ -6,6 +5,12 @@ import CoreGraphics
 /// 需要 App 获得 Accessibility（辅助功能）权限，否则 `post(tap:)` 会被系统静默吞掉，
 /// 前台 App 无法收到按键事件；调用方在调用前应自行完成权限检测与引导。
 public struct SystemCopyKeystrokeInvoker: CopyKeystrokeInvoking {
+
+    /// ⌘C 合成过程中可能抛出的错误类型
+    public enum CopyKeystrokeError: Error, Sendable {
+        /// CGEvent 构造失败（通常由系统资源暂时耗尽引发）
+        case eventCreationFailed
+    }
 
     /// 默认构造器；本类型无状态，创建开销可以忽略
     public init() {}
@@ -18,15 +23,19 @@ public struct SystemCopyKeystrokeInvoker: CopyKeystrokeInvoking {
     /// 3. keyDown 与 keyUp 都需要带 `.maskCommand`，否则目标 App 只会收到普通 "c"；
     /// 4. `post(tap: .cghidEventTap)` 投递至系统最底层的 HID tap，对绝大多数前台 App 有效。
     public func sendCopy() async throws {
-        // 尝试创建事件源；极少数情况下系统可能返回 nil，此时降级为 nil 源（仍可工作）
+        // 尝试创建事件源；极少数情况下系统可能返回 nil，文档声明此时会回退到默认源，无需抛错
         let source = CGEventSource(stateID: .hidSystemState)
 
-        // 显式解包：若事件创建失败（通常意味着系统资源异常），直接返回而不崩溃
+        // 显式解包：若事件创建失败（通常意味着系统资源暂时耗尽），抛出类型化错误而非静默吞掉
         guard
-            let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 8, keyDown: true),
+            let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 8, keyDown: true)
+        else {
+            throw CopyKeystrokeError.eventCreationFailed
+        }
+        guard
             let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 8, keyDown: false)
         else {
-            return
+            throw CopyKeystrokeError.eventCreationFailed
         }
 
         // 为两个事件都打上 Command 修饰键标志，组合成 ⌘C
