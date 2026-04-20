@@ -17,6 +17,7 @@ public struct SelectionReadResult: Sendable, Equatable {
     public let screenPoint: CGPoint
     public let source: SelectionPayload.Source
 
+    /// 构造一次选中文字的读取结果，包含捕获到的文本以及调用方应用的元数据
     public init(
         text: String,
         appBundleID: String,

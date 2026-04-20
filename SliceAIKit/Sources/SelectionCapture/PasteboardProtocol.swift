@@ -25,8 +25,11 @@ public protocol PasteboardProtocol: Sendable {
 
 /// 系统 NSPasteboard 的默认适配
 ///
-/// `NSPasteboard` 本身未声明 `Sendable`，但 `NSPasteboard.general` 是进程级单例，
-/// 实际调用均为主线程安全的读写，故以 `@unchecked Sendable` 标注，遵循封装 Apple 单例时的常见做法
+/// 此类型包装 `NSPasteboard`，而 AppKit 并未将 `NSPasteboard` 标注为 `Sendable`。
+/// 这里使用 `@unchecked Sendable` 是可接受的：所有调用都是短暂的同步读写，
+/// 且常见用法是 `.general`（进程级单例）。若调用方注入命名或自定义 pasteboard
+/// （如拖拽专用 pasteboard），其线程安全由调用方自行保证。
+/// 需要在不同隔离域间共享非单例 pasteboard 的调用方，必须自行确保访问串行化。
 public struct SystemPasteboard: @unchecked Sendable, PasteboardProtocol {
     private let pb: NSPasteboard
 
