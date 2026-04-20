@@ -1,0 +1,26 @@
+## Superpowers / 本地工作目录
+.superpowers/
+
+## macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+## Xcode（未来生成时保留）
+build/
+DerivedData/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+
+## Swift / SPM
+.build/
+.swiftpm/
+Package.resolved
+
+## 配置与密钥（开发期）
+config.local.json
+.env
+*.key
