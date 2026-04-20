@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/<owner>/SliceAI/blob/main/config.schema.json",
+  "title": "SliceAI Configuration",
+  "type": "object",
+  "required": ["schemaVersion", "providers", "tools", "hotkeys", "triggers", "telemetry", "appBlocklist"],
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "providers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "baseURL", "apiKeyRef", "defaultModel"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "baseURL": { "type": "string", "format": "uri" },
+          "apiKeyRef": { "type": "string", "pattern": "^keychain:" },
+          "defaultModel": { "type": "string" }
+        }
+      }
+    },
+    "tools": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "icon", "userPrompt", "providerId", "displayMode", "variables"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "icon": { "type": "string" },
+          "description": { "type": ["string", "null"] },
+          "systemPrompt": { "type": ["string", "null"] },
+          "userPrompt": { "type": "string" },
+          "providerId": { "type": "string" },
+          "modelId": { "type": ["string", "null"] },
+          "temperature": { "type": ["number", "null"] },
+          "displayMode": { "type": "string", "enum": ["window", "bubble", "replace"] },
+          "variables": {
+            "type": "object",
+            "additionalProperties": { "type": "string" }
+          }
+        }
+      }
+    },
+    "hotkeys": {
+      "type": "object",
+      "required": ["toggleCommandPalette"],
+      "properties": { "toggleCommandPalette": { "type": "string" } }
+    },
+    "triggers": {
+      "type": "object",
+      "required": ["floatingToolbarEnabled", "commandPaletteEnabled", "minimumSelectionLength", "triggerDelayMs"],
+      "properties": {
+        "floatingToolbarEnabled": { "type": "boolean" },
+        "commandPaletteEnabled": { "type": "boolean" },
+        "minimumSelectionLength": { "type": "integer", "minimum": 1 },
+        "triggerDelayMs": { "type": "integer", "minimum": 0, "maximum": 5000 }
+      }
+    },
+    "telemetry": {
+      "type": "object",
+      "required": ["enabled"],
+      "properties": { "enabled": { "type": "boolean" } }
+    },
+    "appBlocklist": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

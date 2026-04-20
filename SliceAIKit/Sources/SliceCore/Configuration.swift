@@ -1,0 +1,96 @@
+import Foundation
+
+/// 整个应用的持久化配置，对应 config.json
+/// 说明：
+///   - `schemaVersion` 为不可变字段（`let`），用于判断迁移策略；
+///   - 其他字段均为 `var`，允许运行期编辑并写回磁盘；
+///   - 所有子类型（HotkeyBindings / TriggerSettings / TelemetrySettings）与
+///     Configuration 强耦合，因此集中放在同一文件中，避免跨文件跳转成本。
+public struct Configuration: Sendable, Codable, Equatable {
+    /// 当前 JSON schema 版本号（仅能解码到此值，升级时需执行迁移）
+    public let schemaVersion: Int
+    /// 已配置的 LLM 供应商列表
+    public var providers: [Provider]
+    /// 已配置的工具（菜单按钮 + prompt 模板）列表
+    public var tools: [Tool]
+    /// 全局快捷键绑定
+    public var hotkeys: HotkeyBindings
+    /// 划词/命令面板等触发相关设置
+    public var triggers: TriggerSettings
+    /// 遥测开关设置
+    public var telemetry: TelemetrySettings
+    /// 不允许触发划词的应用 bundle id 列表
+    public var appBlocklist: [String]
+
+    /// 构造应用配置聚合
+    /// - Parameters:
+    ///   - schemaVersion: 当前 schema 版本号，应等于 `Configuration.currentSchemaVersion`
+    ///   - providers: LLM 供应商配置列表
+    ///   - tools: 工具配置列表
+    ///   - hotkeys: 快捷键绑定
+    ///   - triggers: 触发行为设置
+    ///   - telemetry: 遥测开关
+    ///   - appBlocklist: 不允许触发的应用 bundle id 列表
+    public init(schemaVersion: Int, providers: [Provider], tools: [Tool],
+                hotkeys: HotkeyBindings, triggers: TriggerSettings,
+                telemetry: TelemetrySettings, appBlocklist: [String]) {
+        self.schemaVersion = schemaVersion
+        self.providers = providers
+        self.tools = tools
+        self.hotkeys = hotkeys
+        self.triggers = triggers
+        self.telemetry = telemetry
+        self.appBlocklist = appBlocklist
+    }
+
+    /// 当前代码支持的 schema 版本号，写入新配置时使用
+    public static let currentSchemaVersion = 1
+}
+
+/// 快捷键绑定
+public struct HotkeyBindings: Sendable, Codable, Equatable {
+    /// 切换命令面板的全局热键（如 "option+space"）
+    public var toggleCommandPalette: String
+
+    /// 构造快捷键绑定
+    /// - Parameter toggleCommandPalette: 命令面板快捷键的字符串描述
+    public init(toggleCommandPalette: String) {
+        self.toggleCommandPalette = toggleCommandPalette
+    }
+}
+
+/// 触发行为设置
+public struct TriggerSettings: Sendable, Codable, Equatable {
+    /// 是否启用划词后的浮动工具栏
+    public var floatingToolbarEnabled: Bool
+    /// 是否启用命令面板
+    public var commandPaletteEnabled: Bool
+    /// 小于此长度的选区不触发浮条
+    public var minimumSelectionLength: Int
+    /// mouseUp 后做 debounce 的毫秒数
+    public var triggerDelayMs: Int
+
+    /// 构造触发行为设置
+    /// - Parameters:
+    ///   - floatingToolbarEnabled: 是否启用浮动工具栏
+    ///   - commandPaletteEnabled: 是否启用命令面板
+    ///   - minimumSelectionLength: 最小触发选区长度
+    ///   - triggerDelayMs: mouseUp 后的 debounce 毫秒
+    public init(floatingToolbarEnabled: Bool, commandPaletteEnabled: Bool,
+                minimumSelectionLength: Int, triggerDelayMs: Int) {
+        self.floatingToolbarEnabled = floatingToolbarEnabled
+        self.commandPaletteEnabled = commandPaletteEnabled
+        self.minimumSelectionLength = minimumSelectionLength
+        self.triggerDelayMs = triggerDelayMs
+    }
+}
+
+/// 遥测设置，MVP v0.1 只有开关
+public struct TelemetrySettings: Sendable, Codable, Equatable {
+    /// 是否启用匿名遥测
+    public var enabled: Bool
+
+    /// 构造遥测设置
+    /// - Parameter enabled: 是否启用遥测
+    public init(enabled: Bool) { self.enabled = enabled }
+}
