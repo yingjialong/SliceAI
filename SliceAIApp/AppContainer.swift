@@ -49,26 +49,25 @@ final class AppContainer {
         keychain = KeychainStore()
 
         // 2. 选中文字捕获服务：AX 主路径 + 剪贴板备用路径
-        //    focusProvider 被声明为 @Sendable，但内部访问的 NSWorkspace / NSEvent API
-        //    在 macOS SDK 中为 MainActor 隔离。此服务在 AppDelegate 中始终从 MainActor
-        //    调用，因此使用 MainActor.assumeIsolated 显式断言以通过严格并发检查。
+        //    focusProvider 声明为 `@MainActor @Sendable`，与闭包内访问的
+        //    NSWorkspace / NSEvent 等 MainActor 隔离 API 保持一致。调用方
+        //    （ClipboardSelectionSource.readSelection）通过 `await` 主动跳到主线程，
+        //    从根本上避免在非 actor 隔离的 async 上下文里误用 assumeIsolated 造成运行时陷阱。
         selectionService = SelectionService(
             primary: AXSelectionSource(),
             fallback: ClipboardSelectionSource(
                 pasteboard: SystemPasteboard(),
                 copyInvoker: SystemCopyKeystrokeInvoker(),
-                focusProvider: {
-                    MainActor.assumeIsolated {
-                        guard let app = NSWorkspace.shared.frontmostApplication else {
-                            return nil
-                        }
-                        return FocusInfo(
-                            bundleID: app.bundleIdentifier ?? "",
-                            appName: app.localizedName ?? "",
-                            url: nil,
-                            screenPoint: NSEvent.mouseLocation
-                        )
+                focusProvider: { @MainActor in
+                    guard let app = NSWorkspace.shared.frontmostApplication else {
+                        return nil
                     }
+                    return FocusInfo(
+                        bundleID: app.bundleIdentifier ?? "",
+                        appName: app.localizedName ?? "",
+                        url: nil,
+                        screenPoint: NSEvent.mouseLocation
+                    )
                 }
             )
         )
