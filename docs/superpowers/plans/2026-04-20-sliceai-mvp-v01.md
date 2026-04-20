@@ -99,7 +99,7 @@ SliceAI/
 ## Milestones
 
 - ✅ **M1 — Project green (end of Phase 0)** — reached at `30f8068` (2026-04-20). SPM builds clean, CI defined, README/LICENSE in place.
-- ✅ **M2 — Testable core (end of Phase 2)** — reached at `efd31b6` (2026-04-20). 53 tests passing, CI green on `main`, `OpenAICompatibleProvider.stream()` ready for live use.
+- ✅ **M2 — Testable core (end of Phase 2)** — reached at `efd31b6` (2026-04-20); hardened at `b1ac4c3` after user P1/P2 review. **56 tests** passing, CI green on `main`, `OpenAICompatibleProvider.stream()` surfaces SSE parse errors and retries 429 once (spec §7.2).
 - ⏳ **M3 — Input stack (end of Phase 4)**: Selection capture + hotkeys have unit tests + manual smoke verification
 - ⏳ **M4 — UI stack (end of Phase 7)**: All three NSPanels render; Settings GUI works with sample config
 - ⏳ **M5 — Integrated app (end of Phase 8)**: Full app runs end-to-end: select text → toolbar → click tool → LLM streams result
@@ -135,6 +135,7 @@ SliceAI/
 | 2 | 18 OpenAICompatibleProvider + MockURLProtocol | `6326610` | **Plan deviation (validated)**: `URLSession.AsyncBytes.lines` strips blank lines → breaks SSE; switched to byte-by-byte reading |
 | 2 | 19 OpenAIProviderFactory | `efd31b6` | |
 | — | CI lint fix (post-Task 15) | `35c3a2c` | Sorted imports + line length in `DefaultConfiguration.swift` / `SelectionPayload.swift` |
+| 2 | 16–18 user-review fix | `b1ac4c3` | **P1**: `decodeChunk` now throws `.sseParseError` on JSON failure / error payload / truncated data (was silently dropped); **P2**: 429 now retries once with backoff (`min(Retry-After, 5s)`) per spec §7.2; 3 tests added (`retriesOnce_thenFailsIfStillRateLimited`, `retriesOnce_thenSucceeds`, `malformedJSONInData_throwsSSEParseError`, `serverErrorPayloadInData_throwsSSEParseError`); 1 removed; +2 fixtures |
 
 ### Issues resolved during implementation
 
@@ -152,6 +153,8 @@ SliceAI/
 |---|---|---|---|
 | 1 | `PromptTemplate.swift` | Regex accepted only ASCII identifiers; config allowed any key → `{{语言}}` silently passed through | `97c4f61` |
 | 2 | `ToolExecutor.swift` | Keychain lookup used `provider.id` ignoring `Provider.apiKeyRef` → silent `.unauthorized` on provider rename or shared-key setups | `eded952` |
+| 3 | `OpenAICompatibleProvider.swift` | **P1**: `decodeChunk` silently returned `nil` on JSON decode failures — malformed chunks, error payloads, truncated frames → user saw "empty success" instead of error. Now throws `.sseParseError(<safe summary>)` | `b1ac4c3` |
+| 4 | `OpenAICompatibleProvider.swift` | **P2**: 429 thrown on first hit instead of retrying once per spec §7.2. Now auto-retries with `min(Retry-After, 5s)` backoff; final error carries second response's hint | `b1ac4c3` |
 
 **CI-surfaced (SwiftLint `--strict` only, not local):**
 
@@ -1823,7 +1826,7 @@ git add -A && git commit -m "chore: remove SliceCoreTests marker" || true
 
 ## Phase 2 — LLMProviders
 
-> ✅ **Completed** — Tasks 16–19 + 1 review fix + 2 CI fixes. Commits `734d3c5` → `efd31b6` (with `8c006df`, `c8887b7`, `35c3a2c`). 53 tests, CI green on `main`.
+> ✅ **Completed** — Tasks 16–19 + 1 review fix + 2 CI fixes + 1 user-review fix (P1+P2). Commits `734d3c5` → `b1ac4c3` (with `8c006df`, `c8887b7`, `35c3a2c`, `b1ac4c3`). **56 tests**, CI green on `main`.
 
 ### Task 16: SSE Decoder
 
