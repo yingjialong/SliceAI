@@ -1,0 +1,54 @@
+name: Release
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 26
+        run: sudo xcode-select -s /Applications/Xcode_26.app
+
+      - name: Extract version
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build DMG
+        run: scripts/build-dmg.sh "${{ steps.ver.outputs.version }}"
+
+      - name: Compute SHA256
+        id: sha
+        run: |
+          sha=$(shasum -a 256 "build/SliceAI-${{ steps.ver.outputs.version }}.dmg" | awk '{print $1}')
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SliceAI-${{ steps.ver.outputs.version }}.dmg
+          path: build/SliceAI-${{ steps.ver.outputs.version }}.dmg
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/SliceAI-${{ steps.ver.outputs.version }}.dmg
+          draft: true
+          generate_release_notes: true
+          body: |
+            ## SliceAI ${{ steps.ver.outputs.version }}
+
+            **Unsigned DMG.** Installation steps:
+            1. Mount the DMG and drag `SliceAI.app` to `/Applications`
+            2. First launch: Right-click -> Open (because unsigned)
+               Or run: `xattr -d com.apple.quarantine /Applications/SliceAI.app`
+            3. Grant Accessibility permission when prompted
+            4. Enter your OpenAI API key (or any OpenAI-compatible base URL + key)
+
+            ### Checksum
+            SHA256: `${{ steps.sha.outputs.sha }}`
