@@ -238,7 +238,7 @@ public final class ResultPanel {
         panel.isOpaque = false
         // resize 范围约束：避免拖到完全不可用 / 撑满屏幕
         panel.minSize = NSSize(width: 320, height: 200)
-        panel.maxSize = NSSize(width: 1200, height: 800)
+        panel.maxSize = NSSize(width: 720, height: 520)
         // 关闭按钮走 orderOut，不释放窗口实例，下次 open 继续复用
         panel.isReleasedWhenClosed = false
 
