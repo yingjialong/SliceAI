@@ -64,7 +64,7 @@ public struct Configuration: Sendable, Codable, Equatable {
     ///
     /// 旧版 config.json 中不含 appearance 字段，解码时默认回落到 `.auto`，
     /// 避免因缺字段导致 DecodingError。
-    public init(from decoder: Decoder) throws {
+    public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         // 必选字段 — 旧版 JSON 不允许缺失
         schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
