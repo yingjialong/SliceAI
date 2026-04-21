@@ -137,6 +137,8 @@ private struct PaletteContent: View {
                 .font(SliceFont.headline)
                 .foregroundColor(SliceColor.textPrimary)
                 .kerning(SliceKerning.snug)
+                // query 变化时重置高亮索引，避免旧索引超出新 filtered 范围导致回车静默失效
+                .onChange(of: query) { _, _ in selection = 0 }
             }
             .padding(.horizontal, SliceSpacing.xxl)
             .padding(.vertical, SliceSpacing.lg)
@@ -151,9 +153,11 @@ private struct PaletteContent: View {
                             .contentShape(Rectangle())
                             .onTapGesture { onPick(tool) }
                     }
-                    // 空状态：query 不为空但无匹配时展示引导文案
+                    // 空状态：区分"未配置工具"与"搜索无匹配"两种情况，避免文案误导
                     if filtered.isEmpty {
-                        Text("没有匹配的工具")
+                        Text(query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            ? "尚未配置任何工具"
+                            : "没有匹配的工具")
                             .font(SliceFont.callout)
                             .foregroundColor(SliceColor.textTertiary)
                             .frame(maxWidth: .infinity, alignment: .center)
@@ -212,10 +216,11 @@ private struct PaletteContent: View {
         .clipShape(RoundedRectangle(cornerRadius: SliceRadius.sheet))
     }
 
-    /// 基于 query 进行大小写不敏感的名称 / 描述模糊筛选；query 为空则返回全部
+    /// 基于 query 进行大小写不敏感的名称 / 描述模糊筛选；query 为空或纯空白则返回全部
     private var filtered: [Tool] {
-        guard !query.isEmpty else { return tools }
-        let trimmedQuery = query.lowercased()
+        // 先 trim 再判空：避免用户输入空格时被视为有效查询
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !trimmedQuery.isEmpty else { return tools }
         return tools.filter {
             $0.name.lowercased().contains(trimmedQuery)
                 || ($0.description?.lowercased().contains(trimmedQuery) ?? false)
