@@ -1,9 +1,12 @@
 import XCTest
-@testable import DesignSystem
+@testable import SliceCore
 
-/// AppearanceMode enum 单元测试
+/// AppearanceMode 纯数据模型测试（rawValue / Codable / CaseIterable）
+///
+/// UI 语义（displayName / nsAppearance）的测试在 DesignSystemTests/AppearanceModeUITests.swift
 final class AppearanceModeTests: XCTestCase {
-    /// rawValue 与字符串映射
+
+    /// rawValue 与字符串映射验证
     func test_rawValue_mapping() {
         XCTAssertEqual(AppearanceMode.auto.rawValue, "auto")
         XCTAssertEqual(AppearanceMode.light.rawValue, "light")
@@ -24,7 +27,7 @@ final class AppearanceModeTests: XCTestCase {
         XCTAssertEqual(mode, .light)
     }
 
-    /// allCases 完整性
+    /// allCases 完整性：确保三个值都存在
     func test_allCases_completeness() {
         XCTAssertEqual(Set(AppearanceMode.allCases), Set([.auto, .light, .dark]))
     }

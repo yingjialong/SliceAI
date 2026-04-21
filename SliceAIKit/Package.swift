@@ -28,7 +28,7 @@ let package = Package(
         .target(name: "SelectionCapture", dependencies: ["SliceCore"], swiftSettings: swiftSettings),
         .target(name: "HotkeyManager", dependencies: ["SliceCore"], swiftSettings: swiftSettings),
         .target(name: "DesignSystem",
-                dependencies: [],
+                dependencies: ["SliceCore"],
                 exclude: ["README.md"],
                 resources: [.process("Colors/Resources/Assets.xcassets")],
                 swiftSettings: swiftSettings),
@@ -52,7 +52,7 @@ let package = Package(
                     dependencies: ["Windowing", "SliceCore"],
                     swiftSettings: swiftSettings),
         .testTarget(name: "DesignSystemTests",
-                    dependencies: ["DesignSystem"],
+                    dependencies: ["DesignSystem", "SliceCore"],
                     swiftSettings: swiftSettings),
     ]
 )

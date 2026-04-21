@@ -21,6 +21,20 @@ public struct Configuration: Sendable, Codable, Equatable {
     public var telemetry: TelemetrySettings
     /// 不允许触发划词的应用 bundle id 列表
     public var appBlocklist: [String]
+    /// 应用主题模式（跟随系统 / 浅色 / 深色）；旧版 JSON 缺失时默认 `.auto`
+    public var appearance: AppearanceMode
+
+    /// JSON 字段名映射，集中管理所有 key，避免拼写错误
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case providers
+        case tools
+        case hotkeys
+        case triggers
+        case telemetry
+        case appBlocklist
+        case appearance
+    }
 
     /// 构造应用配置聚合
     /// - Parameters:
@@ -31,9 +45,11 @@ public struct Configuration: Sendable, Codable, Equatable {
     ///   - triggers: 触发行为设置
     ///   - telemetry: 遥测开关
     ///   - appBlocklist: 不允许触发的应用 bundle id 列表
+    ///   - appearance: 主题模式，默认 `.auto`（跟随系统）
     public init(schemaVersion: Int, providers: [Provider], tools: [Tool],
                 hotkeys: HotkeyBindings, triggers: TriggerSettings,
-                telemetry: TelemetrySettings, appBlocklist: [String]) {
+                telemetry: TelemetrySettings, appBlocklist: [String],
+                appearance: AppearanceMode = .auto) {
         self.schemaVersion = schemaVersion
         self.providers = providers
         self.tools = tools
@@ -41,6 +57,25 @@ public struct Configuration: Sendable, Codable, Equatable {
         self.triggers = triggers
         self.telemetry = telemetry
         self.appBlocklist = appBlocklist
+        self.appearance = appearance
+    }
+
+    /// 自定义解码：`appearance` 使用 `decodeIfPresent` 保证向后兼容
+    ///
+    /// 旧版 config.json 中不含 appearance 字段，解码时默认回落到 `.auto`，
+    /// 避免因缺字段导致 DecodingError。
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        // 必选字段 — 旧版 JSON 不允许缺失
+        schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        providers = try container.decode([Provider].self, forKey: .providers)
+        tools = try container.decode([Tool].self, forKey: .tools)
+        hotkeys = try container.decode(HotkeyBindings.self, forKey: .hotkeys)
+        triggers = try container.decode(TriggerSettings.self, forKey: .triggers)
+        telemetry = try container.decode(TelemetrySettings.self, forKey: .telemetry)
+        appBlocklist = try container.decode([String].self, forKey: .appBlocklist)
+        // 可选字段 — 旧版 JSON 缺失时回落默认值 .auto
+        appearance = try container.decodeIfPresent(AppearanceMode.self, forKey: .appearance) ?? .auto
     }
 
     /// 当前代码支持的 schema 版本号，写入新配置时使用

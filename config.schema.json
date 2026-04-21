@@ -6,6 +6,12 @@
   "required": ["schemaVersion", "providers", "tools", "hotkeys", "triggers", "telemetry", "appBlocklist"],
   "properties": {
     "schemaVersion": { "type": "integer", "const": 1 },
+    "appearance": {
+      "type": "string",
+      "enum": ["auto", "light", "dark"],
+      "default": "auto",
+      "description": "应用主题：跟随系统 / 浅色 / 深色"
+    },
     "providers": {
       "type": "array",
       "items": {

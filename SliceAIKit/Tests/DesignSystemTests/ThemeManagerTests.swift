@@ -1,6 +1,7 @@
 import XCTest
 import SwiftUI
 import AppKit
+import SliceCore
 @testable import DesignSystem
 
 /// ThemeManager 单元测试

@@ -1,5 +1,6 @@
 import AppKit
 import Observation
+import SliceCore
 import SwiftUI
 
 /// 主题管理器（Swift Observation 驱动）
@@ -66,15 +67,9 @@ public final class ThemeManager {
 
     /// 对应的 NSAppearance（用于绑定 NSWindow.appearance）。
     ///
-    /// `.auto` 返回 nil，让 window 自动跟随系统（`NSWindow.appearance = nil`）；
-    /// `.light` 返回 `.aqua`；`.dark` 返回 `.darkAqua`。
-    public var nsAppearance: NSAppearance? {
-        switch mode {
-        case .light: return NSAppearance(named: .aqua)
-        case .dark:  return NSAppearance(named: .darkAqua)
-        case .auto:  return nil
-        }
-    }
+    /// 委托给 `AppearanceMode` 在 DesignSystem 中的 UI 扩展计算，
+    /// 统一映射逻辑，避免重复实现。
+    public var nsAppearance: NSAppearance? { mode.nsAppearance }
 
     /// 将当前主题应用到指定 NSWindow。
     ///
