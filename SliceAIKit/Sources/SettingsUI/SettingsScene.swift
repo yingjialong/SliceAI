@@ -1,6 +1,6 @@
 // SliceAIKit/Sources/SettingsUI/SettingsScene.swift
-import SwiftUI
 import SliceCore
+import SwiftUI
 
 /// 设置主界面：Tools / Providers / Hotkeys / Triggers 四个标签页
 ///
@@ -21,6 +21,18 @@ public struct SettingsScene: View {
 
     /// 底部保存栏当前展示的状态消息（成功 / 失败 / nil 表示无消息）
     @State private var saveMessage: SaveMessage?
+
+    /// 当前选中的标签页；`tabToolbar` 按该值切换增删按钮组
+    @State private var selectedTab: SettingsTab = .tools
+
+    /// SettingsScene 的标签页标识
+    ///
+    /// 抽出枚举是为了让 TabView 的 `selection` 绑定类型安全，并让外层
+    /// `tabToolbar` 能基于当前 tab 分支展示 plus / minus 按钮——SwiftUI 不会
+    /// 按当前 tab 隔离 `.toolbar { ... }` 内容，必须手动切换。
+    private enum SettingsTab: Hashable {
+        case tools, providers, hotkeys, triggers
+    }
 
     /// 底部保存栏展示的消息载体
     ///
@@ -43,12 +55,24 @@ public struct SettingsScene: View {
         // 外层 VStack 让 TabView 和底部保存栏共存；TabView 自己占据剩余空间，
         // Divider + saveBar 固定在窗口底部，所有标签页共用。
         VStack(spacing: 0) {
-            TabView {
-                toolsTab.tabItem { Label("Tools", systemImage: "hammer") }
-                providersTab.tabItem { Label("Providers", systemImage: "network") }
-                hotkeyTab.tabItem { Label("Hotkeys", systemImage: "keyboard") }
-                triggersTab.tabItem { Label("Triggers", systemImage: "cursorarrow.click") }
+            TabView(selection: $selectedTab) {
+                toolsTab
+                    .tabItem { Label("Tools", systemImage: "hammer") }
+                    .tag(SettingsTab.tools)
+                providersTab
+                    .tabItem { Label("Providers", systemImage: "network") }
+                    .tag(SettingsTab.providers)
+                hotkeyTab
+                    .tabItem { Label("Hotkeys", systemImage: "keyboard") }
+                    .tag(SettingsTab.hotkeys)
+                triggersTab
+                    .tabItem { Label("Triggers", systemImage: "cursorarrow.click") }
+                    .tag(SettingsTab.triggers)
             }
+            // 注意：`.toolbar` 必须放在 TabView 外层。若放在每个 tab 内部，
+            // SwiftUI 会把所有 tab 的 toolbar items 一起挂到窗口顶部，而不是
+            // 按当前 tab 切换。详见 `tabToolbar` 注释。
+            .toolbar { tabToolbar }
             Divider()
             saveBar
         }
@@ -58,16 +82,21 @@ public struct SettingsScene: View {
 
     // MARK: - Tabs
 
-    /// Tools 标签页：左侧列表 + 右侧编辑表单，顶部工具栏负责新增 / 保存
+    /// Tools 标签页：左侧列表 + 右侧编辑表单
+    ///
+    /// 工具栏由 `tabToolbar` 在 TabView 外层统一提供，此处不再附加 `.toolbar`，
+    /// 否则会和 Providers tab 的 toolbar items 一起挂到窗口顶部。
     private var toolsTab: some View {
         HSplitView {
             toolsList
             toolsDetail
         }
-        .toolbar { toolsToolbar }
     }
 
     /// Tools 列表，支持选择和删除
+    ///
+    /// `maxHeight: .infinity` 是必须的：HSplitView 内的子视图必须显式声明
+    /// 高度撑满，否则会取 List 的内在高度，整个 split view 会塌成一行。
     private var toolsList: some View {
         List(selection: $selectedToolID) {
             ForEach($viewModel.configuration.tools) { $tool in
@@ -81,10 +110,12 @@ public struct SettingsScene: View {
                 viewModel.configuration.tools.remove(atOffsets: offsets)
             }
         }
-        .frame(minWidth: 200)
+        .frame(minWidth: 200, maxHeight: .infinity)
     }
 
     /// Tools 右侧编辑区：根据选中 id 渲染 ToolEditorView 或占位
+    ///
+    /// 两个分支都显式 `maxWidth/maxHeight: .infinity`，理由同 `toolsList` 注释。
     @ViewBuilder
     private var toolsDetail: some View {
         if let id = selectedToolID,
@@ -93,25 +124,63 @@ public struct SettingsScene: View {
                 tool: $viewModel.configuration.tools[idx],
                 providers: viewModel.configuration.providers
             )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             Text("Select a tool")
                 .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
-    /// Tools 顶部工具栏：仅保留新增按钮；保存按钮已移至全局底部保存栏
+    /// TabView 外层共享的动态工具栏：按 `selectedTab` 切换 plus / minus 按钮组
+    ///
+    /// 为什么放在 TabView 外层：SwiftUI 的 `.toolbar { ... }` 在 TabView 内部
+    /// 不会按当前 tab 隔离——每个 tab 内部贡献的 ToolbarItem 都会被一起挂到
+    /// 窗口顶部，导致用户看到 "2 plus + 1 minus"。把 toolbar 提到外层 + 用
+    /// `selectedTab` 分支，才能让加减按钮的作用域跟随当前 tab。Hotkeys /
+    /// Triggers tab 不需要列表增删，落到空分支即可。
     @ToolbarContentBuilder
-    private var toolsToolbar: some ToolbarContent {
-        ToolbarItemGroup {
-            Button {
-                addTool()
-            } label: {
-                Image(systemName: "plus")
+    private var tabToolbar: some ToolbarContent {
+        if selectedTab == .tools {
+            ToolbarItemGroup {
+                Button {
+                    addTool()
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .help("新增 Tool")
+
+                Button {
+                    deleteSelectedTool()
+                } label: {
+                    Image(systemName: "minus")
+                }
+                .disabled(selectedToolID == nil)
+                .help("删除选中的 Tool")
             }
-            .help("新增 Tool")
+        } else if selectedTab == .providers {
+            ToolbarItemGroup {
+                Button {
+                    addProvider()
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .help("新增 Provider")
+
+                Button {
+                    deleteSelectedProvider()
+                } label: {
+                    Image(systemName: "minus")
+                }
+                .disabled(selectedProviderID == nil)
+                .help("删除选中的 Provider")
+            }
         }
     }
+
+    // 列表行选中删除：`deleteSelectedTool` / `deleteSelectedProvider` 移至文件末尾的
+    // `private extension SettingsScene` 中。这样做是为了把 SettingsScene 主体保持
+    // 在 SwiftLint type_body_length 阈值（250 行）以下；扩展中的方法不计入主类型 body。
 
     /// 新增 Tool：默认绑定到第一个 Provider（若存在）并把列表选中切到新条目
     private func addTool() {
@@ -133,47 +202,26 @@ public struct SettingsScene: View {
         selectedToolID = new.id
     }
 
-    /// Providers 标签页：左侧列表 + 右侧编辑表单；顶部工具栏负责新增 / 删除
+    /// Providers 标签页：左侧列表 + 右侧编辑表单
+    ///
+    /// 工具栏由 `tabToolbar` 在 TabView 外层统一提供，理由同 `toolsTab`。
     private var providersTab: some View {
         HSplitView {
             providersList
             providersDetail
         }
-        .toolbar { providersToolbar }
     }
 
     /// Providers 列表，左侧窄栏展示当前所有 Provider 供选择
+    ///
+    /// `maxHeight: .infinity` 必须显式声明，理由同 `toolsList` 注释。
     private var providersList: some View {
         List(selection: $selectedProviderID) {
             ForEach($viewModel.configuration.providers) { $provider in
                 Text(provider.name).tag(provider.id as String?)
             }
         }
-        .frame(minWidth: 200)
-    }
-
-    /// Providers 顶部工具栏：新增按钮 + 删除按钮
-    ///
-    /// 与 Tools 工具栏保持一致的“加号/减号”交互，对应规格 §1.4 关于
-    /// “用户能在 Settings 界面添加新工具 / 新供应商”的要求。
-    @ToolbarContentBuilder
-    private var providersToolbar: some ToolbarContent {
-        ToolbarItemGroup {
-            Button {
-                addProvider()
-            } label: {
-                Image(systemName: "plus")
-            }
-            .help("新增 Provider")
-
-            Button {
-                deleteSelectedProvider()
-            } label: {
-                Image(systemName: "minus")
-            }
-            .disabled(selectedProviderID == nil)
-            .help("删除选中的 Provider")
-        }
+        .frame(minWidth: 200, maxHeight: .infinity)
     }
 
     /// 新增 Provider：使用 UUID 作为 id，默认 `apiKeyRef = keychain:<id>`
@@ -199,20 +247,6 @@ public struct SettingsScene: View {
         selectedProviderID = newId
     }
 
-    /// 删除当前选中 Provider；删除后清空选中态，避免右侧详情指向无效 id
-    ///
-    /// 注意：此处并不主动清理 Keychain 中对应 account 的 API Key；
-    /// 保留密钥槽位是为了让“误删 -> 再新建同 id Provider”的场景依旧可用。
-    /// 如果未来需要彻底清理，可在 ViewModel 层加显式清除方法。
-    private func deleteSelectedProvider() {
-        guard let id = selectedProviderID,
-              let idx = viewModel.configuration.providers.firstIndex(where: { $0.id == id }) else {
-            return
-        }
-        viewModel.configuration.providers.remove(at: idx)
-        selectedProviderID = nil
-    }
-
     /// Providers 右侧编辑区：根据选中 id 渲染 ProviderEditorView 或占位
     ///
     /// 注意：`onSaveKey` / `onLoadKey` 闭包通过值捕获当前 `provider` 快照，
@@ -232,17 +266,32 @@ public struct SettingsScene: View {
             let provider = viewModel.configuration.providers[idx]
             ProviderEditorView(
                 provider: $viewModel.configuration.providers[idx],
+                // onSaveKey 改用 try await（不再吞错），让 ProviderEditorView 能
+                // 在 UI 层显示"保存失败：xxx"
                 onSaveKey: { [vm = viewModel, provider] key in
-                    try? await vm.setAPIKey(key, for: provider)
+                    try await vm.setAPIKey(key, for: provider)
                 },
                 onLoadKey: { [vm = viewModel, provider] in
-                    (try? await vm.readAPIKey(for: provider)) ?? nil
+                    // 显式 do/try/catch：把 readAPIKey 的 throws 折叠成 nil，
+                    // 避免 `(try? ...) ?? nil` 的双层 Optional 写法被 SwiftLint
+                    // 的 redundant_nil_coalescing 误判为冗余且可读性差。
+                    do {
+                        return try await vm.readAPIKey(for: provider)
+                    } catch {
+                        return nil
+                    }
+                },
+                // onTestKey 转发给 SettingsViewModel.testProvider；后者构造
+                // 临时 OpenAICompatibleProvider 发"Say OK."最小请求探测连通性
+                onTestKey: { [vm = viewModel] key, baseURL, model in
+                    try await vm.testProvider(apiKey: key, baseURL: baseURL, model: model)
                 }
             )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             Text("Select a provider")
                 .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -323,6 +372,56 @@ public struct SettingsScene: View {
                 text: "保存失败: \(error.localizedDescription)",
                 isError: true
             )
+        }
+    }
+}
+
+// MARK: - 列表删除辅助
+//
+// 这两个方法被刻意拆到 extension：SwiftLint 的 type_body_length 仅统计主声明
+// body 的非空非注释行数，extension 不计入。把列表行删除逻辑外移可让
+// SettingsScene 主体保持在 250 行阈值之内，同时不影响调用方使用方式
+// （fileprivate 可见性保证 tabToolbar 仍能调用）。
+
+private extension SettingsScene {
+
+    /// 删除当前选中 Tool；删除后自动选中相邻项（剩余非空时），避免右侧切回 "Select a tool"
+    ///
+    /// 与 `deleteSelectedProvider` 对称，供 `tabToolbar` 的 minus 按钮调用。
+    /// `toolsList` 仍保留 `.onDelete` 侧滑删除作为补充入口，两者并存。
+    func deleteSelectedTool() {
+        guard let id = selectedToolID,
+              let idx = viewModel.configuration.tools.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        viewModel.configuration.tools.remove(at: idx)
+        // 删后选相邻：原 idx 仍合法 → 选它（自动指向"原来的下一个"）；
+        // 否则（删的是最后一个）退回到末尾；空表则清 selection。
+        if viewModel.configuration.tools.isEmpty {
+            selectedToolID = nil
+        } else {
+            let nextIdx = min(idx, viewModel.configuration.tools.count - 1)
+            selectedToolID = viewModel.configuration.tools[nextIdx].id
+        }
+    }
+
+    /// 删除当前选中 Provider；删除后自动选中相邻项（剩余非空时）
+    ///
+    /// 注意：此处并不主动清理 Keychain 中对应 account 的 API Key；
+    /// 保留密钥槽位是为了让“误删 → 再新建同 id Provider”的场景依旧可用。
+    /// 如果未来需要彻底清理，可在 ViewModel 层加显式清除方法。
+    func deleteSelectedProvider() {
+        guard let id = selectedProviderID,
+              let idx = viewModel.configuration.providers.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        viewModel.configuration.providers.remove(at: idx)
+        // 删后选相邻：与 deleteSelectedTool 同样的策略
+        if viewModel.configuration.providers.isEmpty {
+            selectedProviderID = nil
+        } else {
+            let nextIdx = min(idx, viewModel.configuration.providers.count - 1)
+            selectedProviderID = viewModel.configuration.providers[nextIdx].id
         }
     }
 }

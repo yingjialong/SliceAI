@@ -1,5 +1,6 @@
 // SliceAIKit/Sources/SettingsUI/SettingsViewModel.swift
 import Foundation
+import LLMProviders
 import SliceCore
 import SwiftUI
 
@@ -88,5 +89,44 @@ public final class SettingsViewModel: ObservableObject {
         // apiKeyRef 非 keychain: 前缀时，UI 无处可读，直接返回 nil 让 UI 回退到空态
         guard let account = provider.keychainAccount else { return nil }
         return try await keychain.readAPIKey(providerId: account)
+    }
+
+    /// 测试 Provider 配置是否可用
+    ///
+    /// 用传入的 `apiKey` / `baseURL` / `model` 临时构造一个 `OpenAICompatibleProvider`
+    /// 并发一条最小 chat 请求（"Say OK." + temperature 0 + max_tokens 5）；
+    /// 拿到首个 chunk 或流自然结束（HTTP 200 + 空 delta）即视为成功。
+    ///
+    /// 不读 Keychain、不修改 Configuration——key/baseURL/model 都来自调用方传入，
+    /// 让 UI 能在用户改完字段还没 Save 时立即测试。
+    ///
+    /// - Parameters:
+    ///   - apiKey: 测试用 API Key（可以是 SecureField 里的 typed 值，也可以是
+    ///     已保存的 Keychain 值）
+    ///   - baseURL: 测试用 baseURL；通常是 `provider.baseURL`
+    ///   - model: 测试用模型 id；通常是 `provider.defaultModel`
+    /// - Throws:
+    ///   - `SliceError.provider(.unauthorized)`：401（API Key 无效）
+    ///   - `SliceError.provider(.serverError(_))`：5xx
+    ///   - `SliceError.provider(.networkTimeout)`：网络超时
+    ///   - `SliceError.provider(.invalidResponse(_))`：响应非预期
+    ///   - 其它由 URLSession / Foundation 抛出的底层错误
+    public func testProvider(apiKey: String, baseURL: URL, model: String) async throws {
+        // 临时构造一个 OpenAICompatibleProvider 用于探测；
+        // 不影响 Configuration 或 ToolExecutor 持有的真实 provider 实例
+        let probe = OpenAICompatibleProvider(baseURL: baseURL, apiKey: apiKey)
+        let request = ChatRequest(
+            model: model,
+            messages: [ChatMessage(role: .user, content: "Say OK.")],
+            temperature: 0,
+            maxTokens: 5
+        )
+        let stream = try await probe.stream(request: request)
+        // 拿到首个 chunk 即视为成功；流直接结束（HTTP 200 + 空 delta）也算成功
+        // 注意：for-await 退出后 AsyncThrowingStream 的 onTermination 会 cancel 内部
+        // URLSession.bytes 任务，避免无谓地继续接收流
+        for try await _ in stream {
+            break
+        }
     }
 }
