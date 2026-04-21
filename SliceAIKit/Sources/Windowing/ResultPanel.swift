@@ -49,7 +49,7 @@ public final class ResultPanel {
     private var outsideClickMonitor: Any?
     /// 当前 dismiss 回调；由 `open(...)` 调用方传入，通常用于 cancel 正在跑的
     /// stream Task。`dismiss()` 内调用一次后置 nil，避免重复 cancel
-    private var onDismiss: (() -> Void)?
+    private var onDismiss: (@MainActor () -> Void)?
     /// 是否钉住；跨 open() 保留，让用户钉过的窗口在新 tool 触发后仍保持钉住
     private var isPinned: Bool = false
 
@@ -69,7 +69,7 @@ public final class ResultPanel {
         toolName: String,
         model: String,
         anchor: CGPoint,
-        onDismiss: (() -> Void)? = nil,
+        onDismiss: (@MainActor () -> Void)? = nil,
         onRegenerate: (@MainActor () -> Void)? = nil
     ) {
         // 缓存 dismiss 回调；下次 open 时会被覆盖（旧 task 应在那之前自然结束）
@@ -108,9 +108,9 @@ public final class ResultPanel {
         viewModel.onRegenerate = onRegenerate
         // 绑定复制回调：读取当前 viewModel.text 复制到系统剪贴板
         viewModel.onCopy = { [weak viewModel] in
-            guard let vm = viewModel else { return }
+            guard let viewModel else { return }
             NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(vm.text, forType: .string)
+            NSPasteboard.general.setString(viewModel.text, forType: .string)
         }
         panel?.makeKeyAndOrderFront(nil)
         // 应用 pin 状态：设置 level + 装/卸 outside-click monitor
@@ -216,8 +216,8 @@ public final class ResultPanel {
     /// - `borderless`：去掉系统 title bar，pin / close 由内容区按钮承载
     /// - `nonactivatingPanel`：弹出时不抢占焦点，不打断用户在前台 App 的工作
     /// - `resizable`：允许从 4 边 / 4 角拖动调整大小（受 minSize / maxSize 约束）
-    /// - `isMovableByWindowBackground`：背景区可拖；按钮区因 NSButton 优先处理
-    ///   click，"按钮可点 / 背景可拖"自然分流
+    /// - `isMovableByWindowBackground`：设为 false；拖动由 header 区的
+    ///   DragAreaHost（NSView.performDrag）接管，只有 header 空白区可拖
     private func makePanel(size: CGSize, origin: CGPoint) -> NSPanel {
         let panel = NSPanel(
             contentRect: NSRect(origin: origin, size: size),
@@ -313,8 +313,8 @@ final class ResultViewModel: ObservableObject {
     }
 
     /// 拼接一段 delta 到现有文本
-    func append(_ s: String) {
-        text += s
+    func append(_ delta: String) {
+        text += delta
     }
 
     /// 标记流结束
