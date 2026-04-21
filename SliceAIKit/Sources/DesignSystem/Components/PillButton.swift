@@ -29,7 +29,6 @@ public struct PillButton: View {
             .background(RoundedRectangle(cornerRadius: SliceRadius.button).fill(background))
         }
         .pressScale()
-        .buttonStyle(.plain)
     }
 
     private var foreground: Color {
