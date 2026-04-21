@@ -281,7 +281,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         container.floatingToolbar.show(
             tools: cfg.tools,
             anchor: payload.screenPoint,
-            maxTools: cfg.triggers.floatingToolbarMaxTools
+            maxTools: cfg.triggers.floatingToolbarMaxTools,
+            size: cfg.triggers.floatingToolbarSize
         ) { [weak self] tool in
             self?.execute(tool: tool, payload: payload)
         }

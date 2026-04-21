@@ -123,13 +123,27 @@ public struct TriggerSettingsPage: View {
 
     // MARK: - 浮动工具栏展示卡片
 
-    /// 控制划词浮条每次最多显示多少个工具位（含"更多"按钮），超出部分折叠到溢出菜单
+    /// 控制划词浮条外观：尺寸档位 + 每次最多显示多少个工具位（超出折叠到更多菜单）
     private var floatingToolbarCard: some View {
         SectionCard("浮动工具栏") {
+            // 尺寸档位：紧凑（22pt）/ 标准（30pt）
+            SettingsRow("尺寸") {
+                Picker("", selection: $viewModel.configuration.triggers.floatingToolbarSize) {
+                    Text("紧凑").tag(ToolbarSize.compact)
+                    Text("标准").tag(ToolbarSize.regular)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(maxWidth: 160)
+                .onChange(of: viewModel.configuration.triggers.floatingToolbarSize) { _, _ in
+                    Task { await viewModel.saveTriggers() }
+                }
+            }
+
             // 最多显示工具数：2–20；超出的工具会折叠到"更多"按钮里
             SettingsRow("最多显示") {
                 HStack(spacing: SliceSpacing.base) {
-                    // 当前值展示：2 个工具位时会显示"2 个（含更多）"提示
+                    // 当前值展示
                     Text("\(viewModel.configuration.triggers.floatingToolbarMaxTools) 个")
                         .font(SliceFont.subheadline)
                         .foregroundColor(SliceColor.textSecondary)
@@ -149,7 +163,7 @@ public struct TriggerSettingsPage: View {
 
             // 说明行：解释"更多"按钮行为
             HStack {
-                Text("工具总数超过此值时，最后一位会变成「⋯ 更多」按钮，点击展开剩余工具。工具在浮条中的顺序与「Tools」页的排序一致，可在那里调整优先级。")
+                Text("工具总数超过此值时，最后一位会变成「⋯ 更多」按钮，点击展开剩余工具。工具在浮条中的顺序与「Tools」页的排序一致，可在那里拖拽调整。")
                     .font(SliceFont.caption)
                     .foregroundColor(SliceColor.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)

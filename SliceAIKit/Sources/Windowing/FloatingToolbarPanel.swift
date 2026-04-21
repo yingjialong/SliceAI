@@ -40,22 +40,26 @@ public final class FloatingToolbarPanel {
     ///   - tools: 要展示的工具列表（按顺序从左至右，超出 `maxTools` 的折叠到"更多"菜单）
     ///   - anchor: 选区中心（屏幕坐标，左下原点）
     ///   - maxTools: 工具栏最多显示多少个位置（含溢出位的"更多"按钮），下限 2 上限 20
+    ///   - size: 工具栏尺寸档位（.compact 22pt / .regular 30pt），默认 compact
     ///   - onPick: 用户点击某工具时回调
     public func show(
         tools: [Tool],
         anchor: CGPoint,
         maxTools: Int = 6,
+        size: ToolbarSize = .compact,
         onPick: @escaping (Tool) -> Void
     ) {
+        print("[FloatingToolbarPanel] show tools=\(tools.count) maxTools=\(maxTools) size=\(size.rawValue)")
         let split = splitTools(tools, maxTools: maxTools)
-        let size = computeToolbarSize(itemCount: split.itemCount)
-        let origin = computeOrigin(anchor: anchor, size: size)
+        let metrics = ToolbarMetrics(size: size)
+        let panelSize = computeToolbarSize(itemCount: split.itemCount, metrics: metrics)
+        let origin = computeOrigin(anchor: anchor, size: panelSize)
 
-        let panel = makePanel(size: size, origin: origin)
-        let content = makeToolbarContent(split: split, panel: panel, onPick: onPick)
+        let panel = makePanel(size: panelSize, origin: origin)
+        let content = makeToolbarContent(split: split, metrics: metrics, panel: panel, onPick: onPick)
 
         let hosting = NSHostingView(rootView: content)
-        hosting.frame = NSRect(origin: .zero, size: size)
+        hosting.frame = NSRect(origin: .zero, size: panelSize)
         panel.contentView = hosting
         panel.orderFrontRegardless()
         self.panel = panel
@@ -76,6 +80,40 @@ public final class FloatingToolbarPanel {
         let itemCount: Int
     }
 
+    /// 工具栏尺寸档位对应的具体像素值
+    ///
+    /// 把配置枚举（ToolbarSize）解耦为布局计算需要的所有像素参数，
+    /// 使 show() 逻辑不直接依赖 enum 的 rawValue 做分支
+    struct ToolbarMetrics {
+        /// 按钮边长（正方形）
+        let buttonSize: CGFloat
+        /// IconButton size 枚举
+        let iconButtonSize: IconButton.Size
+        /// 工具栏外 padding
+        let padding: CGFloat
+        /// 按钮之间的水平间距
+        let buttonSpacing: CGFloat
+        /// 更多按钮字体大小
+        let moreFontSize: CGFloat
+
+        init(size: ToolbarSize) {
+            switch size {
+            case .compact:
+                self.buttonSize = 22
+                self.iconButtonSize = .small
+                self.padding = 3
+                self.buttonSpacing = 2
+                self.moreFontSize = 12
+            case .regular:
+                self.buttonSize = 30
+                self.iconButtonSize = .regular
+                self.padding = 4
+                self.buttonSpacing = 2
+                self.moreFontSize = 15
+            }
+        }
+    }
+
     /// 按 maxTools 把工具切分为"直接展示"和"折叠到更多菜单"两部分
     ///
     /// maxTools 夹紧到 2...20；tools.count 超过此值时，最后 1 位让给"更多"按钮，
@@ -92,15 +130,15 @@ public final class FloatingToolbarPanel {
     /// 计算工具栏窗口尺寸
     ///
     /// 把手(14pt) + 分隔线(1pt + 3pt×2 padding) = 21pt；HStack 共 itemCount+1 项，
-    /// 间距数量 itemCount；每按钮 30pt + 间距 2pt + 左右 padding 4pt×2。
-    private func computeToolbarSize(itemCount: Int) -> CGSize {
+    /// 间距数量 itemCount；每按钮 metrics.buttonSize + metrics.buttonSpacing + 左右 padding×2。
+    private func computeToolbarSize(itemCount: Int, metrics: ToolbarMetrics) -> CGSize {
         let handleWidth: CGFloat = 14 + 7
-        let buttonSpacing: CGFloat = 2
-        let buttonsWidth = CGFloat(itemCount) * (30 + buttonSpacing)
-        let padding: CGFloat = 4
-        let width = handleWidth + buttonsWidth + padding * 2
-        let height: CGFloat = 30 + padding * 2
-        return CGSize(width: max(width, 120), height: height)
+        let buttonsWidth = CGFloat(itemCount) * (metrics.buttonSize + metrics.buttonSpacing)
+        let width = handleWidth + buttonsWidth + metrics.padding * 2
+        let height: CGFloat = metrics.buttonSize + metrics.padding * 2
+        // 紧凑模式下 minWidth 也相应缩小，保证视觉平衡
+        let minWidth: CGFloat = metrics.buttonSize == 22 ? 90 : 120
+        return CGSize(width: max(width, minWidth), height: height)
     }
 
     /// 计算工具栏窗口应放置的 origin（屏幕坐标，左下原点）
@@ -117,12 +155,14 @@ public final class FloatingToolbarPanel {
     /// 构造 ToolbarContent SwiftUI 视图，绑定 onPick / 拖拽 / 暂停自关闭回调
     private func makeToolbarContent(
         split: ToolSplit,
+        metrics: ToolbarMetrics,
         panel: NSPanel,
         onPick: @escaping (Tool) -> Void
     ) -> ToolbarContent {
         ToolbarContent(
             directTools: split.direct,
             overflowTools: split.overflow,
+            metrics: metrics,
             onPick: { [weak self] tool in
                 onPick(tool)
                 self?.dismiss()
@@ -216,6 +256,8 @@ private struct ToolbarContent: View {
     let directTools: [Tool]
     /// 折叠进"更多"菜单的工具列表；为空时不渲染更多按钮
     let overflowTools: [Tool]
+    /// 尺寸档位对应的像素参数
+    let metrics: FloatingToolbarPanel.ToolbarMetrics
     /// 工具点击回调（含从更多菜单触发）
     let onPick: (Tool) -> Void
     /// 拖动开始时暂停自动关闭计时
@@ -229,7 +271,7 @@ private struct ToolbarContent: View {
     @State private var isDragging = false
 
     var body: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: metrics.buttonSpacing) {
             // MARK: 拖拽把手区
             // DragHandle 负责视觉（6点阵 + hover 游标切换），
             // DragGestureHost 负责捕获 mouseDown 并转发给 NSWindow.performDrag
@@ -259,7 +301,7 @@ private struct ToolbarContent: View {
             // MARK: 工具按钮列表
             // Tool 已实现 Identifiable（id: String），ForEach 可直接使用
             ForEach(directTools) { tool in
-                IconButton(text: tool.icon, size: .regular, help: tool.name) {
+                IconButton(text: tool.icon, size: metrics.iconButtonSize, help: tool.name) {
                     onPick(tool)
                 }
             }
@@ -270,7 +312,7 @@ private struct ToolbarContent: View {
                 overflowMenu
             }
         }
-        .padding(4)
+        .padding(metrics.padding)
         // 毛玻璃背景，材质 .hud 适合小型浮动面板
         .glassBackground(.hud, cornerRadius: SliceRadius.card)
         // 细边框描边，增强视觉边界感
@@ -296,9 +338,9 @@ private struct ToolbarContent: View {
             }
         } label: {
             Image(systemName: "ellipsis")
-                .font(.system(size: 15, weight: .medium))
+                .font(.system(size: metrics.moreFontSize, weight: .medium))
                 .foregroundColor(SliceColor.textSecondary)
-                .frame(width: 30, height: 30)
+                .frame(width: metrics.buttonSize, height: metrics.buttonSize)
                 .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)

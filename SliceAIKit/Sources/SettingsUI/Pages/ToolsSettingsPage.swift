@@ -118,36 +118,26 @@ public struct ToolsSettingsPage: View {
         }
     }
 
-    /// 单个工具列表项（行 + 展开编辑区 + 背景描边）
+    /// 单个工具列表项（行 + 展开编辑区 + 背景描边 + 拖拽排序）
     ///
     /// 独立为方法以避免 Swift 类型推导超时（toolList ForEach body 过深）。
     /// - Parameters:
     ///   - binding: Tool 的双向绑定，editor 通过此 binding 修改 configuration
-    ///   - index: 当前工具在 tools 数组里的位置，用于上移/下移按钮的 disable 判定
+    ///   - index: 当前工具在 tools 数组里的位置，用于拖放时计算目标位置
     @ViewBuilder
     private func toolListItem(for binding: Binding<Tool>, index: Int) -> some View {
         let tool = binding.wrappedValue
         let isExpanded = expandedId == tool.id
-        let total = viewModel.configuration.tools.count
         // 计算描边颜色，避免在 overlay 闭包里做三目表达式
         let strokeColor = isExpanded ? SliceColor.accent.opacity(0.4) : SliceColor.border
 
         VStack(spacing: 0) {
             // 列表行
-            ToolRow(
-                tool: tool,
-                isExpanded: isExpanded,
-                canMoveUp: index > 0,
-                canMoveDown: index < total - 1
-            ) {
+            ToolRow(tool: tool, isExpanded: isExpanded) {
                 // 点击同行收起，点击另一行切换
                 withAnimation(SliceAnimation.standard) {
                     expandedId = isExpanded ? nil : tool.id
                 }
-            } onMoveUp: {
-                moveTool(from: index, to: index - 1)
-            } onMoveDown: {
-                moveTool(from: index, to: index + 1)
             } onDelete: {
                 // 不直接删，先设置 pendingDeleteId 弹出 alert 二次确认
                 pendingDeleteId = tool.id
@@ -171,6 +161,15 @@ public struct ToolsSettingsPage: View {
                         .stroke(strokeColor, lineWidth: 0.5)
                 )
         )
+        // 拖放目标：接收来自其他行的 Tool.id 字符串，放到当前 index 位置
+        // `.draggable` 设在行内 handle 图标上（见 ToolRow.gripHandle），单击/点击展开不受影响；
+        // `.dropDestination` 在整行上，拖动越过任意位置都能接收
+        .dropDestination(for: String.self) { droppedIds, _ in
+            guard let sourceId = droppedIds.first else { return false }
+            return moveTool(sourceId: sourceId, toIndex: index)
+        } isTargeted: { _ in
+            // 需要高亮 drop 目标可在这里给 @State 赋值；MVP 先不做视觉区分
+        }
     }
 
     // MARK: - 内联编辑区
@@ -230,19 +229,29 @@ public struct ToolsSettingsPage: View {
         }
     }
 
-    /// 上移/下移工具：直接 swapAt 数组位置后异步持久化
+    /// 拖放排序：把 sourceId 对应的工具移到 toIndex 位置
     ///
-    /// 工具的数组顺序即浮条显示优先级（前面的优先展示），此方法是"Tools 页优先级排序"的入口
+    /// 工具的数组顺序即浮条显示优先级（前面的优先展示），此方法是"Tools 页拖拽排序"的核心。
+    /// 使用 `Array.move(fromOffsets:toOffset:)` 标准位移算法，源 → 目标的 offset 需
+    /// 补偿 SwiftUI move 的语义差异（当 source < target 时 toOffset 要 +1）。
     /// - Parameters:
-    ///   - from: 源索引
-    ///   - to: 目标索引
-    private func moveTool(from: Int, to: Int) {
-        // 边界防御：防止越界（理论上 row 按钮已 disable，但多一层兜底）
-        let tools = viewModel.configuration.tools
-        guard tools.indices.contains(from), tools.indices.contains(to) else { return }
-        print("[ToolsSettingsPage] moveTool: from=\(from) to=\(to)")
+    ///   - sourceId: 被拖拽的 Tool.id（来自 .draggable 的 payload）
+    ///   - toIndex: 目标行在当前 tools 数组中的索引
+    /// - Returns: 是否成功移动（源 id 不存在或源等于目标时返回 false）
+    @discardableResult
+    private func moveTool(sourceId: String, toIndex: Int) -> Bool {
+        var tools = viewModel.configuration.tools
+        guard let sourceIndex = tools.firstIndex(where: { $0.id == sourceId }),
+              tools.indices.contains(toIndex),
+              sourceIndex != toIndex else {
+            return false
+        }
+        print("[ToolsSettingsPage] moveTool: \(sourceIndex) → \(toIndex)")
+        // Array.move 的 toOffset 是"插入位置"，当从前向后移时目标需要 +1 才能落在目标行后
+        let destination = sourceIndex < toIndex ? toIndex + 1 : toIndex
         withAnimation(SliceAnimation.standard) {
-            viewModel.configuration.tools.swapAt(from, to)
+            tools.move(fromOffsets: IndexSet(integer: sourceIndex), toOffset: destination)
+            viewModel.configuration.tools = tools
         }
         Task {
             do {
@@ -252,6 +261,7 @@ public struct ToolsSettingsPage: View {
                 print("[ToolsSettingsPage] moveTool: save failed – \(error.localizedDescription)")
             }
         }
+        return true
     }
 
     /// 实际执行删除（alert 确认后才调用）
@@ -277,10 +287,12 @@ public struct ToolsSettingsPage: View {
 
 // MARK: - ToolRow
 
-/// 工具列表行：图标 + 名称 + 描述 + 排序按钮 + 展开 chevron
+/// 工具列表行：拖拽把手 + 工具图标 + 名称 + 描述 + 删除 + 展开 chevron
 ///
-/// 作为纯展示组件，点击事件通过 onToggle / onMoveUp / onMoveDown / onDelete 回调向上传递。
-/// 工具的数组顺序即浮条显示优先级——越靠前在浮条里出现越早，排序按钮直接对应这个顺序。
+/// 作为纯展示组件，点击事件通过 onToggle / onDelete 回调向上传递。
+/// 拖拽排序：行最左侧的 `line.3.horizontal` 把手图标是 `.draggable` 的触发点，
+/// payload 是 tool.id；drop 目标由外层 toolListItem 的 `.dropDestination` 接收。
+/// 工具的数组顺序即浮条显示优先级——越靠前在浮条里出现越早。
 private struct ToolRow: View {
 
     /// 当前行对应的 Tool（只读展示）
@@ -289,26 +301,17 @@ private struct ToolRow: View {
     /// 当前行是否展开
     let isExpanded: Bool
 
-    /// 是否可上移（index > 0）；false 时 ↑ 按钮 disabled 且灰化
-    let canMoveUp: Bool
-
-    /// 是否可下移（index < total - 1）；false 时 ↓ 按钮 disabled 且灰化
-    let canMoveDown: Bool
-
     /// 点击行时的切换回调
     let onToggle: () -> Void
-
-    /// 点击"上移"按钮的回调
-    let onMoveUp: () -> Void
-
-    /// 点击"下移"按钮的回调
-    let onMoveDown: () -> Void
 
     /// 点击删除按钮的回调
     let onDelete: () -> Void
 
     var body: some View {
         HStack(spacing: SliceSpacing.base) {
+            // 最左侧拖拽把手：只有这里是 .draggable 触发点，tap 在其他区域仍能切换展开
+            gripHandle
+
             // 工具图标区域
             iconView
 
@@ -328,10 +331,6 @@ private struct ToolRow: View {
 
             Spacer()
 
-            // 排序按钮组：始终可见（便于快速调整工具在浮条中的优先级）
-            // 这里用独立 Button 而非 IconButton 组件，是为了精确控制尺寸和禁用态视觉
-            reorderButtons
-
             // 删除按钮（展开时显示）
             if isExpanded {
                 Button(action: onDelete) {
@@ -343,7 +342,7 @@ private struct ToolRow: View {
                 .padding(.trailing, SliceSpacing.xs)
             }
 
-            // 展开 chevron
+            // 展开 chevron（只有这个是上下箭头，用 chevron 不会和排序图标冲突）
             Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(SliceColor.textSecondary)
@@ -354,37 +353,39 @@ private struct ToolRow: View {
         .onTapGesture { onToggle() }
     }
 
-    /// 排序按钮组：↑ 上移 / ↓ 下移
+    /// 拖拽把手：`line.3.horizontal` 图标 + `.draggable(tool.id)` 触发系统拖拽
     ///
-    /// 点击事件用 HighPriorityGesture 阻止冒泡到 HStack 的 onTapGesture（避免误触展开）
-    private var reorderButtons: some View {
-        HStack(spacing: 2) {
-            Button {
-                onMoveUp()
-            } label: {
-                Image(systemName: "chevron.up")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(canMoveUp ? SliceColor.textSecondary : SliceColor.textDisabled)
-                    .frame(width: 20, height: 20)
-                    .contentShape(Rectangle())
+    /// `.draggable` 放在这里而不是整行上，是为了避免整行在 click 时被误判为准备拖拽
+    /// （SwiftUI 会有微小延迟等待鼠标移动），让单击展开保持零延迟响应。hover 时
+    /// 游标切到 openHand 提示用户"这里可拖"。
+    private var gripHandle: some View {
+        Image(systemName: "line.3.horizontal")
+            .font(.system(size: 12, weight: .medium))
+            .foregroundColor(SliceColor.textTertiary)
+            .frame(width: 20, height: 24)
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                if hovering { NSCursor.openHand.push() } else { NSCursor.pop() }
             }
-            .buttonStyle(.plain)
-            .disabled(!canMoveUp)
-            .help("上移")
-
-            Button {
-                onMoveDown()
-            } label: {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(canMoveDown ? SliceColor.textSecondary : SliceColor.textDisabled)
-                    .frame(width: 20, height: 20)
-                    .contentShape(Rectangle())
+            .draggable(tool.id) {
+                // 拖拽预览：在鼠标指针旁显示的半透明迷你卡片
+                HStack(spacing: SliceSpacing.sm) {
+                    Text(tool.icon).font(.system(size: 14))
+                    Text(tool.name)
+                        .font(SliceFont.caption)
+                        .foregroundColor(SliceColor.textPrimary)
+                }
+                .padding(.horizontal, SliceSpacing.base)
+                .padding(.vertical, SliceSpacing.xs)
+                .background(
+                    RoundedRectangle(cornerRadius: SliceRadius.control)
+                        .fill(SliceColor.surface)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: SliceRadius.control)
+                                .stroke(SliceColor.accent.opacity(0.4), lineWidth: 1)
+                        )
+                )
             }
-            .buttonStyle(.plain)
-            .disabled(!canMoveDown)
-            .help("下移")
-        }
     }
 
     /// 工具图标：emoji 字符走 Text；ASCII 字符串按 SF Symbol 解析

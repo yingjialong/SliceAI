@@ -68,6 +68,12 @@
           "maximum": 20,
           "default": 6,
           "description": "悬浮工具栏最多显示多少个位置（含溢出位的\"更多\"按钮）"
+        },
+        "floatingToolbarSize": {
+          "type": "string",
+          "enum": ["compact", "regular"],
+          "default": "compact",
+          "description": "悬浮工具栏尺寸档位：compact 22pt / regular 30pt"
         }
       }
     },

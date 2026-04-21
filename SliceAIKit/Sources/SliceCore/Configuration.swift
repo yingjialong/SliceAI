@@ -108,6 +108,10 @@ public struct TriggerSettings: Sendable, Codable, Equatable {
     ///
     /// 取值下限 2 上限 20；旧版 config.json 缺失此字段时默认 6（满足常见工具数且不挤占屏幕）
     public var floatingToolbarMaxTools: Int
+    /// 悬浮工具栏按钮尺寸档位：`.compact` 22pt、`.regular` 30pt
+    ///
+    /// 默认 `.compact`——更精致不占地；旧版 config.json 缺失此字段时也回落到 `.compact`
+    public var floatingToolbarSize: ToolbarSize
 
     /// 构造触发行为设置
     /// - Parameters:
@@ -116,14 +120,17 @@ public struct TriggerSettings: Sendable, Codable, Equatable {
     ///   - minimumSelectionLength: 最小触发选区长度
     ///   - triggerDelayMs: mouseUp 后的 debounce 毫秒
     ///   - floatingToolbarMaxTools: 悬浮工具栏最多显示多少个工具位（含更多按钮），默认 6
+    ///   - floatingToolbarSize: 悬浮工具栏尺寸档位，默认 .compact（22pt 按钮）
     public init(floatingToolbarEnabled: Bool, commandPaletteEnabled: Bool,
                 minimumSelectionLength: Int, triggerDelayMs: Int,
-                floatingToolbarMaxTools: Int = 6) {
+                floatingToolbarMaxTools: Int = 6,
+                floatingToolbarSize: ToolbarSize = .compact) {
         self.floatingToolbarEnabled = floatingToolbarEnabled
         self.commandPaletteEnabled = commandPaletteEnabled
         self.minimumSelectionLength = minimumSelectionLength
         self.triggerDelayMs = triggerDelayMs
         self.floatingToolbarMaxTools = floatingToolbarMaxTools
+        self.floatingToolbarSize = floatingToolbarSize
     }
 
     /// JSON 字段名映射
@@ -133,11 +140,13 @@ public struct TriggerSettings: Sendable, Codable, Equatable {
         case minimumSelectionLength
         case triggerDelayMs
         case floatingToolbarMaxTools
+        case floatingToolbarSize
     }
 
-    /// 自定义解码：`floatingToolbarMaxTools` 使用 decodeIfPresent 保证向后兼容
+    /// 自定义解码：新字段使用 decodeIfPresent 保证向后兼容
     ///
-    /// 旧版 config.json 不含此字段，解码时回落到默认值 6，避免因缺字段抛 DecodingError
+    /// 旧版 config.json 不含 floatingToolbarMaxTools / floatingToolbarSize 时，
+    /// 分别回落到默认值 6 与 `.compact`，避免因缺字段抛 DecodingError
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         floatingToolbarEnabled = try container.decode(Bool.self, forKey: .floatingToolbarEnabled)
@@ -146,7 +155,20 @@ public struct TriggerSettings: Sendable, Codable, Equatable {
         triggerDelayMs = try container.decode(Int.self, forKey: .triggerDelayMs)
         floatingToolbarMaxTools = try container
             .decodeIfPresent(Int.self, forKey: .floatingToolbarMaxTools) ?? 6
+        floatingToolbarSize = try container
+            .decodeIfPresent(ToolbarSize.self, forKey: .floatingToolbarSize) ?? .compact
     }
+}
+
+/// 悬浮工具栏尺寸档位
+///
+/// 对应 IconButton 的两档 size，放在 SliceCore 以便 Configuration 序列化；
+/// UI 层（Windowing）消费时映射到实际像素值。
+public enum ToolbarSize: String, Codable, CaseIterable, Sendable {
+    /// 紧凑：22pt 按钮 + 3pt padding，适合精致小巧的 HUD 观感
+    case compact
+    /// 标准：30pt 按钮 + 4pt padding，按钮更大容易点击
+    case regular
 }
 
 /// 遥测设置，MVP v0.1 只有开关
