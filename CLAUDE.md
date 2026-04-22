@@ -14,7 +14,7 @@ SliceAI 是 macOS 原生、开源的划词触发 LLM 工具栏。划词后弹出
 所有 Swift 包命令在 `SliceAIKit/` 子目录执行；App target 命令在仓库根目录执行。
 
 ```bash
-# 构建 SliceAIKit（领域库 + 7 个子模块）
+# 构建 SliceAIKit（领域库 + 8 个子模块）
 cd SliceAIKit && swift build
 
 # 跑全部单元测试（并行 + 覆盖率）
@@ -45,23 +45,26 @@ SliceAI.app  (Xcode App target, SliceAIApp/)
   ├─ @main 入口、菜单栏、Onboarding、Composition Root（AppContainer）
   └─ depends on → SliceAIKit (Local SwiftPM)
 
-SliceAIKit  (SliceAIKit/Package.swift, 7 个 library target)
+SliceAIKit  (SliceAIKit/Package.swift, 8 个 library target)
   ├─ SliceCore         领域层，Foundation only，零 UI 依赖
   ├─ LLMProviders      OpenAI 兼容协议 + SSE 流式
   ├─ SelectionCapture  AX 主路径 + Cmd+C 备份恢复路径
   ├─ HotkeyManager     Carbon RegisterEventHotKey 全局热键
-  ├─ Windowing         FloatingToolbar / CommandPalette / ResultPanel
-  ├─ Permissions       Accessibility 权限轮询 + Onboarding 视图
-  └─ SettingsUI        SwiftUI 设置界面 + KeychainStore + ConfigurationStore
+  ├─ DesignSystem      颜色/字体/间距/圆角 token + ThemeManager + 共享组件（IconButton/PillButton/SectionCard…）
+  ├─ Windowing         FloatingToolbar / CommandPalette / ResultPanel（依赖 DesignSystem）
+  ├─ Permissions       Accessibility 权限轮询 + Onboarding 视图（依赖 DesignSystem）
+  └─ SettingsUI        SwiftUI 设置界面 + KeychainStore + ConfigurationStore（依赖 DesignSystem）
 ```
 
 ### 模块依赖（关键不变量）
 
-- **SliceCore 必须零 UI 依赖**（仅 Foundation）：保证未来能复用为 CLI / MCP server。
+- **SliceCore 必须零 UI 依赖**（仅 Foundation）：保证未来能复用为 CLI / MCP server。`AppearanceMode`（`SliceCore/AppearanceMode.swift`）是这里唯一跟视觉相关的类型，但它只是 Codable enum，不碰 AppKit / SwiftUI。
+- **DesignSystem 只被 UI 层依赖**（Windowing / Permissions / SettingsUI），**严禁被 SliceCore / LLMProviders / SelectionCapture / HotkeyManager 反向依赖**——否则领域层又会被拖进 AppKit，破坏"未来跑 CLI / MCP server"的前提。
 - **Provider 是 protocol**（`SliceCore/LLMProvider.swift`）：当前只有 OpenAI 兼容实现，社区可零改动新增 Claude / Gemini / Ollama。
 - **模块间只通过 SliceCore 的 protocol 通信**：`ConfigurationProviding`、`KeychainAccessing`、`LLMProvider` 都是 protocol，`SelectionSource` / `PasteboardProtocol` / `CopyKeystrokeInvoking` 同理。这让单元测试可以注入 Fake，模块替换不影响其他层。
 - **配置与密钥严格分离**：`Configuration` 走 JSON（`~/Library/Application Support/SliceAI/config.json`，schema 见 `config.schema.json`）；API Key 永远在 Keychain（`service: com.sliceai.app.providers`），通过 `Provider.apiKeyRef = "keychain:<account>"` 间接引用。
 - **Composition Root 集中在 `SliceAIApp/AppContainer.swift`**：所有跨模块依赖在 App 启动时一次性装配，业务层不再分散 init。
+- **主题切换中枢是 `DesignSystem/Theme/ThemeManager`**：读写 `Configuration.appearanceMode`（system / light / dark），由 `AppContainer` 在启动时注入一次；切换时通过 `onModeChange` 回调把变更持久化回 `ConfigurationStore`。UI 层只读环境里的 `ThemeManager`，不直接碰 `NSApp.appearance`。
 
 ### 触发与执行流（核心数据流）
 
@@ -106,6 +109,7 @@ mouseDown → 记录起点 → mouseUp → 算位移 ≥ 5pt → debounce(trigge
 - `SelectionCaptureTests`：`ClipboardSelectionSource` 通过注入 `PasteboardProtocol` + `CopyKeystrokeInvoking` 的 Fake 实现做单测；AX 路径无单测（依赖系统权限），靠手动验收。
 - `HotkeyManagerTests`：只测 `Hotkey.parse` 等纯逻辑；Carbon 注册靠手动验收。
 - `WindowingTests`：只测 `ScreenAwarePositioner` 这种纯算法；NSPanel 行为靠手动验收。
+- `DesignSystemTests`：只测 token 常量、`ThemeManager` 状态切换等纯逻辑；SwiftUI 视图渲染靠手动验收。
 
 新增依赖外部状态（系统权限、网络、剪贴板）的代码时，先抽 protocol 让生产实现走真实路径、测试注入 Fake，而不是直接在测试里 mock 系统 API。
 

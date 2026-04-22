@@ -161,7 +161,8 @@ public struct TriggerSettingsPage: View {
                 }
             }
 
-            // 说明行：解释"更多"按钮行为
+            // 说明行：紧跟"最多显示"，解释"更多"按钮行为——说明仅针对该行，
+            // 不能放到卡片末尾，否则会被误读为"自动消失"的说明
             HStack {
                 Text("工具总数超过此值时，会在右侧额外追加「⋯ 更多」按钮，点击展开剩余工具（不会占用此处设定的显示名额）。工具在浮条中的顺序与「Tools」页的排序一致，可在那里拖拽调整。")
                     .font(SliceFont.caption)
@@ -170,6 +171,37 @@ public struct TriggerSettingsPage: View {
                 Spacer(minLength: 0)
             }
             .padding(.vertical, SliceSpacing.base)
+
+            // 自动消失：0–60 秒；0 表示永不自动消失，仅靠点击外部或选中工具关闭
+            SettingsRow("自动消失") {
+                HStack(spacing: SliceSpacing.base) {
+                    // 当前值展示；0 时显式提示"不自动消失"以免用户误以为是 bug
+                    Text(autoDismissDisplayText)
+                        .font(SliceFont.subheadline)
+                        .foregroundColor(SliceColor.textSecondary)
+                        .frame(minWidth: 78, alignment: .trailing)
+
+                    Stepper(
+                        "",
+                        value: $viewModel.configuration.triggers.floatingToolbarAutoDismissSeconds,
+                        in: 0...60
+                    )
+                    .labelsHidden()
+                    .onChange(of: viewModel.configuration.triggers.floatingToolbarAutoDismissSeconds) { _, _ in
+                        Task { await viewModel.saveTriggers() }
+                    }
+                }
+            }
         }
+    }
+
+    /// 自动消失 Stepper 右侧的当前值展示文案
+    ///
+    /// - 0 秒显式写"不自动消失"，避免用户看到 "0 秒" 以为设置没生效；
+    /// - 其他值按 "N 秒" 呈现。
+    private var autoDismissDisplayText: String {
+        let seconds = viewModel.configuration.triggers.floatingToolbarAutoDismissSeconds
+        if seconds == 0 { return "不自动消失" }
+        return "\(seconds) 秒"
     }
 }

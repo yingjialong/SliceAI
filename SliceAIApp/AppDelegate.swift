@@ -130,19 +130,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// 接线运行时触发链：全局热键 + 鼠标抬起监视器
     func wireRuntime() {
         Self.log.info("wireRuntime: start")
-        registerHotkey()
+        reloadHotkey()
         installMouseMonitor()
+        // 注入 "设置页录完新热键 → 重新向 Carbon 注册" 回调。放在 wireRuntime
+        // 里而不是 init 是为了只有 AX 授权通过 / 用户完成 onboarding 后才接线；
+        // 与 ThemeManager.onModeChange 的回调注入模式同构。
+        container.settingsViewModel.onHotkeysChanged = { [weak self] in
+            self?.reloadHotkey()
+        }
         Self.log.info("wireRuntime: done")
     }
 
-    /// 按配置中的 `hotkeys.toggleCommandPalette` 注册全局热键
+    /// 按配置中的 `hotkeys.toggleCommandPalette` （重新）注册全局热键
+    ///
+    /// 每次调用都会先 `unregisterAll` 清空上一次的 Carbon 注册，再按最新配置注册。
+    /// 这样设置页改完热键立即生效，且避免旧热键遗留。
     ///
     /// 实现要点：
     ///   - 仅在 `triggers.commandPaletteEnabled == true` 时注册；
     ///   - 解析失败或 Carbon 注册失败均静默忽略，遵循"无自由日志"规范（详见任务 26
     ///     提交 804010f）。未来可由 Settings 面板上的错误指示来暴露；
     ///   - 回调中显式跳回 MainActor 以保持 UI 操作安全。
-    private func registerHotkey() {
+    func reloadHotkey() {
+        // 先清空旧注册——必须同步完成，避免与下面 async register 产生窗口期
+        container.hotkeyRegistrar.unregisterAll()
         Task { [weak self] in
             guard let self else { return }
             let cfg = await self.container.configStore.current()
@@ -277,12 +288,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Self.log.info(
             "capture: shown bundle=\(app, privacy: .public) len=\(len, privacy: .public) src=\(src, privacy: .public)"
         )
-        // 展示浮条：回调中按选中工具执行
+        // 展示浮条：回调中按选中工具执行；autoDismiss 读配置（0=不自动消失）
         container.floatingToolbar.show(
             tools: cfg.tools,
             anchor: payload.screenPoint,
             maxTools: cfg.triggers.floatingToolbarMaxTools,
-            size: cfg.triggers.floatingToolbarSize
+            size: cfg.triggers.floatingToolbarSize,
+            autoDismissSeconds: cfg.triggers.floatingToolbarAutoDismissSeconds
         ) { [weak self] tool in
             self?.execute(tool: tool, payload: payload)
         }

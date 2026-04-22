@@ -32,6 +32,13 @@ public final class SettingsViewModel: ObservableObject {
     /// Keychain 抽象，生产环境注入 `KeychainStore`
     private let keychain: any KeychainAccessing
 
+    /// 热键配置持久化成功后的外部回调；生产环境由 `AppDelegate` 注入"重新注册热键"逻辑
+    ///
+    /// 与 `ThemeManager.onModeChange` 同构的解耦机制：SliceAIKit 不依赖 SliceAIApp，
+    /// 故 ViewModel 无法直接调用 AppDelegate 的 Carbon 注册方法；改由 App 侧在启动时
+    /// 把 `onHotkeysChanged = { appDelegate.reloadHotkey() }` 注入进来。
+    public var onHotkeysChanged: (@MainActor () -> Void)?
+
     /// 构造设置视图模型
     /// - Parameters:
     ///   - store: 配置读写抽象
@@ -101,14 +108,18 @@ public final class SettingsViewModel: ObservableObject {
         }
     }
 
-    /// 将当前 configuration.hotkeys 写回磁盘，供快捷键页 onSubmit 立即持久化
+    /// 将当前 configuration.hotkeys 写回磁盘，供快捷键页录制回调立即持久化
     ///
-    /// IO 失败仅打日志，不阻断 UI（下次 reload 以磁盘为准）。
+    /// 写盘成功后立即触发 `onHotkeysChanged` 回调，让 AppDelegate 重新向 Carbon
+    /// 注册热键（先 unregister 旧的再 register 新的），否则用户在设置里改了组合键
+    /// 也要等到下次启动才生效。IO 失败仅打日志，不阻断 UI（下次 reload 以磁盘为准）。
     public func saveHotkeys() async {
         // 内存态已由绑定更新，直接写回磁盘
         do {
             try await store.update(configuration)
             print("[SettingsViewModel] saveHotkeys: persisted OK")
+            // 通知 App 层重新注册热键；若调用方未注入回调则跳过（例如单元测试）
+            onHotkeysChanged?()
         } catch {
             print("[SettingsViewModel] saveHotkeys: persist failed – \(error.localizedDescription)")
         }

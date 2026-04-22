@@ -97,6 +97,15 @@ private struct PaletteContent: View {
     @State private var query: String = ""
     /// 列表当前高亮项的索引（对应 filtered 数组）
     @State private var selection: Int = 0
+    /// AppKit local 键盘事件监视器；仅在面板可见期间持有。
+    ///
+    /// 为什么不用 `.onKeyPress(...)`：SwiftUI 的 onKeyPress 要求视图参与 focus 链，
+    /// 但命令面板里 TextField 默认拿走 keyboard focus，方向键/ESC/回车的路由在
+    /// NSPanel 宿主下不稳定（Task 22 后的实测现象）。改用 AppKit 层的 local monitor：
+    ///   - 事件优先级高于 SwiftUI 的任何 onKeyPress；
+    ///   - 返回 nil 即"吃掉"事件，不会再流向 TextField（避免 ↑↓ 意外移动光标）；
+    ///   - monitor 作用域严格限定在面板生命周期（onAppear 安装、onDisappear 移除）。
+    @State private var keyMonitor: Any?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -167,20 +176,8 @@ private struct PaletteContent: View {
                 .padding(.horizontal, SliceSpacing.md)
                 .padding(.top, SliceSpacing.md)
             }
-            // 键盘导航：上/下切换选中项，回车确认，ESC 取消
-            .onKeyPress(.upArrow) {
-                selection = max(0, selection - 1)
-                return .handled
-            }
-            .onKeyPress(.downArrow) {
-                selection = min(filtered.count - 1, selection + 1)
-                return .handled
-            }
-            .onKeyPress(.return) {
-                if filtered.indices.contains(selection) { onPick(filtered[selection]) }
-                return .handled
-            }
-            .onKeyPress(.escape) { onCancel(); return .handled }
+            // 键盘导航由 onAppear 安装的 NSEvent local monitor 统一处理，
+            // 避免与 TextField 的 focus 争用（见 keyMonitor 字段注释）
 
             // MARK: Footer：快捷键帮助 + 计数
             Divider().background(SliceColor.divider)
@@ -214,6 +211,47 @@ private struct PaletteContent: View {
                 .stroke(SliceColor.border, lineWidth: 0.5)
         )
         .clipShape(RoundedRectangle(cornerRadius: SliceRadius.sheet))
+        // MARK: 键盘导航：onAppear 安装 local monitor、onDisappear 拆除
+        .onAppear { installKeyMonitor() }
+        .onDisappear { removeKeyMonitor() }
+    }
+
+    /// 安装 AppKit local key monitor，拦截 ↑↓/↵/ESC 并驱动 selection / onPick / onCancel
+    ///
+    /// local monitor 的回调在主线程同步执行，返回 nil 表示"吃掉"事件不再向下游派发，
+    /// 这样即使 TextField 正聚焦也不会把方向键当成光标移动处理。
+    /// 其它按键（字母/数字/删除等）return event 原样放行给 TextField 输入。
+    private func installKeyMonitor() {
+        // 重复安装防御：理论上 onAppear 只触发一次，但面板复用时可能二次调用
+        guard keyMonitor == nil else { return }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            // 主线程同步分发：local monitor 文档保证在主线程调用，可直接更新 @State
+            switch event.keyCode {
+            case 126: // up
+                selection = max(0, selection - 1)
+                return nil
+            case 125: // down
+                selection = min(max(0, filtered.count - 1), selection + 1)
+                return nil
+            case 36, 76: // return / keypad enter
+                if filtered.indices.contains(selection) { onPick(filtered[selection]) }
+                return nil
+            case 53: // escape
+                onCancel()
+                return nil
+            default:
+                // 其它按键继续走默认 responder chain，TextField 收到字母/数字作搜索输入
+                return event
+            }
+        }
+    }
+
+    /// 移除 local key monitor；幂等，未安装时直接跳过
+    private func removeKeyMonitor() {
+        if let monitor = keyMonitor {
+            NSEvent.removeMonitor(monitor)
+            keyMonitor = nil
+        }
     }
 
     /// 基于 query 进行大小写不敏感的名称 / 描述模糊筛选；query 为空或纯空白则返回全部

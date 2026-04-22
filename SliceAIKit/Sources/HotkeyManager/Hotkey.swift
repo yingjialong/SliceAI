@@ -70,6 +70,31 @@ public struct Hotkey: Sendable, Equatable, CustomStringConvertible {
         return parts.joined(separator: "+")
     }
 
+    /// 从 AppKit 按键事件的原始字段反向构造 Hotkey；用于"录制按键"UI 复用白名单
+    ///
+    /// - Parameters:
+    ///   - keyCode: `NSEvent.keyCode`（UInt16 → 我们需要 UInt32）
+    ///   - modifierFlags: `NSEvent.modifierFlags`；只识别 command/option/shift/control
+    ///     四类主修饰键，`deviceIndependentFlagsMask` 以外的位（Caps Lock 等）会被忽略
+    /// - Returns: 当 keyCode 命中白名单且修饰键集合合法时返回对应 Hotkey，否则返回 nil
+    ///
+    /// **注**：本方法不做"是否至少含一个修饰键"的业务校验——由调用方（如录制 UI）
+    /// 根据自身需求决定是否允许无修饰键的热键。系统级 `RegisterEventHotKey` 允许无
+    /// 修饰键注册，但在 SliceAI 场景下几乎一定会产生误触，所以 UI 层应额外拒绝。
+    public static func from(keyCode: UInt16, modifierFlags: NSEvent.ModifierFlags) -> Hotkey? {
+        // 白名单校验：未登记的 keyCode 直接返回 nil，避免出现 "key59" 这类无法反向
+        // 显示的 Hotkey（也能让 UI 在"录制到不支持的键"时给出明确反馈）
+        guard Self.nameForKeyCode[UInt32(keyCode)] != nil else { return nil }
+
+        // 只挑 NSEvent 四类主修饰键，忽略 caps lock / function / numericPad 等
+        var mods: Modifiers = []
+        if modifierFlags.contains(.command) { mods.insert(.command) }
+        if modifierFlags.contains(.option) { mods.insert(.option) }
+        if modifierFlags.contains(.shift) { mods.insert(.shift) }
+        if modifierFlags.contains(.control) { mods.insert(.control) }
+        return Hotkey(keyCode: UInt32(keyCode), modifiers: mods)
+    }
+
     // MARK: - 常用键 映射（MVP 覆盖：space/return/tab/esc + A-Z + 0-9 + F1-F12 + 方向键）
     private static let keyCodeMap: [String: UInt32] = [
         "space": 49, "return": 36, "tab": 48, "escape": 53, "esc": 53,

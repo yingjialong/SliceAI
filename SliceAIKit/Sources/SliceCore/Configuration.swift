@@ -112,6 +112,11 @@ public struct TriggerSettings: Sendable, Codable, Equatable {
     ///
     /// 默认 `.compact`——更精致不占地；旧版 config.json 缺失此字段时也回落到 `.compact`
     public var floatingToolbarSize: ToolbarSize
+    /// 悬浮工具栏自动消失倒计时，以秒为单位；`0` 表示永不自动消失
+    ///
+    /// 取值范围 0–60；默认 5（保持 MVP 原行为）。旧版 config.json 缺失此字段时回落到 5。
+    /// =0 时 `FloatingToolbarPanel` 跳过自动消失调度，仅靠 `onPick` 或外部点击监视器关闭。
+    public var floatingToolbarAutoDismissSeconds: Int
 
     /// 构造触发行为设置
     /// - Parameters:
@@ -121,16 +126,19 @@ public struct TriggerSettings: Sendable, Codable, Equatable {
     ///   - triggerDelayMs: mouseUp 后的 debounce 毫秒
     ///   - floatingToolbarMaxTools: 悬浮工具栏最多显示多少个工具位（含更多按钮），默认 6
     ///   - floatingToolbarSize: 悬浮工具栏尺寸档位，默认 .compact（22pt 按钮）
+    ///   - floatingToolbarAutoDismissSeconds: 浮条自动消失秒数，默认 5；`0` 表示永不自动消失
     public init(floatingToolbarEnabled: Bool, commandPaletteEnabled: Bool,
                 minimumSelectionLength: Int, triggerDelayMs: Int,
                 floatingToolbarMaxTools: Int = 6,
-                floatingToolbarSize: ToolbarSize = .compact) {
+                floatingToolbarSize: ToolbarSize = .compact,
+                floatingToolbarAutoDismissSeconds: Int = 5) {
         self.floatingToolbarEnabled = floatingToolbarEnabled
         self.commandPaletteEnabled = commandPaletteEnabled
         self.minimumSelectionLength = minimumSelectionLength
         self.triggerDelayMs = triggerDelayMs
         self.floatingToolbarMaxTools = floatingToolbarMaxTools
         self.floatingToolbarSize = floatingToolbarSize
+        self.floatingToolbarAutoDismissSeconds = floatingToolbarAutoDismissSeconds
     }
 
     /// JSON 字段名映射
@@ -141,12 +149,14 @@ public struct TriggerSettings: Sendable, Codable, Equatable {
         case triggerDelayMs
         case floatingToolbarMaxTools
         case floatingToolbarSize
+        case floatingToolbarAutoDismissSeconds
     }
 
     /// 自定义解码：新字段使用 decodeIfPresent 保证向后兼容
     ///
-    /// 旧版 config.json 不含 floatingToolbarMaxTools / floatingToolbarSize 时，
-    /// 分别回落到默认值 6 与 `.compact`，避免因缺字段抛 DecodingError
+    /// 旧版 config.json 不含 floatingToolbarMaxTools / floatingToolbarSize /
+    /// floatingToolbarAutoDismissSeconds 时，分别回落到默认值 6 / `.compact` / 5，
+    /// 避免因缺字段抛 DecodingError。
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         floatingToolbarEnabled = try container.decode(Bool.self, forKey: .floatingToolbarEnabled)
@@ -157,6 +167,8 @@ public struct TriggerSettings: Sendable, Codable, Equatable {
             .decodeIfPresent(Int.self, forKey: .floatingToolbarMaxTools) ?? 6
         floatingToolbarSize = try container
             .decodeIfPresent(ToolbarSize.self, forKey: .floatingToolbarSize) ?? .compact
+        floatingToolbarAutoDismissSeconds = try container
+            .decodeIfPresent(Int.self, forKey: .floatingToolbarAutoDismissSeconds) ?? 5
     }
 }
 

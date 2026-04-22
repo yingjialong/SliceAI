@@ -20,7 +20,8 @@ public enum DefaultConfiguration {
                 floatingToolbarEnabled: true,
                 commandPaletteEnabled: true,
                 minimumSelectionLength: 1,
-                triggerDelayMs: 150
+                triggerDelayMs: 150,
+                floatingToolbarAutoDismissSeconds: 5
             ),
             telemetry: TelemetrySettings(enabled: false),
             appBlocklist: [

@@ -18,9 +18,12 @@ public final class FloatingToolbarPanel {
     /// 屏幕边界感知的坐标计算器（无状态，可复用）
     private let positioner = ScreenAwarePositioner()
 
-    /// 5 秒自动关闭任务，每次 show 都会取消旧任务重新计时；
-    /// 拖动期间暂停，松手后恢复。
+    /// 自动关闭任务；每次 show 按 `autoDismissSeconds` 重新计时。
+    /// 拖动期间暂停，松手后恢复；`autoDismissSeconds == 0` 时整条链路直接 no-op。
     private var autoDismissTask: Task<Void, Never>?
+
+    /// 当前 show() 传入的自动消失秒数；`0` 表示永不消失，由 scheduleAutoDismiss 尊重
+    private var autoDismissSeconds: Int = 5
 
     /// 全局 mouseDown 监视器：实现"点 panel 外部即消失"的 PopClip 标准交互
     ///
@@ -41,6 +44,8 @@ public final class FloatingToolbarPanel {
     ///   - anchor: 选区中心（屏幕坐标，左下原点）
     ///   - maxTools: 工具栏最多直接展示的工具按钮个数（**不含**溢出时额外追加的「⋯ 更多」按钮），下限 2 上限 20
     ///   - size: 工具栏尺寸档位（.compact 22pt / .regular 30pt），默认 compact
+    ///   - autoDismissSeconds: 空闲多少秒后自动关闭浮条；`0` 表示永不自动消失（仅靠
+    ///     `onPick` 或外部点击监视器关闭）。默认 5，保持 MVP 原行为
     ///   - onPick: 用户点击某工具时回调
     ///
     /// 尺寸计算策略：因为 `labelStyle == .name / .iconAndName` 的按钮宽度取决于
@@ -54,9 +59,14 @@ public final class FloatingToolbarPanel {
         anchor: CGPoint,
         maxTools: Int = 6,
         size: ToolbarSize = .compact,
+        autoDismissSeconds: Int = 5,
         onPick: @escaping (Tool) -> Void
     ) {
-        print("[FloatingToolbarPanel] show tools=\(tools.count) maxTools=\(maxTools) size=\(size.rawValue)")
+        // 把 autoDismissSeconds 存成实例字段，供 resumeAutoDismiss 回调复用
+        // （否则拖动结束后无法恢复成"用户设置的秒数"）
+        self.autoDismissSeconds = max(0, autoDismissSeconds)
+        print("[FloatingToolbarPanel] show tools=\(tools.count) maxTools=\(maxTools) "
+              + "size=\(size.rawValue) autoDismiss=\(self.autoDismissSeconds)s")
         let split = splitTools(tools, maxTools: maxTools)
         let metrics = ToolbarMetrics(size: size)
 
@@ -215,13 +225,21 @@ public final class FloatingToolbarPanel {
 
     // MARK: - 私有方法
 
-    /// 启动（或重启）5 秒后自动关闭的 Task
+    /// 启动（或重启）倒计时自动关闭任务
     ///
-    /// 使用 @MainActor Task 直接调用 dismiss()，避免嵌套 MainActor.run（Swift 6 推荐写法）
+    /// `autoDismissSeconds == 0` 时整个链路 no-op：取消旧任务、不新建任务；
+    /// 其他值按秒数 sleep，到期后调用 dismiss()。使用 @MainActor Task 直接调用
+    /// dismiss()，避免嵌套 MainActor.run（Swift 6 推荐写法）。
     private func scheduleAutoDismiss() {
+        // 先取消旧任务——不管是否要重新调度都要清空，避免上次的倒计时继续跑
         autoDismissTask?.cancel()
+        // 0 表示永不消失：清空任务后直接返回，后续 resumeAutoDismiss 也会 no-op
+        guard autoDismissSeconds > 0 else { return }
+        let seconds = autoDismissSeconds
         autoDismissTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            // UInt64 纳秒；`seconds * 1_000_000_000` 在 Int 上超 2.1s 以上也不会溢出
+            // （UInt64 上限远大于 60 秒 × 1e9），安全
+            try? await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)
             guard !Task.isCancelled else { return }
             self?.dismiss()
         }

@@ -80,6 +80,13 @@
           "enum": ["compact", "regular"],
           "default": "compact",
           "description": "悬浮工具栏尺寸档位：compact 22pt / regular 30pt"
+        },
+        "floatingToolbarAutoDismissSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60,
+          "default": 5,
+          "description": "悬浮工具栏自动消失倒计时（秒）；0 表示永不自动消失，仅靠选中工具或点击外部关闭"
         }
       }
     },
