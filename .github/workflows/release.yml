@@ -12,8 +12,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Select Xcode 26
-        run: sudo xcode-select -s /Applications/Xcode_26.app
+      # macos-latest runner 默认激活的 Xcode 已是最新稳定版（目前 16.x），
+      # 足以构建本项目。历史上这里硬编码 /Applications/Xcode_26.app，但 runner
+      # 从未分发过该版本，导致 release 一触发就失败——故删去手动切换步骤。
+      # 如未来需要锁定特定 Xcode 版本，改用：
+      #   sudo xcode-select -s $(ls -d /Applications/Xcode_16*.app | sort -V | tail -1)
 
       - name: Extract version
         id: ver
