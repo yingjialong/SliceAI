@@ -45,11 +45,19 @@ public enum CachePolicy: Sendable, Equatable, Codable {
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        guard c.allKeys.count == 1 else {
+            throw DecodingError.dataCorrupted(.init(
+                codingPath: c.codingPath,
+                debugDescription: "CachePolicy requires exactly one key, got \(c.allKeys.count)"
+            ))
+        }
         if c.contains(.none) { _ = try c.decode(EmptyMarker.self, forKey: .none); self = .none; return }
         if c.contains(.session) { _ = try c.decode(EmptyMarker.self, forKey: .session); self = .session; return }
         if let t = try c.decodeIfPresent(TimeInterval.self, forKey: .ttl) { self = .ttl(t); return }
-        throw DecodingError.dataCorruptedError(forKey: CodingKeys.none, in: c,
-            debugDescription: "CachePolicy requires one of: none, session, ttl")
+        throw DecodingError.dataCorrupted(.init(
+            codingPath: c.codingPath,
+            debugDescription: "CachePolicy encountered unknown case key"
+        ))
     }
 
     public func encode(to encoder: any Encoder) throws {
