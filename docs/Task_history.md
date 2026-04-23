@@ -4,12 +4,12 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 
 ---
 
-## Task 33 · Phase 0 M1 · 核心类型与配置迁移（进行中）
+## Task 33 · Phase 0 M1 · 核心类型与配置迁移
 
-- **时间**：2026-04-24 起
+- **时间**：2026-04-24
 - **描述**：落地 v2.0 spec §3.3 / §3.7 / §3.9 定义的领域模型——**以独立 V2* 类型** 新建（V2Tool / V2Provider / V2Configuration / V2ConfigurationStore），不改动现有 `Tool` / `Provider` / `Configuration` / `FileConfigurationStore` / `DefaultConfiguration`；新建 Orchestration / Capabilities 空 target；ConfigMigratorV1ToV2 纯函数 migrator 产出 V2Configuration
 - **详情**：[docs/Task-detail/2026-04-24-phase-0-m1-core-types.md](Task-detail/2026-04-24-phase-0-m1-core-types.md)
-- **结果**：进行中 / 完成时更新
+- **结果**：20 个 sub-task 全部完成（35 commit，26 个新源文件 + 22 个新测试文件 + 2 个 fixture JSON）；`swift build` / `swift test --parallel --enable-code-coverage`（320/320 pass）/ `xcodebuild ... SliceAI`（BUILD SUCCEEDED）/ `swiftlint lint --strict`（0/0 in 106 files）全绿；v1 `Tool` / `Provider` / `Configuration` / `ConfigurationStore` / `DefaultConfiguration` / `SelectionPayload` / `ToolExecutor.swift` / `AppContainer.swift` 字节不变（`git diff main..HEAD` 为空）；V2 canonical JSON schema 由 golden 测试锁定（10 个手写 Codable enum + 单键闸门 + `_0` 禁入）；两处 plan 内部冲突就地修订（`DisplayMode → PresentationMode` 避开 Tool.swift 冲突；Task 17/18 顺序互换解决依赖倒置）。分支 `feature/phase-0-m1-core-types`，HEAD `<本次 commit>`；未 push，等待用户审阅后决定 PR
 
 ---
 
