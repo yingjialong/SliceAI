@@ -56,7 +56,7 @@ public actor V2ConfigurationStore {
             return try loadV2Direct()
         }
         if let legacyFileURL, FileManager.default.fileExists(atPath: legacyFileURL.path) {
-            v2ConfigLog.info("v2 missing, migrating from v1 at \(legacyFileURL.path, privacy: .public)")
+            v2ConfigLog.info("v2 missing, migrating from v1 at \(legacyFileURL.path, privacy: .private)")
             let v2 = try migrateFromLegacy(at: legacyFileURL)
             try writeV2(v2)
             return v2
@@ -80,7 +80,11 @@ public actor V2ConfigurationStore {
         return appSupport.appendingPathComponent("config-v2.json")
     }
 
-    /// v1 旧路径（只供参考；v1 store 自己的 standardFileURL() 才是 AppContainer 读到的）
+    /// v1 旧路径，**仅供参考 / 测试 / M3 迁移使用**
+    ///
+    /// **DO NOT** wire this into AppContainer as the real v1 read path.
+    /// AppContainer 应该继续使用 `FileConfigurationStore.standardFileURL()`；
+    /// 本方法的存在只是让 V2ConfigurationStore 测试能构造 legacyFileURL 参数。
     public static func legacyV1FileURL() -> URL {
         // swiftlint:disable:next force_unwrapping
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -96,16 +100,16 @@ public actor V2ConfigurationStore {
         do {
             data = try Data(contentsOf: fileURL)
         } catch {
-            v2ConfigLog.error("v2 read failed: \(error.localizedDescription, privacy: .public)")
-            throw SliceError.configuration(.invalidJSON(error.localizedDescription))
+            v2ConfigLog.error("v2 read failed: \(error.localizedDescription, privacy: .private)")
+            throw SliceError.configuration(.invalidJSON("<redacted>"))
         }
 
         let cfg: V2Configuration
         do {
             cfg = try JSONDecoder().decode(V2Configuration.self, from: data)
         } catch {
-            v2ConfigLog.error("v2 decode failed: \(error.localizedDescription, privacy: .public)")
-            throw SliceError.configuration(.invalidJSON(error.localizedDescription))
+            v2ConfigLog.error("v2 decode failed: \(error.localizedDescription, privacy: .private)")
+            throw SliceError.configuration(.invalidJSON("<redacted>"))
         }
 
         if cfg.schemaVersion > V2Configuration.currentSchemaVersion {
@@ -120,13 +124,13 @@ public actor V2ConfigurationStore {
         do {
             data = try Data(contentsOf: legacyURL)
         } catch {
-            throw SliceError.configuration(.invalidJSON(error.localizedDescription))
+            throw SliceError.configuration(.invalidJSON("<redacted>"))
         }
         let v1: LegacyConfigV1
         do {
             v1 = try JSONDecoder().decode(LegacyConfigV1.self, from: data)
         } catch {
-            throw SliceError.configuration(.invalidJSON(error.localizedDescription))
+            throw SliceError.configuration(.invalidJSON("<redacted>"))
         }
         return ConfigMigratorV1ToV2.migrate(v1)
     }
