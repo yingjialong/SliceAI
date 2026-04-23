@@ -2,7 +2,7 @@
 
 - **日期**：2026-04-23
 - **版本**：2.0（产品定位重塑 + 底层架构重构规划）
-- **状态**：规划冻结（Design Freeze），待进入 `Phase 0` 实施
+- **状态**：Phase 0–1 = Design Freeze（可进入实施）；Phase 2–5 = Directional Outline（进入前需独立 spec）。详见 §4.1
 - **与 v1.0 的关系**：不作废 v1.0 ([docs/superpowers/specs/2026-04-20-sliceai-design.md](2026-04-20-sliceai-design.md))，而是在 v1.0 已完成的 MVP v0.1（8 个 module + 双通路触发 + OpenAI 兼容 + 4 内置工具）之上**扩展定位、重构核心抽象、新增模块**
 - **作者**：与产品负责人对齐后由 Claude 结构化产出
 - **读者**：项目作者 / 未来的 Claude 会话 / 潜在开源贡献者
@@ -13,6 +13,14 @@
   - Phase 0 从 22 任务一包改为 M1/M2/M3 三 milestone，每个独立 PR 可 merge（§4.2）
   - v2 期间使用独立 `config-v2.json` 路径，v1 原文件不动（§3.7 + §4.2）
   - **冻结范围收敛**：只有 Phase 0–1 是 Design Freeze，Phase 2–5 降为 Directional Outline，细节进入 phase 前再独立 plan（§4.1）
+- **评审与修订（第二轮）**：2026-04-23 Codex 二次评审再次给出 `REWORK_REQUIRED`（3 条 P1 安全硬伤 + 1 条一致性）；本文件在原地继续修订。主要变更：
+  - §3.9.1 / §3.9.2 重写：**能力分级为最低下限，来源分级只能在下限之上放宽 UX，不能突破下限**；`exec` / `network-write` 无论来源都要每次确认（D-22）
+  - §3.9 扩展 MCP 威胁建模：**启动 unknown stdio MCP server ≡ 授权用户身份下的本地代码执行**，不可靠运行时 gate 兜底；Phase 1 只推荐 first-party / 自管 server（D-23）
+  - §3.9 / §3.4 新增硬约束：执行前把 `ContextRequest` / `OutputBinding.sideEffects` 解析为 `effectivePermissions`，必须 ⊆ `tool.permissions`，否则直接失败（D-24）
+  - 全文一致性清理：§2.3、§3.1、§3.2、§3.4 Agent 伪代码、附录 A、附录 C 里残留的 `ExecutionContext` / 旧任务编号 / 旧迁移描述统一改为新命名
+- **评审与修订（第三轮）**：2026-04-23 Codex 三次评审给出 `REWORK_REQUIRED`（2 条 P1，已收敛到 `CONDITIONAL_APPROVE` 边界）。本文件继续原地修订：
+  - **Canonical schema 闭合（D-24 补全）**：`Tool` / `Skill` / `MCPDescriptor` 正式定义加 `provenance: Provenance`（§3.3.1 / §3.3.8 + 附录 B）；`ContextProvider` protocol 加 `static inferredPermissions(for args:)`（§3.3.3）；`SideEffect` 加 computed `inferredPermissions`（§3.3.6）；`Provenance` enum **唯一 canonical 定义**提升到 §3.3.5（SliceCore 权限体系），§3.9.1 与 §3.9.4.2 的重复定义删除
+  - **firstParty 授权规则收敛（D-25 新）**：§3.9.1 的"已声明即授权"描述删除；§3.9.2 下限列改为"所有来源均适用"；三处规则（§3.9.1 / §3.9.2 / §3.9.6）统一为 **"默认未授权 → 按下限触发确认 → 按 provenance 只调整确认 UX 文案"**；`firstParty` 对 `readonly-network` / `local-write` **不再跳过首次确认**
 
 ---
 
@@ -170,7 +178,7 @@ v1.0 的以下决策在 v2.0 **被修订**（见 §5.2 决策记录）：
 
 | 哲学 | 对应的架构决策 |
 |---|---|
-| 选中即输入 | `ExecutionContext` 把 selection 与 contexts 平级处理；contexts 可并发预取 |
+| 选中即输入 | `ExecutionSeed`（触发层产物）→ `ResolvedExecutionContext`（ContextCollector 产物）两阶段模型，selection 与 contexts 平级，contexts 平铺并发预取 |
 | Agent 即输出 | `Tool` 有三态（prompt/agent/pipeline），默认执行引擎是 agentic loop |
 | 本地优先 | `Capabilities` 层把 LLM / MCP / 文件 / shell 都 abstract 成 Capability，Ollama/MLX 与 OpenAI 平等 |
 | 想象力可实现 | `Tool Pack` 格式 + Prompt Playground + Tool from Conversation |
@@ -218,7 +226,7 @@ v1.0 的以下决策在 v2.0 **被修订**（见 §5.2 决策记录）：
          ▼               ▼                   ▼                ▼
 ┌─── SliceCore（领域层，零副作用）──────────────────────────────────┐
 │  Tool{PromptTool, AgentTool, PipelineTool}                        │
-│  ExecutionContext · ContextKey · ContextRequest                    │
+│  ExecutionSeed · ResolvedExecutionContext · ContextKey · ContextRequest │
 │  Provider · ProviderCapability                                     │
 │  Skill · MCPDescriptor · Permission                                │
 │  OutputBinding · DisplayMode · InvocationReport                    │
@@ -232,7 +240,7 @@ v1.0 的以下决策在 v2.0 **被修订**（见 §5.2 决策记录）：
 
 | 模块 | 状态 | 职责 | 新增 / 变更 |
 |---|---|---|---|
-| `SliceCore` | 扩充 | 领域模型 + 协议 | +`ExecutionContext` `Capability` `Permission` `Skill` `MCPDescriptor` `OutputBinding` 等 |
+| `SliceCore` | 扩充 | 领域模型 + 协议 | +`ExecutionSeed` `ResolvedExecutionContext` `Capability` `Permission` `Provenance` `Skill` `MCPDescriptor` `OutputBinding` 等 |
 | `LLMProviders` | 保留 + 扩展 | OpenAI 兼容实现 + 未来多 Provider | Phase 3 起加 Anthropic / Gemini / Ollama 原生 |
 | `SelectionCapture` | 保留 | AX + Cmd+C fallback | 无大改 |
 | `HotkeyManager` | 保留 + 扩展 | 全局热键 | Phase 1 起支持 per-tool hotkey |
@@ -254,11 +262,12 @@ public struct Tool: Identifiable, Codable, Sendable, Equatable {
     public var name: String
     public var icon: String
     public var description: String?
-    public var kind: ToolKind            // 新增
-    public var visibleWhen: ToolMatcher? // 新增，智能匹配（§3.3.7）
+    public var kind: ToolKind                // 新增
+    public var visibleWhen: ToolMatcher?     // 新增，智能匹配（§3.3.7）
     public var displayMode: DisplayMode
     public var outputBinding: OutputBinding? // 新增（§3.3.6）
-    public var permissions: [Permission]     // 新增（§3.3.5）
+    public var permissions: [Permission]     // 新增（§3.3.5）；必须覆盖所有 effective permission（D-24）
+    public var provenance: Provenance        // 新增（§3.9.1，D-23）；安装流程写入，运行时只读
     public var budget: ToolBudget?           // 新增，per-tool 成本上限
     public var hotkey: String?               // 新增，per-tool 快捷键
     public var labelStyle: ToolLabelStyle
@@ -395,8 +404,21 @@ public struct ContextRequest: Codable, Sendable, Equatable {
 }
 
 public protocol ContextProvider: Sendable {
+    /// Provider 注册名，必须唯一（如 "file.read" / "clipboard.current" / "mcp.call"）
     var name: String { get }
-    var requiredPermissions: [Permission] { get }
+
+    /// 【D-24 硬约束】静态推导：给定一次 request 的 args，本次采集会实际触发哪些 Permission？
+    ///
+    /// 这个方法必须是纯函数、无副作用、不访问外部资源——只根据 args 推导。
+    /// `PermissionGraph.compute(tool:)` 聚合所有 ContextProvider 的此方法返回值，
+    /// 与 `tool.permissions` 做 ⊆ 校验。漏报会导致 Tool 执行时"权限未声明"的运行错误；
+    /// 多报则会让 manifest 要求超出实际，没有安全风险但影响 UX。
+    ///
+    /// 例：`file.read` 应返回 `[.fileRead(path: args["path"] ?? "")]`；
+    ///    `mcp.call` 应返回 `[.mcp(server: args["server"]!, tools: [args["tool"]!])]`。
+    static func inferredPermissions(for args: [String: String]) -> [Permission]
+
+    /// 实际执行采集；调用前 `PermissionBroker.gate` 已通过
     func resolve(request: ContextRequest, seed: SelectionSnapshot, app: AppSnapshot) async throws -> ContextValue
 }
 ```
@@ -480,6 +502,24 @@ public struct PermissionGrant: Codable, Sendable, Equatable {
     public let grantedBy: GrantSource       // .userConsent / .toolInstall / .developer
     public let scope: GrantScope             // .oneTime / .session / .persistent
 }
+
+/// 【canonical 定义，D-23】信任来源分级
+///
+/// 由安装 / 导入流程写入 `Tool` / `Skill` / `MCPDescriptor` 等顶层资源；运行时只读。
+/// PermissionBroker 按"能力分级下限（§3.9.2）∧ Provenance 上限（§3.9.1）"合并决策。
+/// 语义细节见 §3.9.1；MCP server 的特殊约束见 §3.9.4.2。
+public enum Provenance: Codable, Sendable, Equatable {
+    /// 随 App 打包的 Starter Pack / 内置工具
+    case firstParty
+    /// 从官方 Marketplace 安装且签名校验通过（Phase 4+）
+    case communitySigned(publisher: String, signedAt: Date)
+    /// 用户本地 clone / 自己写的资源，安装时已显式承认"我已审读来源"
+    /// （仅 MCPDescriptor 当前 Phase 1 需要此态；其他资源到 Phase 4 再评估）
+    case selfManaged(userAcknowledgedAt: Date)
+    /// 手动导入文件 / URL clone / 第三方教程贴 / sideload
+    /// MCPDescriptor 不允许此态——Phase 1 安装流程会直接拒绝（§3.9.4.2）
+    case unknown(importedFrom: URL?, importedAt: Date)
+}
 ```
 
 **PermissionBroker**（在 Orchestration 层）：
@@ -515,12 +555,34 @@ public enum SideEffect: Codable, Sendable, Equatable {
     case writeMemory(tool: String, entry: TemplateString)
     case tts(voice: String?)
 }
+
+public extension SideEffect {
+    /// 【D-24 硬约束】纯静态推导本 side effect 触发的 Permission。
+    ///
+    /// 不可返回运行时依赖信息——所有所需 Permission 必须能从 case 的关联值推出。
+    /// `PermissionGraph.compute(tool:)` 聚合所有 sideEffect 的该值做 ⊆ 校验。
+    var inferredPermissions: [Permission] {
+        switch self {
+        case .appendToFile(let path, _):          return [.fileWrite(path: path)]
+        case .copyToClipboard:                    return [.clipboard]
+        case .notify:                             return []          // 本地通知不视作 permission
+        case .runAppIntent(let bundleId, _, _):   return [.appIntents(bundleId: bundleId)]
+        case .callMCP(let ref, _):                return [.mcp(server: ref.server, tools: [ref.tool])]
+        case .writeMemory(let toolId, _):         return [.memoryAccess(scope: toolId)]
+        case .tts:                                return [.systemAudio]
+        }
+    }
+}
+
+// DisplayMode.replace 的 permission 由 ExecutionEngine 在合并 effectivePermissions 时单独注入
+// （`primary == .replace` → 追加 .fileWrite 等价语义，但实际走 AX setSelectedText）
 ```
 
 **要点**：
 - `primary` 决定主 UI；`sideEffects` 是"顺便做这些事"（如翻译完自动复制到剪贴板）。
 - `structured` 模式要求 Tool 给出 `jsonSchema`，LLM 走 JSON-mode 输出，UI 层用 schema 渲染表单。
 - `replace` 需要 AX 写入，失败时降级为 `copyToClipboard` + 通知"请手动粘贴"。
+- `SideEffect.inferredPermissions` 必须保持纯静态——若未来扩展的 case 需要运行时信息才能确定 permission（如动态 URL），必须在编译期拆成更细的 case，不可在此方法中做 I/O 或条件分支依赖外部状态。
 
 #### 3.3.7 `ToolMatcher`：智能显示条件
 
@@ -542,23 +604,24 @@ UI 层在渲染浮条 / 面板工具列表前先过 `ToolMatcher.matches(context
 
 ```swift
 public struct Skill: Identifiable, Codable, Sendable, Equatable {
-    public let id: String               // 如 "english-tutor@1.2.0"
-    public let path: URL                // 本地 skill 目录
-    public var manifest: SkillManifest  // 从 SKILL.md 解析
+    public let id: String                   // 如 "english-tutor@1.2.0"
+    public let path: URL                    // 本地 skill 目录
+    public var manifest: SkillManifest      // 从 SKILL.md 解析
     public var resources: [SkillResource]
+    public var provenance: Provenance       // 新增（§3.9.1，D-23）；安装流程写入
 }
 
 public struct SkillManifest: Codable, Sendable, Equatable {
     public let name: String
     public let description: String
     public let version: String
-    public let triggers: [String]       // 何时激活
+    public let triggers: [String]           // 何时激活
     public let requiredCapabilities: [CapabilityRef]
 }
 
 public struct SkillReference: Codable, Sendable, Equatable {
-    public let id: String               // 指向 SkillRegistry
-    public let pinVersion: String?      // 可选锁定版本
+    public let id: String                   // 指向 SkillRegistry
+    public let pinVersion: String?          // 可选锁定版本
 }
 
 public struct MCPDescriptor: Identifiable, Codable, Sendable, Equatable {
@@ -569,6 +632,7 @@ public struct MCPDescriptor: Identifiable, Codable, Sendable, Equatable {
     public let url: URL?                    // sse / ws 时的端点
     public let env: [String: String]?
     public let capabilities: [MCPCapability] // 声明能提供的工具集、资源集
+    public var provenance: Provenance       // 新增（§3.9.4.2，D-23）；.unknown 来源在安装时即拒绝，运行时只会看到 .firstParty / .selfManaged / .communitySigned
 }
 
 public struct MCPToolRef: Codable, Sendable, Hashable {
@@ -622,9 +686,14 @@ public enum ExecutionEvent: Sendable {
 ```
 1. ExecutionEngine.execute(tool, seed)          // 入参是不可变 seed
       ↓
-2. PermissionBroker.check(tool.permissions, seed.isDryRun)
-      ├─ 未授权 → 弹确认 → 授予 / 拒绝
-      └─ 拒绝 → .failed(.permission(...))
+2. 计算 effective = PermissionGraph.compute(tool)  // 见 §3.9.6.5
+      ├─ effective ⊄ tool.permissions → .failed(.permission(.undeclared(...)))
+      └─ ok → 继续                                // 本步是纯静态校验，不弹 UI
+      ↓
+2.5 PermissionBroker.gate(effective, provenance: tool.provenance, isDryRun: seed.isDryRun)
+      ├─ 按 §3.9.2 下限 + §3.9.1 provenance 合并决策
+      ├─ 需确认 → 弹 UI → 授予 / 拒绝
+      └─ 拒绝 → .failed(.permission(.denied(...)))
       ↓
 3. let resolved: ResolvedExecutionContext =
      try await ContextCollector.resolve(seed: seed, requests: tool.contexts)
@@ -640,20 +709,26 @@ public enum ExecutionEvent: Sendable {
 6. 每次 LLM chunk 通过 OutputDispatcher 转发到 ResultPanel（或其他 DisplayMode）
       ↓
 7. 副作用由 OutputDispatcher 按 OutputBinding.sideEffects 触发
+   （每次副作用前仍会经过 PermissionBroker.gate，因为 network-write / exec 下限要求"每次确认"）
    （seed.isDryRun = true 时全部副作用被跳过，只流式呈现预览）
       ↓
 8. CostAccounting.record(invocationId, tokens, usd)
       ↓
-9. AuditLog.append(InvocationReport)
+9. AuditLog.append(InvocationReport{ declaredPermissions, effectivePermissions, flags, ... })
       ↓
 10. yield .finished(report)
 ```
 
+**关键约束**：
+- **Step 2 是纯静态闭环校验**（不涉及 UI），确保"实际会触发的 permission 是否都在 Tool manifest 里声明过"——这是 D-24 的架构级保证。
+- **Step 2.5 是运行时 gate**，按 §3.9.1 / §3.9.2 的合并规则判断具体弹不弹确认。
+- **Step 7 副作用阶段仍要 gate**：因为 `network-write` / `exec` 的"每次确认"下限不能被 Step 2.5 的"session 级授权"覆盖——副作用触发时机点才是用户真正需要看到参数的时机。
+
 **Agent loop（简化伪代码）**：
 
 ```swift
-func runAgent(tool: AgentTool, ctx: ExecutionContext) async throws {
-    var messages = buildInitialMessages(tool, ctx)
+func runAgent(tool: AgentTool, resolved: ResolvedExecutionContext) async throws {
+    var messages = buildInitialMessages(tool, resolved)
     let mcpTools = try await mcpClient.tools(for: tool.mcpAllowlist)
     let builtinTools = resolveBuiltins(tool.builtinCapabilities)
     let allTools = mcpTools + builtinTools
@@ -839,33 +914,60 @@ func runAgent(tool: AgentTool, ctx: ExecutionContext) async throws {
 
 #### 3.9.1 信任来源分级（Provenance）
 
-每个 Tool / Pack / Skill / MCPDescriptor 都带 `provenance: Provenance` 字段，由安装流程写入、运行时只读。
+`Provenance` 的 canonical 定义在 §3.3.5（作为 SliceCore 权限体系的一部分）；此处只定义 **运行时 gate 的 UX 差异**。每个 `Tool` / `Skill` / `MCPDescriptor` 都带 `provenance: Provenance` 字段，由安装流程写入、运行时只读。
 
-| 等级 | 定义 | 默认策略 |
-|---|---|---|
-| `firstParty` | 随 App 打包的 Starter Pack / 内置工具 | 全部能力默认授权 |
-| `communitySigned` | 从官方 Marketplace 安装且签名校验通过（Phase 4+ 才有签名体系） | readonly-local 默认授权；其余首次确认 |
-| `unknown` | 手动导入文件 / URL clone / git clone / sideload | 一律默认拒绝；每次调用都要确认 |
+> **核心原则（D-22 + 第三轮评审收敛 D-25）**：**能力分级决定最低安全下限（§3.9.2），Provenance 只能在下限之上微调 UX 文案，不能减少确认次数**。`firstParty` 不等于"全权限静默放行"，只能在 `readonly-local` 档免于确认；`readonly-network` / `local-write` / `network-write` / `exec` 的**首次 / 每次确认** **永远不可因来源而跳过**。
 
-```swift
-public enum Provenance: Codable, Sendable, Equatable {
-    case firstParty
-    case communitySigned(publisher: String, signedAt: Date)
-    case unknown(importedFrom: URL?, importedAt: Date)
-}
+**下限 × Provenance = 实际 gate 策略**（PermissionBroker 查表）：
+
+| 能力档 | `firstParty` | `communitySigned` | `selfManaged` | `unknown` |
+|---|---|---|---|---|
+| `readonly-local` | 静默 | 静默 | 静默 | 首次确认 |
+| `readonly-network` | **首次确认**（不可跳过） | 首次确认 | 首次确认 | 每次确认 |
+| `local-write` | **首次确认**（不可跳过） | 首次确认 | 首次确认 | 每次确认 |
+| `network-write` | **每次确认**（不可跳过） | 每次确认 | 每次确认 | 每次确认 |
+| `exec` | **每次确认**（不可跳过） | 每次确认 | 每次确认 | 每次确认 |
+
+**Provenance 唯一允许调节的 UX**：
+- 确认弹窗的**文案强度**（如 firstParty 用中性"授权以下操作？"；unknown 用警告"此来源未经过校验，继续？"）
+- 确认选项的**附加选项**（如 firstParty / signed 的首次确认 dialog 可勾"本次会话记住"；unknown 不显示此选项）
+- 确认弹窗的**信息披露深度**（如 unknown 必须展示完整 Permission diff；firstParty 可折叠）
+
+**不允许的**：
+- ❌ 因为 `firstParty` 就把 `readonly-network` / `local-write` 的首次确认跳过——这会让"安装即授权"悄悄生效，违反"默认安全"。
+- ❌ 因为 `firstParty` 就把 `network-write` / `exec` 的每次确认降级为"session 记住"——不可逆副作用必须逐次可审。
+
+**与 §3.9.6 的关系**：§3.9.6"默认拒绝"定义 grant 初始状态（未授权），本表定义"何时 / 如何从未授权进入授权"。三者现在互相一致：**默认未授权 → 按下限触发确认 → 按 provenance 调整确认 UX**。
+
+#### 3.9.2 能力分级（最低安全下限）
+
+下表的"**下限**"列是 `PermissionBroker` 的硬约束——**任何 provenance（包括 firstParty）都不可放宽**。
+
+| 级别 | 对应 Permission | 示例 | **下限（所有来源均适用）** |
+|---|---|---|---|
+| **readonly-local** | `clipboard`（读）、`fileRead`（白名单内）、`memoryAccess`（读） | selection / app.url / file.read | 路径必须在 PathSandbox 白名单内 |
+| **readonly-network** | `network(host:)` GET | HTTPS GET 白名单域名 / MCP 只读 tool | **首次确认**；域名必须显式声明 |
+| **local-write** | `fileWrite`（白名单内）、`clipboard`（写）、`replace` | appendToFile / copyToClipboard / setSelectedText | **首次确认**；路径必须在 PathSandbox 白名单内 |
+| **network-write** | `network(host:)` POST/PUT/DELETE | 发推 / Notion API / MCP 写操作 | **每次确认**（任何来源都不能放宽为"记住"） |
+| **exec** | `shellExec`、`appIntents`、启动子进程 | `shell.run` / runAppIntent / MCP stdio server 首次启动 | **每次确认 + 完整命令/意图参数可见** |
+
+具体到 provenance 的 UX 差异（弹窗文案、信息披露深度、是否可"本次会话记住"）见 §3.9.1 的"下限 × Provenance"表。
+
+`PermissionBroker.gate(...)` 的决策伪代码：
+
+```
+let tier = inferTier(permission)                  // readonly-local / readonly-network / ...
+let lowerBound = minimumGatePolicy(tier)          // 见本节表
+let uxHint = provenanceAdjustment(tier, provenance)  // 见 §3.9.1 表
+return LowerBound(policy: lowerBound, uxHint: uxHint)
 ```
 
-#### 3.9.2 能力分级
+**关键性质**：`lowerBound` 只依赖 `tier`，与 `provenance` **完全无关**；`provenance` 只产出 UX hint，不进入 policy 计算。这保证测试矩阵唯一（每个 tier 一个下限行，与 provenance 笛卡尔积只影响 UX 文案）。
 
-| 级别 | 对应 Permission | 示例 | 默认 Gate 策略 |
-|---|---|---|---|
-| **readonly-local** | `clipboard`（读）、`fileRead`（白名单）、`memoryAccess`（读） | selection / app.url / file.read（允许路径内） | 静默放行 |
-| **readonly-network** | `network(host:)` | HTTPS GET 到白名单域名、MCP 只读 tool | 首次确认，后续自动 |
-| **local-write** | `fileWrite`、`clipboard`（写）、`replace` | appendToFile / copyToClipboard / setSelectedText | 首次确认（可"本次会话记住"） |
-| **network-write** | `network(host:)` + POST/PUT/DELETE | 发推 / Notion API | 每次确认（可批量授权 1 小时） |
-| **exec** | `shellExec`、`appIntents` | `shell.run` / runAppIntent | 每次确认，必须显示完整命令/意图参数 |
-
-`PermissionBroker` 按 `(provenance, capabilityTier, grantScope)` 三维查表判定。
+**为什么这样定**：
+- 发推 API / 发邮件 MCP / 运行 `rm -rf` 的副作用不可逆，一旦放行为"记住"，用户事后发现时数据已经发生变化；
+- 即使工具来自 firstParty，用户也可能因为选区文本不符预期而不想 actually 执行；
+- 这是"默认安全"而非"默认便利"的选择，UX 代价可接受。
 
 #### 3.9.3 路径规范化与白名单
 
@@ -882,11 +984,38 @@ public enum Provenance: Codable, Sendable, Equatable {
 
 #### 3.9.4 Pack / Skill / MCP 安装校验
 
+##### 3.9.4.1 Pack / Skill（静态资源）
+
 Phase 4 Marketplace 上线时：
 - 官方 Pack 带 `manifest.sig`（Ed25519 签名，公钥随 App 内置）。
 - 安装流程：**下载 → 解压到临时目录 → 校验签名 → 展示 manifest 的 permissions 清单 → 用户确认 → 移动到 `~/Library/Application Support/SliceAI/packs/<id>/`**。
 - 签名失败或未签名：允许安装但 `provenance = .unknown`，执行时按 §3.9.2 的 unknown 策略 gate。
-- MCP server 的 stdio `command` **禁止**使用相对路径；`npx` / `uvx` 等常见 runner 白名单外的命令在 `unknown` 来源下需要用户输入确认串（防止 copy-paste 恶意 server config）。
+- Pack 安装不会执行任何代码（只解压 + 校验 + 挪位置），所以 `unknown` 来源风险在"运行时 gate"层可以兜住。
+
+##### 3.9.4.2 MCP Server（**威胁模型升级，D-23，Codex 第二轮评审**）
+
+> **关键认知**：stdio MCP server **不是** SliceAI 可以"沙箱化"的对象。它是用户身份下启动的独立进程，**等同于用户手动在终端里 `npx some-mcp-server`**——一旦启动，该进程的所有文件系统 / 网络 / 子进程 / Keychain 读取能力都是完整的用户权限，`PermissionBroker` 和 `PathSandbox` 只能约束 **SliceAI 与 server 的协议面**（tool call 参数、返回值），无法约束 server 进程自身的系统访问。
+
+因此 `PermissionBroker` 的运行时 gate **不能当作 MCP server 的安全兜底**。必须在**安装时**就把信任决定清楚：
+
+| 来源 | Phase 1 策略 | 安装 UX | 运行时 gate |
+|---|---|---|---|
+| `firstParty`（随 App 内置 MCP） | ✅ 允许 | 无额外确认 | 仍按 §3.9.2 对 tool call 参数做 gate |
+| `自管`（用户在本地 clone / 自己写、手动填 command） | ✅ 允许 | 弹出警告："启动此 MCP server 等同于授权它在你的账号下运行任意本地代码。请仅在你信任来源时继续" | 同上 |
+| `communitySigned`（Phase 4+ 带签名） | ⚠️ 允许 | 展示签名信息 + 警告 + `requiredCapabilities` 清单 | 同上 |
+| `unknown`（URL copy-paste / 第三方教程贴的 config） | ❌ **Phase 1 不支持** | 拒绝安装；在 Settings 明确给出"要装未知 MCP，请先手动 clone 到本地并审读源码，然后用'自管'方式添加" | — |
+
+**Phase 1 硬约束**：
+- `MCPDescriptor.provenance` 必须是 `.firstParty` 或用户在 Settings 里手动确认"我已审读来源"后的 `.selfManaged` 状态。`.unknown` 来源的 MCP config 在**安装流程入口**直接拒绝（不进数据模型）。
+- MCP server 的 stdio `command` **禁止**使用相对路径；`npx` / `uvx` / `node` / `python` 等 runner 在首次启动时要求用户输入"确认启动"串（防 copy-paste 攻击）。
+- 安装任何 MCP server 的 UX 文案**必须明确提示**："启动 MCP server = 授权用户身份下本地代码执行"；不可用"我们会沙箱它"之类的虚假安全感措辞。
+
+> `Provenance` 的 canonical 定义见 §3.3.5（含 `.selfManaged` case）。Phase 1 的 MCP 安装流程只允许产出 `.firstParty` / `.selfManaged` / `.communitySigned`；`.unknown` 是安装被拒绝的对象，不会落到磁盘。
+
+**不接受的安全幻觉**：
+- ❌ "stdio 子进程有进程隔离" —— 进程隔离不等于权限隔离，同 UID 进程可互相访问文件、剪贴板、Keychain。
+- ❌ "运行时 gate 可以兜住 unknown server" —— gate 只拦 SliceAI → server 方向的 tool call，server 进程可以自主发起任意系统调用，不经过 SliceAI。
+- ❌ "把 server 放进 App Sandbox" —— 需要全程 sandbox 重新签名 + server 自身也支持 sandbox，工程代价巨大且破坏"用本地能力"的卖点。Phase 1 不走这条路。
 
 #### 3.9.5 日志脱敏
 
@@ -903,6 +1032,55 @@ Phase 4 Marketplace 上线时：
 - 新装 Skill：`manifest.requiredCapabilities` 全部需用户勾选后生效。
 - 新增网络域名 / 文件路径：除白名单外一律走用户确认。
 
+#### 3.9.6.5 权限声明闭环（D-24，Codex 第二轮评审）
+
+> **问题**：Tool 有 `permissions: [Permission]` 静态声明，但 `ContextProvider` / `OutputBinding.sideEffects` 运行时还会**额外**触发文件读写、网络、MCP 调用等。如果 Tool 作者只声明了 `permissions: [.fileRead("~/Docs/**")]`，却在 `contexts` 里塞了 `file.read` 指向 `~/Desktop`，而 `~/Desktop` 又恰好在 PathSandbox 白名单里——就会出现"授权清单外的实际访问"，用户事先无法从 Tool manifest 审计出它会碰 `~/Desktop`。
+
+**硬约束**（`ExecutionEngine` 执行前必须过一道静态校验）：
+
+1. **计算 effectivePermissions**：
+   - 从 `tool.contexts: [ContextRequest]` 聚合：每个 request 根据 provider + args 计算出它会触发哪些 Permission（由 `ContextProvider.inferredPermissions(for args: [String:String]) -> [Permission]` 静态方法提供，每个内置 provider 必须实现）。
+   - 从 `tool.outputBinding.sideEffects: [SideEffect]` 聚合：同样有 `SideEffect.inferredPermissions` 静态映射。
+   - 从 `tool.kind.agent.mcpAllowlist` / `.builtinCapabilities` 聚合对应的 `Permission.mcp(...)` / `Permission.shellExec(...)` 等。
+   - 取并集得到 `effectivePermissions: Set<Permission>`。
+
+2. **校验 ⊆ 关系**：
+   - 若 `effectivePermissions ⊄ Set(tool.permissions)` → `ExecutionEngine.execute` 立即 `yield .failed(.permission(.undeclared(missing: effective - declared)))`。
+   - 校验发生在流程 Step 2 之后、Step 3（ContextCollector.resolve）之前——**访问永远不会早于校验**。
+
+3. **Tool 编辑器 / 安装流程也静态跑一次**：
+   - Tool 编辑器保存时 lint 显示"以下 context / sideEffect 产生的 permission 未在 `permissions` 中声明"。
+   - Marketplace 安装时展示"完整 effectivePermissions 清单"供用户确认——用户看到的是**实际会发生的**访问，而非作者声明的。
+
+4. **审计**：
+   - `AuditLog` 记录 `declaredPermissions` 与 `effectivePermissions` 的 diff；有差额时 `InvocationReport.flags` 里打 `.permissionUndeclared`。
+   - 即便校验通过（declared 覆盖 effective），记录 diff 有助于事后溯源"实际用了哪些 permission 子集"。
+
+```swift
+// Orchestration/PermissionGraph.swift 骨架（Phase 0 M2 实现）
+public struct EffectivePermissions: Sendable, Equatable {
+    public let declared: Set<Permission>
+    public let fromContexts: Set<Permission>
+    public let fromSideEffects: Set<Permission>
+    public let fromMCP: Set<Permission>
+    public let fromBuiltins: Set<Permission>
+
+    public var union: Set<Permission> {
+        fromContexts.union(fromSideEffects).union(fromMCP).union(fromBuiltins)
+    }
+    public var undeclared: Set<Permission> { union.subtracting(declared) }
+}
+
+public enum PermissionError: Error, Sendable {
+    case undeclared(missing: Set<Permission>)
+    case denied(Permission)
+    case sandboxViolation(path: String)
+    // ... 其他
+}
+```
+
+**为什么放在 Phase 0**：这是**架构级硬约束**而非运行时策略，必须在 `ContextProvider` / `SideEffect` 的 protocol 设计阶段就加上 `inferredPermissions` 要求，后补成本 10 倍。Phase 0 M1 的 `ContextProvider` protocol 必须带此方法；M2 的 `ExecutionEngine` 必须在主流程里做 ⊆ 校验。
+
 #### 3.9.7 审计不可绕过
 
 - 任何 `ExecutionEngine.execute(...)` 调用都至少产生一条 `InvocationReport`（成功 / 失败 / 被拒 都记录）。
@@ -913,11 +1091,14 @@ Phase 4 Marketplace 上线时：
 
 | Hook | 位置 | 状态 |
 |---|---|---|
-| `Provenance` 字段 | `Tool` / `Skill` / `MCPDescriptor` / `Pack` manifest | Phase 0 M1 加 |
-| `PermissionBroker.check(tier:provenance:scope:)` 接口 | Orchestration | Phase 0 M2 加骨架（默认全放行），Phase 1 填实 |
-| 路径规范化工具 `PathSandbox.normalize(_:against:)` | Capabilities/SecurityKit 新文件 | Phase 0 M2 加 |
-| `AuditLog.append(InvocationReport)` | Orchestration | Phase 0 M2 加骨架 + 脱敏测试 |
-| `SliceError.developerContext` 脱敏单测 | SliceCore | 已有；扩展覆盖新增的 payload |
+| `Provenance` 字段（含 `.selfManaged` case） | `Tool` / `Skill` / `MCPDescriptor` / `Pack` manifest | Phase 0 M1 加 |
+| `ContextProvider.inferredPermissions(for:)` 协议方法 | `SliceCore/Context.swift` | Phase 0 M1 加；内置 provider 全部实现 |
+| `SideEffect.inferredPermissions` 静态映射 | `SliceCore/OutputBinding.swift` | Phase 0 M1 加 |
+| `PermissionGraph.compute(tool:) -> EffectivePermissions` | `Orchestration/PermissionGraph.swift` | Phase 0 M2 加；ExecutionEngine Step 2 调用 |
+| `PermissionBroker.gate(effective:provenance:scope:isDryRun:)` 接口 | Orchestration | Phase 0 M2 加骨架（按 §3.9.2 下限表跑单测），Phase 1 填实 UI gate |
+| 路径规范化工具 `PathSandbox.normalize(_:against:)` + 硬禁止路径单测 | Capabilities/SecurityKit 新文件 | Phase 0 M2 加 |
+| `AuditLog.append(InvocationReport{declaredPermissions, effectivePermissions, flags})` | Orchestration | Phase 0 M2 加骨架 + 脱敏测试 |
+| `SliceError.developerContext` 脱敏单测 | SliceCore | 已有；扩展覆盖新增 payload（含 `PermissionError.undeclared.missing` 集合） |
 
 ---
 
@@ -933,7 +1114,7 @@ Phase 4 Marketplace 上线时：
 
 | Phase | 主题 | 状态 | 时长（人天） | 对外可见新功能 | 关键产出 |
 |---|---|---|---|---|---|
-| **0** | 底层重构 | **Freeze** | 14–20（M1+M2+M3） | **无**（只重构） | Orchestration + Capabilities 骨架、Tool 三态、ExecutionSeed/ResolvedContext、Permission + Provenance + PathSandbox hook、v2 schema + 独立 config 路径 |
+| **0** | 底层重构 | **Freeze** | 15–21（M1+M2+M3） | **无**（只重构） | Orchestration + Capabilities 骨架、Tool 三态、ExecutionSeed/ResolvedContext、Permission + Provenance + PermissionGraph + PathSandbox hook、v2 schema + 独立 config 路径 |
 | **1** | MCP + Context 主干 | **Freeze** | 20–30 | MCP 支持 / 5 个核心 ContextProvider / Per-Tool Hotkey | MCPClient（stdio + SSE）+ MCPServersPage + AgentExecutor + `web-search-summarize` 首个真 Agent Tool |
 | **2** | Skill + 多 DisplayMode | Directional | — | Skill 接入 / replace / bubble / structured / TTS | 进入前重新 spec |
 | **3** | Prompt IDE + 本地模型 | Directional | — | Playground / A-B / Ollama & Anthropic 原生 / Memory | 进入前重新 spec |
@@ -970,8 +1151,8 @@ Phase 4 Marketplace 上线时：
 |---|---|---|---|
 | M1.1 | 新增 `Orchestration` + `Capabilities` 空 library target | 0.5 | `Package.swift` 更新 + 两个空 `README.md` |
 | M1.2 | `SliceCore/ExecutionSeed.swift` + `ResolvedExecutionContext.swift` + `SelectionSnapshot.swift` 重命名 | 1.5 | 新类型 + 单测（构造、等价、透传） |
-| M1.3 | `SliceCore/Context.swift`：`ContextKey` / `ContextRequest` / `ContextProvider` protocol | 1 | protocol + 注册点 + `Requiredness` enum |
-| M1.4 | `SliceCore/Permission.swift` + `Provenance.swift` | 1 | enum + `PermissionGrant` + `Provenance` 结构 + 单测 |
+| M1.3 | `SliceCore/Context.swift`：`ContextKey` / `ContextRequest` / `ContextProvider` protocol（**含 `inferredPermissions(for args:)` 协议方法，D-24**） | 1 | protocol + 注册点 + `Requiredness` enum |
+| M1.4 | `SliceCore/Permission.swift` + `Provenance.swift`（**含 `.selfManaged` case，D-23**）+ `SideEffect.inferredPermissions` 映射 | 1 | enum + `PermissionGrant` + `Provenance` 结构 + 单测 |
 | M1.5 | `SliceCore/Tool.swift` 改造为三态 `ToolKind`（prompt/agent/pipeline） | 2 | 新 Tool + 反序列化兼容 v1 扁平结构的测试 |
 | M1.6 | `SliceCore/Provider.swift` 加 `capabilities: Set<ProviderCapability>` + `ProviderSelection` enum | 1 | 新 Provider + 单测 |
 | M1.7 | `SliceCore/OutputBinding.swift` + `SideEffect` | 0.5 | 新类型 |
@@ -986,7 +1167,7 @@ Phase 4 Marketplace 上线时：
 
 ---
 
-##### Milestone M2 · Orchestration + Capabilities 骨架（5–7 人天）
+##### Milestone M2 · Orchestration + Capabilities 骨架（6–8 人天）
 
 目标：执行引擎、上下文采集器、权限 broker、成本记账、审计日志、路径沙箱、Prompt executor 全部成型，**可独立单测**但尚未在 app 启动链路中接入。
 
@@ -994,7 +1175,8 @@ Phase 4 Marketplace 上线时：
 |---|---|---|---|
 | M2.1 | `Orchestration/ExecutionEngine.swift` 骨架 + `ExecutionEvent` | 1.5 | actor + 事件流 + dry-run 分支 + 单测（Mock Provider） |
 | M2.2 | `Orchestration/ContextCollector.swift`（**平铺并发，非 DAG**） | 1.5 | `resolve(seed:requests:) -> ResolvedExecutionContext` + timeout + failures 记录 + 单测 |
-| M2.3 | `Orchestration/PermissionBroker.swift`（接口 + 默认全放行实现） | 1 | `check(tier:provenance:scope:)` + grant store + 单测（覆盖 §3.9.2 表） |
+| M2.3 | `Orchestration/PermissionBroker.swift`（接口 + 默认全放行实现，但 **§3.9.2 下限约束在此层硬编码**） | 1 | `gate(effective:provenance:scope:isDryRun:)` + grant store + 单测覆盖 §3.9.2 表（firstParty 不能放行 exec / network-write） |
+| **M2.3a** | **`Orchestration/PermissionGraph.swift`（D-24 新增）**：`compute(tool:) -> EffectivePermissions` + `ExecutionEngine` Step 2 静态校验 ⊆ | 1 | 单测覆盖：未声明的 context permission 导致 `.failed(.permission(.undeclared))`；多种 tool.kind 均命中 |
 | M2.4 | `Orchestration/CostAccounting.swift` | 1 | sqlite schema + 写入 API + 单测 |
 | M2.5 | `Orchestration/AuditLog.swift` | 1 | jsonl append + 脱敏（§3.9.5）+ 单测（含 `logCleared` 事件） |
 | M2.6 | `Orchestration/OutputDispatcher.swift`（**仅 window 分支**，其余 mode 返回 `.notImplemented` 事件） | 0.5 | 路由 + 单测 |
@@ -1032,7 +1214,7 @@ Phase 4 Marketplace 上线时：
 
 ---
 
-**Phase 0 合计人天**：14–20（比初版 22–27 更紧凑，因为移除了"ExecutionContext 重复建模"等冗余并把 DAG 延后）。加 buffer 20% → **18–24 人天**。
+**Phase 0 合计人天**：15–21（M1: 6–8 + M2: 6–8 + M3: 3–5；比初版 22–27 更紧凑，因为移除了 "ExecutionContext 重复建模" 等冗余并把 DAG 延后；M2 加了 PermissionGraph 补 1 人天）。加 buffer 20% → **19–26 人天**。
 
 #### 4.2.4 整体 Definition of Done（M1 + M2 + M3 全部合入）
 
@@ -1259,6 +1441,10 @@ Phase 4 Marketplace 上线时：
 | **D-19** | **Freeze 范围收敛到 Phase 0–1**，Phase 2–5 降为 Directional Outline | 全 phase 一次性冻结 | 采纳 Codex 评审 P2-1：提前冻结 Phase 2+ 会强加过早抽象；每个 phase 进入前独立 spec 评审更健康 |
 | **D-20** | **Phase 0 拆 M1/M2/M3 三个独立 PR**，而非一次大重构 | 单一 Phase 0 PR | 采纳 Codex 评审 P1-1（重新定性）：不因风险（worktree 已隔离），而因可 review 性；三段依赖最小化，M1 只碰 SliceCore，M2 只碰新 target，M3 才切 AppContainer |
 | **D-21** | **§3.9 独立 Security Model**（来源分级 + 能力分级 + 路径沙箱 + 日志脱敏 + 默认拒绝） | 仅 Permission 枚举 + 弹窗 | 采纳 Codex 评审 P1-3：MCP / shell / Marketplace 的信任边界必须在 Phase 0 就有 hook，而不是 Phase 4 赶工 |
+| **D-22** | **能力分级是最低下限，Provenance 只能在下限之上放宽 UX，不能突破下限**；`exec` / `network-write` 无论来源都要每次确认 | firstParty 全能力默认静默 | 采纳 Codex 第二轮评审 P1-1：不可逆副作用不应因来源而下放；"默认安全"优先于"默认便利" |
+| **D-23** | **stdio MCP server ≡ 用户身份下本地代码执行**，Phase 1 只支持 `firstParty` / `selfManaged`（用户审读后接受），**`unknown` 来源的 MCP config 直接拒绝导入** | 运行时 gate 兜底所有来源 | 采纳 Codex 第二轮评审 P1-2：PermissionBroker 只能约束协议面，无法约束 server 进程自主系统访问；必须在安装时决定信任 |
+| **D-24** | **权限声明闭环**：执行前静态计算 `effectivePermissions`（来自 contexts + sideEffects + mcpAllowlist + builtins），必须 ⊆ `tool.permissions`，否则直接失败 | 只 check `tool.permissions`，运行时由 PathSandbox 兜底 | 采纳 Codex 第二轮评审 P1-3：避免"授权清单里没有、但实际访问发生"；要求 `ContextProvider.inferredPermissions` 协议级实现，Phase 0 M1/M2 就位 |
+| **D-25** | **Provenance 只调节 UX 文案，不减少确认次数**；`Provenance` canonical 定义唯一化到 `SliceCore/Permission.swift`（§3.3.5） | 第二轮写的"firstParty 对 readonly-network / local-write 已声明即授权" | 采纳 Codex 第三轮评审 P1-2：多处规则（§3.9.1 / §3.9.2 / §3.9.6）必须同时成立；"已声明即授权"会让 PermissionBroker 测试矩阵不唯一、且违反"默认安全"。统一为"下限由 capability 决定，provenance 只改 UX"。副产品：三处 Provenance 定义收敛到一处，canonical schema 闭合（配合 D-24） |
 
 ### 5.3 待验证假设（Open Questions）
 
@@ -1269,7 +1455,10 @@ Phase 4 Marketplace 上线时：
 3. Ollama 的 function-calling 在 2026 年的主流模型（Llama 3.3、Qwen 3、DeepSeek V3）上稳定度？—— **Phase 3 进入前需答**
 4. macOS Services 菜单在 unsigned app 上是否受限？—— **Phase 4 进入前需答**
 5. 用户对"Tool Permission 弹窗确认"的容忍度——多少次确认后就烦了？需要早期用户测试。—— **Phase 1 早期验收** `web-search-summarize` Tool 时观察
-6. ~~`.slicepack` 的 import 安全——用户从陌生地方装 pack 会不会被注入恶意 prompt？是否需要 sandboxing？~~ —— **已由 §3.9 Security Model 回答**：签名校验 + `provenance=.unknown` 默认全权限拒绝 + 运行时能力分级 gate；Phase 4 前按此设计实施，不需要额外 sandboxing（stdio 子进程本就是进程隔离）
+6. `.slicepack` / MCP server 的 import 安全 —— **已由 §3.9 部分回答，但需区分两类**：
+   - **Pack / Skill（纯静态资源）**：签名校验 + `provenance=.unknown` 默认全权限拒绝 + 运行时能力分级 gate 足够。安装过程不执行代码，所以不需要 sandboxing。
+   - **MCP server（独立进程）**：**进程隔离 ≠ 权限隔离**。stdio MCP server 启动后等同于用户身份下本地代码执行，SliceAI 的 PermissionBroker 只能约束协议面。因此 Phase 1 硬约束：`unknown` 来源的 MCP config **直接拒绝导入**（见 §3.9.4.2 + D-23）；未来是否引入真正的 server 侧 sandbox（sandbox-exec / seatbelt / Docker）在 Phase 4 Marketplace 进入前再独立评估。
+   - **遗留疑问**：`selfManaged` 的"用户审读后接受"UX 如何设计？仅一次文本警告是否足够？需要 Phase 1 早期在实机 UX 迭代中验证。
 7. （新增）`PermissionGrant` 的持久化粒度："本次会话"（进程级）vs "今日"（24h）vs "永久"三种 scope 哪种是默认？需在 Phase 1 的 `web-search-summarize` Tool 上做 A/B。
 
 这些问题在对应 phase 的 plan.md 中必须先给出答案。
@@ -1320,7 +1509,9 @@ Phase 4 Marketplace 上线时：
 | Skill | Roadmap 未实现 | Phase 2 落地 | 新增 |
 | Memory | 无 | Phase 3 落地 | 新增 |
 | Marketplace | 无 | Phase 4 落地 | 新增 |
-| `schemaVersion` | 1 | 2（Phase 0 升级） | 自动迁移 + v1 备份 |
+| `schemaVersion` | 1 | 2（Phase 0 升级） | `config-v2.json` 独立路径；v1 原文件不动（见 §3.7） |
+| Provenance | 无 | 显式 `Provenance` 字段（firstParty / communitySigned / selfManaged / unknown） | 迁移器给所有 v1 Tool 赋 `.firstParty`；`Skill` / `MCPDescriptor` 由安装流程写入 |
+| 安全模型 | 无 | §3.9 Security Model（下限不可放宽 + MCP 威胁建模 + 权限声明闭环 + PathSandbox + 脱敏） | Phase 0 M1/M2 埋 hook；Phase 1 填实 |
 
 ### 附录 B：核心数据模型伪代码汇总
 
@@ -1335,7 +1526,8 @@ public struct Tool: Identifiable, Codable, Sendable, Equatable {
     public var visibleWhen: ToolMatcher?
     public var displayMode: DisplayMode
     public var outputBinding: OutputBinding?
-    public var permissions: [Permission]
+    public var permissions: [Permission]    // D-24: 必须覆盖所有 effective permission
+    public var provenance: Provenance       // D-23: 安装流程写入
     public var budget: ToolBudget?
     public var hotkey: String?
     public var labelStyle: ToolLabelStyle
@@ -1347,6 +1539,13 @@ public enum ToolKind: Codable, Sendable, Equatable {
     case agent(AgentTool)
     case pipeline(PipelineTool)
 }
+
+// ========== SliceCore/Permission.swift ==========
+// canonical Provenance 定义见 §3.3.5（含 .firstParty / .communitySigned / .selfManaged / .unknown）
+// 本附录仅为查阅索引，不重复定义；任何代码引用以 §3.3.5 为准
+
+// ========== SliceCore/Skill.swift / MCPDescriptor.swift ==========
+// Skill / MCPDescriptor 均带 `provenance: Provenance`（见 §3.3.8）
 
 // ========== SliceCore/ExecutionSeed.swift ==========
 public struct ExecutionSeed: Sendable, Equatable {
@@ -1381,21 +1580,63 @@ public struct Provider: Identifiable, Codable, Sendable, Equatable {
 // ========== Orchestration/ExecutionEngine.swift ==========
 public actor ExecutionEngine { /* 见 §3.4 */ }
 
-public protocol ContextProvider: Sendable { /* 见 §3.3.3 */ }
+// ========== SliceCore/Context.swift ==========
+public protocol ContextProvider: Sendable {
+    var name: String { get }
+    static func inferredPermissions(for args: [String: String]) -> [Permission]  // D-24
+    func resolve(request: ContextRequest, seed: SelectionSnapshot, app: AppSnapshot) async throws -> ContextValue
+}
 
+// ========== SliceCore/OutputBinding.swift ==========
 public enum SideEffect: Codable, Sendable, Equatable { /* 见 §3.3.6 */ }
+public extension SideEffect {
+    var inferredPermissions: [Permission] { /* 见 §3.3.6 */ }   // D-24
+}
+
+// ========== Orchestration/PermissionGraph.swift ==========
+public struct EffectivePermissions: Sendable, Equatable {
+    public let declared: Set<Permission>
+    public let fromContexts: Set<Permission>
+    public let fromSideEffects: Set<Permission>
+    public let fromMCP: Set<Permission>
+    public let fromBuiltins: Set<Permission>
+    public var union: Set<Permission> { /* 并集 */ }
+    public var undeclared: Set<Permission> { union.subtracting(declared) }
+}
 ```
 
-### 附录 C：实施时的参考顺序
+### 附录 C：实施时的参考顺序（对应 §4.2.3 M1/M2/M3 拆分）
 
-Phase 0 之内的推荐实施顺序：
+**M1 · 纯数据模型 + 配置迁移**（一个 PR）
+1. M1.1 先建 `Orchestration` / `Capabilities` 空 target → 让 `Package.swift` 和 CI 先挂起来。
+2. M1.2–M1.4 做"与执行无关的基础类型"：`ExecutionSeed` / `ResolvedExecutionContext` / `SelectionSnapshot` / `ContextKey` / `ContextRequest` / `ContextProvider` protocol / `Permission` / `Provenance`。
+3. M1.5–M1.8 做"上层业务类型"：三态 `Tool` / `Provider` 扩展 / `OutputBinding` / `Skill` / `MCPDescriptor`。
+4. M1.9 做 `Configuration` v2 + `ConfigMigratorV1ToV2` + `config-v2.json` 独立路径（v1→v2 映射给所有 Tool 补 `provenance = .firstParty`；`Skill` / `MCPDescriptor` 的 provenance 由安装流程负责写入）。
+5. 合并前：`swift test SliceCoreTests` 全绿；app 行为仍为 v0.1。
 
-1. 先建 target + Package.swift（0.1 / 0.2）→ 让 CI 先挂起来。
-2. 再做纯数据模型（0.3 / 0.4 / 0.5 / 0.6 / 0.7 / 0.8 / 0.9）→ 不依赖其他层。
-3. 然后 Configuration 迁移（0.10）→ 让 v1 config 能被加载。
-4. 然后 Orchestration 骨架（0.11 / 0.12 / 0.13 / 0.14 / 0.15 / 0.16）→ 让 app 能跑。
-5. 最后 PromptExecutor 迁移（0.17）+ 删除旧 ToolExecutor（0.20）+ AppContainer 装配（0.19）。
-6. 回归验证（0.21）→ 文档更新（0.22）。
+**M2 · Orchestration + Capabilities 骨架**（一个 PR）
+6. M2.1 `ExecutionEngine` 骨架（入参 `ExecutionSeed`，流程按 §3.4 Step 1→10）。
+7. M2.2 `ContextCollector`（平铺并发，非 DAG）。
+8. M2.3 `PermissionBroker` 接口 + 默认全放行实现 + **按 §3.9.2 下限表跑单测**（验证 exec / network-write 不会因 firstParty 被放行）。
+9. M2.4–M2.5 `CostAccounting` + `AuditLog`（含 §3.9.5 脱敏）。
+10. M2.6 `OutputDispatcher`（仅 window 分支）。
+11. M2.7 `PromptExecutor`（从旧 `ToolExecutor` 复制逻辑，不替换）。
+12. M2.8 `PathSandbox`（§3.9.3 白名单校验 + 硬禁止路径单测）。
+13. **M2 关键新增**：`PermissionGraph.compute(tool)`（§3.9.6.5，Step 2 静态校验 effectivePermissions ⊆ declared）。
+14. M2.9 `MCPClientProtocol` / `SkillRegistryProtocol` 预留。
+15. 合并前：`swift test OrchestrationTests CapabilitiesTests` 全绿；覆盖率 ≥ 75%。
+
+**M3 · 切换 AppContainer + 删旧**（一个 PR）
+16. M3.1 AppContainer 装配 ExecutionEngine 链路。
+17. M3.2 触发通路切到 `ExecutionEngine.execute(tool:seed:)`。
+18. M3.3 `ConfigurationStore` 按 §3.7 规则选择 v1/v2 路径 + 跑 migrator。
+19. M3.4 删除 `SliceCore/ToolExecutor.swift`。
+20. M3.5 端到端手动回归（§4.2.5 清单）。
+21. M3.6 更新 README 项目修改变动记录 + Module 文档 + Task-detail。
+
+**不变量**：
+- M1 merge 前 app 必须仍跑旧 `ToolExecutor`；M2 merge 前仍跑旧 `ToolExecutor`；M3 才切换。
+- 任何一个 milestone 的 PR 如果需要修改另一个 milestone 范围的文件（例如 M2 的 PR 动了 AppContainer），说明拆分有误，要重新 review。
 
 ### 附录 D：对外叙事（Launch Narrative）
 

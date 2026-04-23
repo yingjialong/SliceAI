@@ -4,6 +4,24 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 
 ---
 
+## Task 27 · 基于 Codex 第三轮评审再次修订 v2.0 Roadmap
+
+- **时间**：2026-04-23
+- **描述**：针对 Codex 第三轮 `REWORK_REQUIRED`（2 条 P1，已收敛到 CONDITIONAL_APPROVE 边界）全部接受。(D-24 补全) canonical schema 闭合：`Tool` / `Skill` / `MCPDescriptor` 正式结构加 `provenance: Provenance`；`ContextProvider` protocol 加 `static inferredPermissions(for:)`；`SideEffect` 加 computed `inferredPermissions`；`Provenance` enum 唯一 canonical 定义上移到 §3.3.5，§3.9 的两处重复定义删除；附录 B 伪代码同步。(D-25) firstParty 授权规则收敛：删除 §3.9.1 的"已声明即授权"描述；§3.9.2 下限列改为"所有来源均适用"；三处规则（§3.9.1 / §3.9.2 / §3.9.6）统一为"默认未授权 → 按下限触发确认 → provenance 只调整 UX 文案"，`firstParty` 对 `readonly-network` / `local-write` 不再跳过首次确认
+- **详情**：直接修订 `docs/superpowers/specs/2026-04-23-sliceai-v2-roadmap.md`（§0 追加第三轮评审条目、§3.3.1 / §3.3.3 / §3.3.5 / §3.3.6 / §3.3.8 数据模型补字段、§3.9.1 / §3.9.2 / §3.9.4.2 重写、§5.2 追加 D-25、附录 B 同步）
+- **结果**：spec 第三轮修订完成；Provenance / inferredPermissions / firstParty 规则三处收敛；下一步应出 M1 plan.md 进入实施
+
+---
+
+## Task 26 · 基于 Codex 第二轮评审再次修订 v2.0 Roadmap
+
+- **时间**：2026-04-23
+- **描述**：针对 Codex 第二轮 `REWORK_REQUIRED` 的 3 条安全硬伤 + 1 条一致性清理逐条修订 spec。**三条硬伤全部接受**：(D-22) 重写 §3.9.1 / §3.9.2——能力分级为最低下限、Provenance 只放宽 UX 不突破下限，`exec` / `network-write` 无论来源都要每次确认；(D-23) §3.9.4.2 升级 MCP 威胁建模——stdio server ≡ 用户身份下本地代码执行，Phase 1 只允许 `firstParty` / `selfManaged`（新增 Provenance case），`unknown` 来源直接拒绝导入；(D-24) §3.9.6.5 + §3.4 流程 Step 2 加入权限声明闭环——执行前静态计算 effectivePermissions 必须 ⊆ tool.permissions。一致性清理：§0 状态行、§2.3 哲学表、§3.1 分层图、§3.2 模块表、§3.4 Agent 伪代码、附录 A、附录 C 全部统一为新命名与新 milestone 编号。M2 任务表新增 M2.3a（PermissionGraph），Phase 0 合计人天从 14–20 上调到 15–21
+- **详情**：直接修订 `docs/superpowers/specs/2026-04-23-sliceai-v2-roadmap.md`（§0 追加第二轮评审条目、§3.9 重写、§3.4 Step 2/2.5 新增、§5.2 追加 D-22/D-23/D-24、§4.2 M2.3a 新增、附录清理）
+- **结果**：spec 第二轮修订完成；Phase 0–1 仍处 Design Freeze，下一步出 M1 plan.md
+
+---
+
 ## Task 25 · 基于 Codex 评审修订 v2.0 Roadmap
 
 - **时间**：2026-04-23
