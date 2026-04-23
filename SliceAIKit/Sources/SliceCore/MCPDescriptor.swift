@@ -23,6 +23,10 @@ public struct MCPDescriptor: Identifiable, Sendable, Codable, Equatable {
     /// 声明能提供的能力
     public let capabilities: [MCPCapability]
     /// 信任来源（仅 `.firstParty` / `.communitySigned` / `.selfManaged`；不可为 `.unknown`）
+    ///
+    /// `var` 允许安装流程在签名校验完成后更新；运行时消费方（MCPClient 启动检查、PermissionBroker）
+    /// **不得 mutate**，按只读语义消费。`.unknown` 在安装流程入口被拒绝（D-23 / §3.9.4.2），
+    /// 理论上不会被构造出来，本字段也不在代码层强制——信任边界在安装流程。
     public var provenance: Provenance
 
     /// 构造 MCPDescriptor

@@ -12,7 +12,11 @@ public struct Skill: Identifiable, Sendable, Codable, Equatable {
     public var manifest: SkillManifest
     /// 资源文件列表（图片 / CSV / reference MD 等）
     public var resources: [SkillResource]
-    /// 信任来源；安装流程写入，运行时只读
+    /// 信任来源
+    ///
+    /// `var` 是为了让安装流程在签名校验完成后更新（例如从 `.selfManaged` 升级为 `.communitySigned`）；
+    /// 运行时消费方（PermissionBroker / audit log）**不得 mutate**，按只读语义消费。
+    /// 本契约由调用方约束；struct 本身无法在类型层面禁止。
     public var provenance: Provenance
 
     /// 构造 Skill
@@ -36,6 +40,10 @@ public struct SkillManifest: Sendable, Codable, Equatable {
     /// 激活条件（表达式字符串，Phase 2 解析）
     public let triggers: [String]
     /// 需要的 Provider 能力
+    ///
+    /// **不去重**：M1 保持用户 SKILL.md 声明顺序不变；Phase 2 的 SkillRegistry 在
+    /// 装载时按需去重 + 与 Provider.capabilities 做能力匹配。若用户手改 SKILL.md
+    /// 写入重复 capability，这里不会静默 dedup，交由 SkillRegistry 报告冲突。
     public let requiredCapabilities: [ProviderCapability]
 
     /// 构造 SkillManifest
