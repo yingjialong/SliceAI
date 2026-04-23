@@ -1,5 +1,6 @@
 ## Superpowers / 本地工作目录
 .superpowers/
+.worktrees/
 
 ## Claude Code 本地工具配置（plugin 启用状态等，属于开发者本机环境）
 .claude/
