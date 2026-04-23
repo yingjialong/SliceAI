@@ -171,6 +171,40 @@ final class ToolKindTests: XCTestCase {
         XCTAssertFalse(json.contains("\"_0\""))
     }
 
+    func test_pipelineStep_goldenJSON_tool_nestedStruct() throws {
+        let enc = JSONEncoder(); enc.outputFormatting = [.sortedKeys]
+        let step = PipelineStep.tool(toolRef: "summarize", input: "{{selection}}")
+        let json = try XCTUnwrap(String(data: try enc.encode(step), encoding: .utf8))
+        XCTAssertEqual(json, #"{"tool":{"input":"{{selection}}","toolRef":"summarize"}}"#)
+        XCTAssertFalse(json.contains("\"_0\""))
+    }
+
+    func test_pipelineStep_goldenJSON_prompt_nestedStruct() throws {
+        let enc = JSONEncoder(); enc.outputFormatting = [.sortedKeys]
+        let inline = PromptTool(
+            systemPrompt: nil, userPrompt: "u",
+            contexts: [],
+            provider: .fixed(providerId: "p", modelId: nil),
+            temperature: nil, maxTokens: nil, variables: [:]
+        )
+        let step = PipelineStep.prompt(inline: inline, input: "i")
+        let json = try XCTUnwrap(String(data: try enc.encode(step), encoding: .utf8))
+        XCTAssertTrue(json.hasPrefix(#"{"prompt":{"#), "got: \(json)")
+        XCTAssertTrue(json.contains(#""input":"i""#))
+        XCTAssertTrue(json.contains(#""inline":{"#))
+        XCTAssertTrue(json.contains(#""userPrompt":"u""#))
+        XCTAssertFalse(json.contains("\"_0\""))
+    }
+
+    func test_pipelineStep_goldenJSON_transform_directTransformOp() throws {
+        let enc = JSONEncoder(); enc.outputFormatting = [.sortedKeys]
+        let step = PipelineStep.transform(.jq(".items[]"))
+        let json = try XCTUnwrap(String(data: try enc.encode(step), encoding: .utf8))
+        // transform case 直接嵌入 TransformOp，没有 Repr 包装
+        XCTAssertEqual(json, #"{"transform":{"jq":".items[]"}}"#)
+        XCTAssertFalse(json.contains("\"_0\""))
+    }
+
     func test_transformOp_goldenJSON_jq_directString() throws {
         let enc = JSONEncoder(); enc.outputFormatting = [.sortedKeys]
         let json = try XCTUnwrap(String(data: try enc.encode(TransformOp.jq(".items[]")), encoding: .utf8))
@@ -185,5 +219,92 @@ final class ToolKindTests: XCTestCase {
         XCTAssertTrue(json.contains(#""pattern":"a""#))
         XCTAssertTrue(json.contains(#""replacement":"b""#))
         XCTAssertFalse(json.contains("\"_0\""))
+    }
+
+    func test_transformOp_goldenJSON_jsonPath_directString() throws {
+        let enc = JSONEncoder(); enc.outputFormatting = [.sortedKeys]
+        let json = try XCTUnwrap(String(data: try enc.encode(TransformOp.jsonPath("$.items[*].name")), encoding: .utf8))
+        XCTAssertEqual(json, #"{"jsonPath":"$.items[*].name"}"#)
+        XCTAssertFalse(json.contains("\"_0\""))
+    }
+
+    func test_promptTool_goldenJSON_fullShape_variablesEmptyDict() throws {
+        let enc = JSONEncoder(); enc.outputFormatting = [.sortedKeys]
+        // 锁定 PromptTool auto-synth 线上形状，尤其：
+        // - nil 可选（systemPrompt / temperature / maxTokens）→ key 省略
+        // - 空字典 variables → `"variables":{}`（非省略、非 null）
+        let pt = PromptTool(
+            systemPrompt: nil,
+            userPrompt: "Polish: {{selection}}",
+            contexts: [],
+            provider: .fixed(providerId: "openai", modelId: nil),
+            temperature: nil,
+            maxTokens: nil,
+            variables: [:]
+        )
+        let json = try XCTUnwrap(String(data: try enc.encode(pt), encoding: .utf8))
+        XCTAssertTrue(json.contains(#""userPrompt":"Polish: {{selection}}""#))
+        XCTAssertTrue(json.contains(#""contexts":[]"#))
+        XCTAssertTrue(json.contains(#""provider":{"fixed":{"providerId":"openai"}}"#))
+        // 空字典：必须存在、以 `{}` 形式出现
+        XCTAssertTrue(json.contains(#""variables":{}"#))
+        // nil 可选：key 必须省略（Foundation 默认行为）
+        XCTAssertFalse(json.contains("\"systemPrompt\""))
+        XCTAssertFalse(json.contains("\"temperature\""))
+        XCTAssertFalse(json.contains("\"maxTokens\""))
+    }
+
+    // MARK: - Decoder negative tests（canonical 单键 + 未知键拒绝；Task 3/8/10/11/13 同款纪律）
+
+    // ToolKind
+
+    func test_toolKind_decode_emptyObject_throws() {
+        let data = Data("{}".utf8)
+        XCTAssertThrowsError(try JSONDecoder().decode(ToolKind.self, from: data))
+    }
+
+    func test_toolKind_decode_unknownKey_throws() {
+        let data = Data(#"{"bogus":{}}"#.utf8)
+        XCTAssertThrowsError(try JSONDecoder().decode(ToolKind.self, from: data))
+    }
+
+    func test_toolKind_decode_twoKeys_throws() {
+        // 两个合法 kind key 同时出现 → 单键 guard 必须拒绝
+        let data = Data(#"{"prompt":{"userPrompt":"u","contexts":[],"provider":{"fixed":{"providerId":"p"}},"variables":{}},"agent":{"initialUserPrompt":"x","contexts":[],"provider":{"fixed":{"providerId":"p"}},"mcpAllowlist":[],"builtinCapabilities":[],"maxSteps":1,"stopCondition":"finalAnswerProvided"}}"#.utf8)
+        XCTAssertThrowsError(try JSONDecoder().decode(ToolKind.self, from: data))
+    }
+
+    // PipelineStep
+
+    func test_pipelineStep_decode_emptyObject_throws() {
+        let data = Data("{}".utf8)
+        XCTAssertThrowsError(try JSONDecoder().decode(PipelineStep.self, from: data))
+    }
+
+    func test_pipelineStep_decode_unknownKey_throws() {
+        let data = Data(#"{"bogus":{}}"#.utf8)
+        XCTAssertThrowsError(try JSONDecoder().decode(PipelineStep.self, from: data))
+    }
+
+    func test_pipelineStep_decode_twoKeys_throws() {
+        let data = Data(#"{"tool":{"toolRef":"a","input":"x"},"transform":{"jq":"."}}"#.utf8)
+        XCTAssertThrowsError(try JSONDecoder().decode(PipelineStep.self, from: data))
+    }
+
+    // TransformOp
+
+    func test_transformOp_decode_emptyObject_throws() {
+        let data = Data("{}".utf8)
+        XCTAssertThrowsError(try JSONDecoder().decode(TransformOp.self, from: data))
+    }
+
+    func test_transformOp_decode_unknownKey_throws() {
+        let data = Data(#"{"bogus":"x"}"#.utf8)
+        XCTAssertThrowsError(try JSONDecoder().decode(TransformOp.self, from: data))
+    }
+
+    func test_transformOp_decode_twoKeys_throws() {
+        let data = Data(#"{"jq":".","jsonPath":"$.a"}"#.utf8)
+        XCTAssertThrowsError(try JSONDecoder().decode(TransformOp.self, from: data))
     }
 }
