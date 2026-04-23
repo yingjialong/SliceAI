@@ -15,9 +15,10 @@ final class ExecutionSeedTests: XCTestCase {
         )
     }
 
-    func test_init_preservesAllFields() {
+    func test_init_preservesAllFields() throws {
         let seed = makeSeed()
-        XCTAssertEqual(seed.invocationId.uuidString.lowercased(), "11111111-1111-1111-1111-111111111111")
+        let expectedId = try XCTUnwrap(UUID(uuidString: "11111111-1111-1111-1111-111111111111"))
+        XCTAssertEqual(seed.invocationId, expectedId)
         XCTAssertEqual(seed.selection.text, "hi")
         XCTAssertEqual(seed.frontApp.bundleId, "com.apple.Safari")
         XCTAssertEqual(seed.triggerSource, .floatingToolbar)
@@ -51,10 +52,12 @@ final class ExecutionSeedTests: XCTestCase {
         XCTAssertEqual(seed, decoded)
     }
 
-    // INV-6：seed 构造后不可变；struct + let 天然保证，本测试显式确认编译期约束
-    func test_immutability_fieldsAreLet() {
+    // INV-6 / 值语义：ExecutionSeed 必须是 `struct` 而非 `class`，这样两份 seed
+    // 自然独立、跨 actor 边界复制不共享 state。`let` 不变性由编译器静态保证
+    // （见源文件 7 个 `public let` 声明），运行时无法观测，此测试只锁定"值类型"选择。
+    func test_typeIsStruct_forValueSemantics() {
         let mirror = Mirror(reflecting: makeSeed())
-        // displayStyle == .struct 已保证不可变；此处仅为文档化意图
-        XCTAssertEqual(mirror.displayStyle, .struct)
+        XCTAssertEqual(mirror.displayStyle, .struct,
+                       "ExecutionSeed must remain a value type; reference-type semantics would violate INV-6")
     }
 }

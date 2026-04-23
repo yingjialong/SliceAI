@@ -19,6 +19,11 @@ public struct ExecutionSeed: Sendable, Equatable, Codable {
     /// 前台 app 快照
     public let frontApp: AppSnapshot
     /// 屏幕锚点（光标位置），浮条 / 结果面板定位使用
+    ///
+    /// **坐标约定**：AppKit 点坐标（pt，非物理 pixel），左下为原点——与
+    /// `NSEvent.mouseLocation` / `NSScreen` 一致。Retina 缩放由 NSWindow /
+    /// CALayer 自动处理；本字段不做 backing-scale 计算。下游若需位图坐标，
+    /// 自行 `point * backingScaleFactor`。
     public let screenAnchor: CGPoint
     /// 触发时间戳
     public let timestamp: Date
@@ -32,7 +37,7 @@ public struct ExecutionSeed: Sendable, Equatable, Codable {
     ///   - invocationId: 本次调用的唯一 id
     ///   - selection: 选中文字快照
     ///   - frontApp: 前台 app 快照
-    ///   - screenAnchor: 屏幕锚点（像素坐标，左下为原点）
+    ///   - screenAnchor: 屏幕锚点（AppKit pt 坐标，左下为原点）
     ///   - timestamp: 触发时间戳
     ///   - triggerSource: 触发通路
     ///   - isDryRun: 是否预览模式
