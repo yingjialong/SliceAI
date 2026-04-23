@@ -4,6 +4,15 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 
 ---
 
+## Task 33 · Phase 0 M1 · 核心类型与配置迁移（进行中）
+
+- **时间**：2026-04-24 起
+- **描述**：落地 v2.0 spec §3.3 / §3.7 / §3.9 定义的领域模型——**以独立 V2* 类型** 新建（V2Tool / V2Provider / V2Configuration / V2ConfigurationStore），不改动现有 `Tool` / `Provider` / `Configuration` / `FileConfigurationStore` / `DefaultConfiguration`；新建 Orchestration / Capabilities 空 target；ConfigMigratorV1ToV2 纯函数 migrator 产出 V2Configuration
+- **详情**：[docs/Task-detail/2026-04-24-phase-0-m1-core-types.md](Task-detail/2026-04-24-phase-0-m1-core-types.md)
+- **结果**：进行中 / 完成时更新
+
+---
+
 ## Task 32 · 基于 Codex 第七轮评审（CONDITIONAL_APPROVE）收尾 M1 Plan
 
 - **时间**：2026-04-23
