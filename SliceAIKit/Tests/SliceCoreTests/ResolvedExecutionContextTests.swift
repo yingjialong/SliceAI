@@ -27,6 +27,7 @@ final class ResolvedExecutionContextTests: XCTestCase {
         XCTAssertEqual(rc.seed, seed)
         XCTAssertNotNil(rc.contexts[key])
         XCTAssertTrue(rc.failures.isEmpty)
+        XCTAssertEqual(rc.resolvedAt, Date(timeIntervalSince1970: 60))
     }
 
     func test_transparentAccessors_forwardToSeed() {
@@ -36,6 +37,9 @@ final class ResolvedExecutionContextTests: XCTestCase {
         XCTAssertEqual(rc.selection, seed.selection)
         XCTAssertEqual(rc.frontApp, seed.frontApp)
         XCTAssertEqual(rc.isDryRun, seed.isDryRun)
+        XCTAssertEqual(rc.screenAnchor, seed.screenAnchor)
+        XCTAssertEqual(rc.triggerTimestamp, seed.timestamp)
+        XCTAssertEqual(rc.triggerSource, seed.triggerSource)
     }
 
     func test_failures_carryOptionalRequestErrors() {
@@ -56,5 +60,33 @@ final class ResolvedExecutionContextTests: XCTestCase {
         let rc1 = ResolvedExecutionContext(seed: seed, contexts: ContextBag(values: [:]), resolvedAt: Date(timeIntervalSince1970: 10), failures: [:])
         let rc2 = ResolvedExecutionContext(seed: seed, contexts: ContextBag(values: [:]), resolvedAt: Date(timeIntervalSince1970: 10), failures: [:])
         XCTAssertEqual(rc1, rc2)
+    }
+
+    func test_equality_differentResolvedAt_isNotEqual() {
+        let seed = makeSeed()
+        let rc1 = ResolvedExecutionContext(
+            seed: seed, contexts: ContextBag(values: [:]),
+            resolvedAt: Date(timeIntervalSince1970: 10), failures: [:]
+        )
+        let rc2 = ResolvedExecutionContext(
+            seed: seed, contexts: ContextBag(values: [:]),
+            resolvedAt: Date(timeIntervalSince1970: 20), failures: [:]
+        )
+        XCTAssertNotEqual(rc1, rc2)
+    }
+
+    func test_equality_differentFailures_isNotEqual() {
+        let seed = makeSeed()
+        let key = ContextKey(rawValue: "vocab")
+        let rc1 = ResolvedExecutionContext(
+            seed: seed, contexts: ContextBag(values: [:]),
+            resolvedAt: Date(timeIntervalSince1970: 10), failures: [:]
+        )
+        let rc2 = ResolvedExecutionContext(
+            seed: seed, contexts: ContextBag(values: [:]),
+            resolvedAt: Date(timeIntervalSince1970: 10),
+            failures: [key: .configuration(.fileNotFound)]
+        )
+        XCTAssertNotEqual(rc1, rc2)
     }
 }

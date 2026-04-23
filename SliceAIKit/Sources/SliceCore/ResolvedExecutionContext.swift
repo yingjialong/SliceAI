@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// 二阶段执行上下文：由 `ContextCollector.resolve(seed:requests:)` 产出
@@ -14,6 +15,10 @@ public struct ResolvedExecutionContext: Sendable, Equatable {
     /// 采集到的上下文值
     public let contexts: ContextBag
     /// 解析完成时间
+    ///
+    /// **调用方契约**：应 ≥ `seed.timestamp`。ResolvedExecutionContext 不强制校验，
+    /// 因为 ContextCollector 构造本类型时已经保证时间单调。本字段 `- seed.timestamp`
+    /// = ContextCollector 耗时，可用于审计 / 延迟分析。
     public let resolvedAt: Date
     /// optional 请求的失败记录；required 请求失败时流程直接中止、不会进入这里
     public let failures: [ContextKey: SliceError]
@@ -41,4 +46,10 @@ public struct ResolvedExecutionContext: Sendable, Equatable {
     public var frontApp: AppSnapshot { seed.frontApp }
     /// 透传 `seed.isDryRun`
     public var isDryRun: Bool { seed.isDryRun }
+    /// 透传 `seed.screenAnchor`
+    public var screenAnchor: CGPoint { seed.screenAnchor }
+    /// 透传 `seed.timestamp`（触发时间；对比 `resolvedAt` 可算 collector 耗时）
+    public var triggerTimestamp: Date { seed.timestamp }
+    /// 透传 `seed.triggerSource`
+    public var triggerSource: TriggerSource { seed.triggerSource }
 }
