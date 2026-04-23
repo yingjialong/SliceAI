@@ -39,6 +39,13 @@ final class V2ProviderTests: XCTestCase {
         XCTAssertEqual(try encodeString(ProviderKind.ollama), "\"ollama\"")
     }
 
+    func test_providerKind_allCases_stable() {
+        XCTAssertEqual(
+            Set(ProviderKind.allCases.map(\.rawValue)),
+            ["openAICompatible", "anthropic", "gemini", "ollama"]
+        )
+    }
+
     func test_v2Provider_codable_goldenShape() throws {
         let p = V2Provider(
             id: "claude",
@@ -72,10 +79,26 @@ final class V2ProviderTests: XCTestCase {
         XCTAssertEqual(p, decoded)
     }
 
+    func test_decode_normalizesDuplicatesAndOrder() throws {
+        // 用户手改 config-v2.json 故意塞入重复 + 乱序 capabilities；decoder 必须归一化
+        let json = #"""
+        {"id":"x","kind":"anthropic","name":"X","apiKeyRef":"keychain:x","defaultModel":"m","capabilities":["toolCalling","promptCaching","toolCalling","vision","promptCaching"]}
+        """#
+        let decoded = try JSONDecoder().decode(V2Provider.self, from: Data(json.utf8))
+        // 预期：去重后按 rawValue 字母序排列
+        XCTAssertEqual(decoded.capabilities, [.promptCaching, .toolCalling, .vision])
+    }
+
     func test_v2Provider_keychainAccount() {
         let p = V2Provider(id: "x", kind: .anthropic, name: "X", baseURL: nil,
                             apiKeyRef: "keychain:custom-account", defaultModel: "m", capabilities: [])
         XCTAssertEqual(p.keychainAccount, "custom-account")
+    }
+
+    func test_v2Provider_keychainAccount_nonKeychainPrefix_returnsNil() {
+        let p = V2Provider(id: "x", kind: .anthropic, name: "X", baseURL: nil,
+                            apiKeyRef: "raw-literal-key", defaultModel: "m", capabilities: [])
+        XCTAssertNil(p.keychainAccount)
     }
 
     // MARK: - Helpers

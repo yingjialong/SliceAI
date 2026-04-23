@@ -20,6 +20,11 @@ public struct V2Provider: Identifiable, Sendable, Codable, Equatable {
     public var baseURL: URL?
     public var apiKeyRef: String
     public var defaultModel: String
+    /// Provider 支持的高级能力；去重后按 rawValue 字母序排列
+    ///
+    /// **调用方契约**：仅通过 `init(...)` / decode 写入；**不要**直接 mutate（例如
+    /// `provider.capabilities.append(.toolCalling)` 会破坏去重 + 排序不变量，后续
+    /// JSON round-trip 会打破稳定顺序承诺）。要增删，重新构造 V2Provider。
     public var capabilities: [ProviderCapability]  // **[…] 而非 Set<…>**（P2-3）
 
     /// 构造 V2Provider
