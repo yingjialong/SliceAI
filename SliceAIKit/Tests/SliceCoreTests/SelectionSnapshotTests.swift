@@ -43,6 +43,21 @@ final class SelectionSnapshotTests: XCTestCase {
         XCTAssertEqual(snap, decoded)
     }
 
+    func test_codable_roundtrip_withFilledOptionals() throws {
+        let snap = SelectionSnapshot(
+            text: "https://example.com/page",
+            source: .inputBox,
+            length: 24,
+            language: "zh-CN",
+            contentType: .url
+        )
+        let data = try JSONEncoder().encode(snap)
+        let decoded = try JSONDecoder().decode(SelectionSnapshot.self, from: data)
+        XCTAssertEqual(snap, decoded)
+        XCTAssertEqual(decoded.language, "zh-CN")
+        XCTAssertEqual(decoded.contentType, .url)
+    }
+
     func test_selectionContentType_allCases_stable() {
         XCTAssertEqual(Set(SelectionContentType.allCases), [
             .prose, .code, .url, .email, .json, .commitHash, .date, .other
@@ -52,6 +67,7 @@ final class SelectionSnapshotTests: XCTestCase {
     func test_selectionOrigin_rawValues() {
         XCTAssertEqual(SelectionOrigin.accessibility.rawValue, "accessibility")
         XCTAssertEqual(SelectionOrigin.clipboardFallback.rawValue, "clipboardFallback")
+        XCTAssertEqual(SelectionOrigin.inputBox.rawValue, "inputBox")
     }
 
     // 显式断言：SelectionSnapshot 与 SelectionPayload 是 **两个不同的类型**
