@@ -94,6 +94,29 @@ final class V2ToolTests: XCTestCase {
         XCTAssertEqual(original, decoded)
     }
 
+    func test_v2tool_codable_roundtrip_pipelineKind_preservesKind() throws {
+        let original = V2Tool(
+            id: "t", name: "n", icon: "i", description: nil,
+            kind: .pipeline(PipelineTool(
+                steps: [
+                    .prompt(inline: PromptTool(
+                        systemPrompt: nil, userPrompt: "u", contexts: [],
+                        provider: .fixed(providerId: "p", modelId: nil),
+                        temperature: nil, maxTokens: nil, variables: [:]
+                    ), input: "{{selection}}"),
+                    .mcp(ref: MCPToolRef(server: "s", tool: "x"), args: [:])
+                ],
+                onStepFail: .abort
+            )),
+            visibleWhen: nil, displayMode: .window, outputBinding: nil,
+            permissions: [], provenance: .firstParty,
+            budget: nil, hotkey: nil, labelStyle: .icon, tags: []
+        )
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(V2Tool.self, from: data)
+        XCTAssertEqual(original, decoded)
+    }
+
     // MARK: - Golden JSON shape（锁定 canonical schema，避免 Swift 自动合成 _0 等实现细节泄漏）
 
     func test_v2tool_goldenJSON_promptKind_usesKindDiscriminator() throws {
@@ -119,5 +142,29 @@ final class V2ToolTests: XCTestCase {
         XCTAssertFalse(json.contains("\"_0\""), "canonical JSON must not contain synthesized _0; got: \(json)")
         // Provenance 也是 discriminator 形式
         XCTAssertTrue(json.contains("\"provenance\":\"firstParty\"") || json.contains("\"provenance\":{\"firstParty\""), "provenance unexpected shape")
+        // 锁定顶层字段名（防止静默 rename）
+        XCTAssertTrue(json.contains("\"id\":\"t\""), "id field missing/renamed, got: \(json)")
+        XCTAssertTrue(json.contains("\"displayMode\":\"window\""), "displayMode field missing/renamed, got: \(json)")
+        XCTAssertTrue(json.contains("\"labelStyle\":\"icon\""), "labelStyle field missing/renamed, got: \(json)")
+    }
+
+    // MARK: - Decoder negative tests（V2Tool auto-synth 必要字段缺失应拒绝）
+
+    func test_v2tool_decode_missingKind_throws() {
+        // 缺少必要字段 kind → auto-synth decoder 必须抛错
+        let json = #"""
+        {"id":"t","name":"n","icon":"i","displayMode":"window","permissions":[],"provenance":{"firstParty":{}},"labelStyle":"icon","tags":[]}
+        """#
+        let data = Data(json.utf8)
+        XCTAssertThrowsError(try JSONDecoder().decode(V2Tool.self, from: data))
+    }
+
+    func test_v2tool_decode_missingProvenance_throws() {
+        // 缺少 provenance（v2 canonical 强制字段）→ 必须抛错
+        let json = #"""
+        {"id":"t","name":"n","icon":"i","kind":{"prompt":{"userPrompt":"u","contexts":[],"provider":{"fixed":{"providerId":"p"}},"variables":{}}},"displayMode":"window","permissions":[],"labelStyle":"icon","tags":[]}
+        """#
+        let data = Data(json.utf8)
+        XCTAssertThrowsError(try JSONDecoder().decode(V2Tool.self, from: data))
     }
 }
