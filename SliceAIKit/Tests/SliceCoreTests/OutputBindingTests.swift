@@ -53,6 +53,26 @@ final class OutputBindingTests: XCTestCase {
         XCTAssertEqual(SideEffect.tts(voice: nil).inferredPermissions, [.systemAudio])
     }
 
+    func test_inferredPermissions_aggregatedAcrossSideEffects() {
+        // PermissionGraph.compute() 会对 OutputBinding.sideEffects 做 flatMap(\.inferredPermissions)；
+        // 这里锁死聚合顺序 = 数组顺序（每个 side effect 独立贡献），
+        // 同一 Permission 出现多次允许（去重交给 PermissionGraph）
+        let binding = OutputBinding(
+            primary: .window,
+            sideEffects: [
+                .copyToClipboard,
+                .tts(voice: nil),
+                .writeMemory(tool: "translate", entry: "saved")
+            ]
+        )
+        let aggregated = binding.sideEffects.flatMap(\.inferredPermissions)
+        XCTAssertEqual(aggregated, [
+            .clipboard,
+            .systemAudio,
+            .memoryAccess(scope: "translate")
+        ])
+    }
+
     // MARK: - OutputBinding Codable
 
     func test_outputBinding_codable_roundtrip() throws {
@@ -64,6 +84,23 @@ final class OutputBindingTests: XCTestCase {
         let data = try JSONEncoder().encode(binding)
         let decoded = try JSONDecoder().decode(OutputBinding.self, from: data)
         XCTAssertEqual(binding, decoded)
+    }
+
+    // MARK: - Decoder negative tests（canonical 单键 + 未知键拒绝；Task 3/8 同款纪律）
+
+    func test_sideEffect_decode_emptyObject_throws() {
+        let data = Data("{}".utf8)
+        XCTAssertThrowsError(try JSONDecoder().decode(SideEffect.self, from: data))
+    }
+
+    func test_sideEffect_decode_unknownKey_throws() {
+        let data = Data(#"{"bogus":{}}"#.utf8)
+        XCTAssertThrowsError(try JSONDecoder().decode(SideEffect.self, from: data))
+    }
+
+    func test_sideEffect_decode_twoKeys_throws() {
+        let data = Data(#"{"copyToClipboard":{},"tts":{"voice":null}}"#.utf8)
+        XCTAssertThrowsError(try JSONDecoder().decode(SideEffect.self, from: data))
     }
 
     // MARK: - Golden JSON shape（模板 D；禁 `_0`）
@@ -95,12 +132,56 @@ final class OutputBindingTests: XCTestCase {
         XCTAssertFalse(json.contains("\"_0\""))
     }
 
-    func test_sideEffect_goldenJSON_tts_nestedWithOptional() throws {
+    func test_sideEffect_goldenJSON_tts_nilVoice_omitsKeyOrNull() throws {
         let enc = JSONEncoder(); enc.outputFormatting = [.sortedKeys]
         let se = SideEffect.tts(voice: nil)
         let json = try XCTUnwrap(String(data: try enc.encode(se), encoding: .utf8))
-        // nil voice → TTSRepr { voice: nil } → JSON `{"tts":{}}` 或 `{"tts":{"voice":null}}`（取决于 JSONEncoder）
-        XCTAssertTrue(json.hasPrefix(#"{"tts":{"#), "got: \(json)")
+        // Foundation 默认 encoder 对 nil 可选值的行为：key 省略（-> `{"tts":{}}`）
+        // 若未来 Foundation 行为改为 `{"voice":null}`，这里会失败，提示显式选择 strategy。
+        XCTAssertEqual(json, #"{"tts":{}}"#)
         XCTAssertFalse(json.contains("\"_0\""))
+    }
+
+    func test_sideEffect_goldenJSON_tts_nonNilVoice_pinsShape() throws {
+        let enc = JSONEncoder(); enc.outputFormatting = [.sortedKeys]
+        let se = SideEffect.tts(voice: "Alex")
+        let json = try XCTUnwrap(String(data: try enc.encode(se), encoding: .utf8))
+        XCTAssertEqual(json, #"{"tts":{"voice":"Alex"}}"#)
+        XCTAssertFalse(json.contains("\"_0\""))
+    }
+
+    func test_sideEffect_goldenJSON_notify_nestedStruct() throws {
+        let enc = JSONEncoder(); enc.outputFormatting = [.sortedKeys]
+        let se = SideEffect.notify(title: "Hi", body: "Done")
+        let json = try XCTUnwrap(String(data: try enc.encode(se), encoding: .utf8))
+        XCTAssertEqual(json, #"{"notify":{"body":"Done","title":"Hi"}}"#)
+        XCTAssertFalse(json.contains("\"_0\""))
+    }
+
+    func test_sideEffect_goldenJSON_runAppIntent_emptyParams() throws {
+        let enc = JSONEncoder(); enc.outputFormatting = [.sortedKeys]
+        let se = SideEffect.runAppIntent(bundleId: "com.apple.Shortcuts", intent: "Run", params: [:])
+        let json = try XCTUnwrap(String(data: try enc.encode(se), encoding: .utf8))
+        XCTAssertEqual(json, #"{"runAppIntent":{"bundleId":"com.apple.Shortcuts","intent":"Run","params":{}}}"#)
+        XCTAssertFalse(json.contains("\"_0\""))
+    }
+
+    func test_sideEffect_goldenJSON_writeMemory_nestedStruct() throws {
+        let enc = JSONEncoder(); enc.outputFormatting = [.sortedKeys]
+        let se = SideEffect.writeMemory(tool: "grammar-tutor", entry: "saved")
+        let json = try XCTUnwrap(String(data: try enc.encode(se), encoding: .utf8))
+        XCTAssertEqual(json, #"{"writeMemory":{"entry":"saved","tool":"grammar-tutor"}}"#)
+        XCTAssertFalse(json.contains("\"_0\""))
+    }
+
+    // MARK: - MCPToolRef golden JSON
+
+    // MCPToolRef 出现在 SideEffect.callMCP(ref:) 和 Task 14 AgentTool.mcpAllowlist 两处；
+    // 锁住 2-字段 auto-synthesized wire shape，防止 key rename 影响配置 / migration。
+    func test_mcpToolRef_goldenJSON_canonicalWireShape() throws {
+        let enc = JSONEncoder(); enc.outputFormatting = [.sortedKeys]
+        let ref = MCPToolRef(server: "anki", tool: "createNote")
+        let json = try XCTUnwrap(String(data: try enc.encode(ref), encoding: .utf8))
+        XCTAssertEqual(json, #"{"server":"anki","tool":"createNote"}"#)
     }
 }

@@ -50,6 +50,7 @@ public enum SideEffect: Sendable, Equatable, Codable {
     case notify(title: String, body: String)
     case runAppIntent(bundleId: String, intent: String, params: [String: String])
     case callMCP(ref: MCPToolRef, params: [String: String])
+    /// 写 Tool 级 memory；`tool` 必须是调用方 Tool 的 `id`，会映射为 `.memoryAccess(scope: tool)` 权限
     case writeMemory(tool: String, entry: String)
     case tts(voice: String?)
 
