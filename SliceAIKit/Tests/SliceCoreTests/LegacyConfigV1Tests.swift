@@ -19,6 +19,7 @@ final class LegacyConfigV1Tests: XCTestCase {
           "tools": [
             {
               "id": "translate", "name": "Translate", "icon": "🌐",
+              "description": "Translate selection to target language",
               "systemPrompt": "sys", "userPrompt": "u",
               "providerId": "openai-official", "modelId": null, "temperature": 0.3,
               "displayMode": "window", "variables": {"language": "zh"}
@@ -43,6 +44,7 @@ final class LegacyConfigV1Tests: XCTestCase {
         XCTAssertEqual(v1.tools[0].systemPrompt, "sys")
         XCTAssertEqual(v1.tools[0].userPrompt, "u")
         XCTAssertEqual(v1.tools[0].variables["language"], "zh")
+        XCTAssertEqual(v1.tools[0].description, "Translate selection to target language")
     }
 
     func test_decode_v1WithOptionalFields() throws {
@@ -92,5 +94,19 @@ final class LegacyConfigV1Tests: XCTestCase {
         """#.data(using: .utf8)!
         let v1 = try JSONDecoder().decode(LegacyConfigV1.self, from: json)
         XCTAssertEqual(v1.tools[0].labelStyle, "iconAndName")
+    }
+
+    // MARK: - Strict decode contract（任何 v1 必填字段缺失应 throw）
+
+    func test_decode_emptyObject_throws() {
+        // v1 必填字段全缺 → 必须抛错（不得静默返回空壳）
+        let data = "{}".data(using: .utf8)!
+        XCTAssertThrowsError(try JSONDecoder().decode(LegacyConfigV1.self, from: data))
+    }
+
+    func test_decode_missingRequiredField_throws() {
+        // 只有 schemaVersion，缺 providers/tools/hotkeys 等必填字段
+        let data = #"{"schemaVersion":1}"#.data(using: .utf8)!
+        XCTAssertThrowsError(try JSONDecoder().decode(LegacyConfigV1.self, from: data))
     }
 }
