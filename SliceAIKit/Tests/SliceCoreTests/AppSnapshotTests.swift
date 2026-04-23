@@ -29,4 +29,19 @@ final class AppSnapshotTests: XCTestCase {
         let decoded = try JSONDecoder().decode(AppSnapshot.self, from: data)
         XCTAssertEqual(snap, decoded)
     }
+
+    func test_codable_roundtrip_bothOptionalsPopulated() throws {
+        let url = URL(string: "https://developer.apple.com/documentation/foundation")
+        let snap = AppSnapshot(
+            bundleId: "com.apple.Safari",
+            name: "Safari",
+            url: url,
+            windowTitle: "Foundation | Apple Developer Documentation"
+        )
+        let data = try JSONEncoder().encode(snap)
+        let decoded = try JSONDecoder().decode(AppSnapshot.self, from: data)
+        XCTAssertEqual(snap, decoded)
+        XCTAssertEqual(decoded.url, url)
+        XCTAssertEqual(decoded.windowTitle, "Foundation | Apple Developer Documentation")
+    }
 }
