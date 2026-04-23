@@ -53,6 +53,14 @@ public enum Permission: Codable, Sendable, Hashable {
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        // canonical schema 约定：每个 Permission JSON 对象必须恰好带 1 个已知 case key；
+        // 多键 / 空对象直接拒绝，避免 `{"fileRead":"a","fileWrite":"b"}` 静默退化为 .fileRead("a")。
+        guard c.allKeys.count == 1 else {
+            throw DecodingError.dataCorrupted(.init(
+                codingPath: c.codingPath,
+                debugDescription: "Permission requires exactly one key, got \(c.allKeys.count)"
+            ))
+        }
         if let v = try c.decodeIfPresent(String.self, forKey: .network) { self = .network(host: v); return }
         if let v = try c.decodeIfPresent(String.self, forKey: .fileRead) { self = .fileRead(path: v); return }
         if let v = try c.decodeIfPresent(String.self, forKey: .fileWrite) { self = .fileWrite(path: v); return }
@@ -74,10 +82,12 @@ public enum Permission: Codable, Sendable, Hashable {
         }
         if let v = try c.decodeIfPresent(String.self, forKey: .memoryAccess) { self = .memoryAccess(scope: v); return }
         if let v = try c.decodeIfPresent(String.self, forKey: .appIntents) { self = .appIntents(bundleId: v); return }
-        throw DecodingError.dataCorruptedError(
-            forKey: CodingKeys.network, in: c,
-            debugDescription: "Permission requires exactly one known case key"
-        )
+        // 上面 guard 已过滤 allKeys.count != 1 的情况，走到这里说明存在未知 case key——
+        // 用 dataCorrupted(.init(codingPath:)) 而非 forKey: 版，避免把错误误报成 .network
+        throw DecodingError.dataCorrupted(.init(
+            codingPath: c.codingPath,
+            debugDescription: "Permission encountered unknown case key"
+        ))
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -99,6 +109,12 @@ public enum Permission: Codable, Sendable, Hashable {
 }
 
 /// 权限授予记录
+///
+/// **时间编码约定（当前 M1 状态）**：`grantedAt` / `Provenance.signedAt` 等 Date 字段沿用
+/// `JSONEncoder` 默认 strategy（`timeIntervalSinceReferenceDate` double），不带 ISO 8601
+/// 格式化。Task 10 之后的 config loader 会统一覆盖 `dateEncodingStrategy`，到时再评估是否
+/// 切换为 ISO 8601 string。当前 Permission.swift 的 canonical JSON 不依赖该 strategy 的
+/// 稳定性——reproducibility 仅由 round-trip 测试保证。
 public struct PermissionGrant: Codable, Sendable, Equatable {
     /// 被授予的权限
     public let permission: Permission
@@ -150,6 +166,11 @@ public enum GrantScope: String, Codable, Sendable, CaseIterable {
 /// 在下限之上调节 UX 文案，不能减少确认次数**（D-25）。
 ///
 /// canonical 定义仅在本文件；spec §3.9.1 / §3.9.4.2 只做引用。
+///
+/// **时间编码约定**：`communitySigned(signedAt:)` / `selfManaged(userAcknowledgedAt:)` /
+/// `unknown(importedAt:)` 的 Date 字段沿用 `JSONEncoder` 默认 strategy
+/// （`timeIntervalSinceReferenceDate` double）；详见 `PermissionGrant` 的说明，Task 10
+/// 的 config loader 会统一评估是否切换到 ISO 8601。
 public enum Provenance: Codable, Sendable, Equatable {
     /// 随 App 打包的 Starter Pack / 内置工具
     case firstParty
@@ -174,6 +195,13 @@ public enum Provenance: Codable, Sendable, Equatable {
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        // canonical schema 约定：Provenance JSON 对象必须恰好 1 个已知 case key
+        guard c.allKeys.count == 1 else {
+            throw DecodingError.dataCorrupted(.init(
+                codingPath: c.codingPath,
+                debugDescription: "Provenance requires exactly one key, got \(c.allKeys.count)"
+            ))
+        }
         if c.contains(.firstParty) {
             _ = try c.decode(EmptyMarker.self, forKey: .firstParty); self = .firstParty; return
         }
@@ -186,10 +214,11 @@ public enum Provenance: Codable, Sendable, Equatable {
         if let r = try c.decodeIfPresent(UnknownRepr.self, forKey: .unknown) {
             self = .unknown(importedFrom: r.importedFrom, importedAt: r.importedAt); return
         }
-        throw DecodingError.dataCorruptedError(
-            forKey: CodingKeys.firstParty, in: c,
-            debugDescription: "Provenance requires one of: firstParty, communitySigned, selfManaged, unknown"
-        )
+        // 走到这里说明存在未知 case key；用 codingPath 版避免把错误绑定到特定 key
+        throw DecodingError.dataCorrupted(.init(
+            codingPath: c.codingPath,
+            debugDescription: "Provenance encountered unknown case key"
+        ))
     }
 
     public func encode(to encoder: any Encoder) throws {

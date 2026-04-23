@@ -45,6 +45,29 @@ final class PermissionTests: XCTestCase {
         XCTAssertEqual(original, decoded)
     }
 
+    func test_permission_codable_roundTrip_allCases() throws {
+        // 遍历 11 个 case（mcp 同时覆盖 nil / 非 nil tools）
+        let fixtures: [Permission] = [
+            .network(host: "api.openai.com"),
+            .fileRead(path: "~/Docs/**/*.md"),
+            .fileWrite(path: "/tmp/out.txt"),
+            .clipboard,
+            .clipboardHistory,
+            .shellExec(commands: ["ls", "pwd"]),
+            .mcp(server: "fs", tools: ["read", "write"]),
+            .mcp(server: "fs", tools: nil),
+            .screen,
+            .systemAudio,
+            .memoryAccess(scope: "tool.translate"),
+            .appIntents(bundleId: "com.apple.shortcuts")
+        ]
+        for original in fixtures {
+            let data = try JSONEncoder().encode(original)
+            let decoded = try JSONDecoder().decode(Permission.self, from: data)
+            XCTAssertEqual(original, decoded, "Round-trip failed for \(original)")
+        }
+    }
+
     // MARK: - Provenance
 
     func test_provenance_firstParty_codable() throws {
@@ -138,6 +161,33 @@ final class PermissionTests: XCTestCase {
         XCTAssertTrue(json.hasPrefix(#"{"communitySigned":{"#), "got: \(json)")
         XCTAssertTrue(json.contains(#""publisher":"anthropic-labs""#))
         XCTAssertFalse(json.contains("\"_0\""))
+    }
+
+    // MARK: - Decoder negative tests（canonical schema 严格单键 + 未知键拒绝）
+
+    func test_permission_decode_emptyObject_throws() {
+        let data = Data("{}".utf8)
+        XCTAssertThrowsError(try JSONDecoder().decode(Permission.self, from: data))
+    }
+
+    func test_permission_decode_unknownKey_throws() {
+        let data = Data(#"{"unknownKey":"x"}"#.utf8)
+        XCTAssertThrowsError(try JSONDecoder().decode(Permission.self, from: data))
+    }
+
+    func test_permission_decode_twoKeys_throws() {
+        let data = Data(#"{"fileRead":"a","fileWrite":"b"}"#.utf8)
+        XCTAssertThrowsError(try JSONDecoder().decode(Permission.self, from: data))
+    }
+
+    func test_provenance_decode_emptyObject_throws() {
+        let data = Data("{}".utf8)
+        XCTAssertThrowsError(try JSONDecoder().decode(Provenance.self, from: data))
+    }
+
+    func test_provenance_decode_twoKeys_throws() {
+        let data = Data(#"{"firstParty":{},"selfManaged":{"userAcknowledgedAt":0}}"#.utf8)
+        XCTAssertThrowsError(try JSONDecoder().decode(Provenance.self, from: data))
     }
 
     private func sortedJSONEncoder() -> JSONEncoder {
