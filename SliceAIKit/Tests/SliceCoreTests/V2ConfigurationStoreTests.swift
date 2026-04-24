@@ -204,6 +204,99 @@ final class V2ConfigurationStoreTests: XCTestCase {
         XCTAssertEqual(cfg.tools.count, 4)  // DefaultV2Configuration 4 个内置工具
     }
 
+    // MARK: - 写入边界 validation（第八轮 P2-1/P2-2 修复）
+    //
+    // save() 必须"先 validate，再 write"——validate throw 时磁盘不得被写入。
+    // 测试策略：构造一个包含非法 Provider / Tool 的 V2Configuration，断言
+    // save() throw .validationFailed 且 config-v2.json 不存在。
+
+    /// 包含 openAICompatible + nil baseURL 的 Provider 时 save() 必须拒绝写入
+    func test_save_rejectsConfigWithInvalidProvider() async throws {
+        let v2URL = tempDir.appendingPathComponent("config-v2.json")
+        let store = V2ConfigurationStore(fileURL: v2URL, legacyFileURL: nil)
+
+        // 故意构造非法 Provider：kind=openAICompatible 却把 baseURL 传 nil
+        let badProvider = V2Provider(
+            id: "bad",
+            kind: .openAICompatible,
+            name: "Bad",
+            baseURL: nil,
+            apiKeyRef: "keychain:bad",
+            defaultModel: "gpt-5",
+            capabilities: []
+        )
+        let template = DefaultV2Configuration.initial()
+        let cfg = V2Configuration(
+            schemaVersion: template.schemaVersion,
+            providers: [badProvider],  // 注入非法 Provider
+            tools: [], hotkeys: template.hotkeys,
+            triggers: template.triggers, telemetry: template.telemetry,
+            appBlocklist: template.appBlocklist, appearance: template.appearance
+        )
+
+        do {
+            try await store.save(cfg)
+            XCTFail("save() 必须在 provider validate 失败时 throw")
+        } catch SliceError.configuration(.validationFailed(let msg)) {
+            XCTAssertTrue(msg.contains("bad"), "msg missing provider id; got: \(msg)")
+        } catch {
+            XCTFail("expected .validationFailed, got \(error)")
+        }
+
+        // 关键不变量：validate 抛错时磁盘文件必须不存在（fail-before-write）
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: v2URL.path),
+            "config-v2.json must not be created when validation fails"
+        )
+    }
+
+    /// 包含 displayMode/outputBinding 不一致的 Tool 时 save() 必须拒绝写入
+    func test_save_rejectsConfigWithInvalidTool() async throws {
+        let v2URL = tempDir.appendingPathComponent("config-v2.json")
+        let store = V2ConfigurationStore(fileURL: v2URL, legacyFileURL: nil)
+
+        // 故意构造非法 Tool：displayMode=window 但 outputBinding.primary=replace
+        let badTool = V2Tool(
+            id: "bad-tool",
+            name: "Bad",
+            icon: "!",
+            description: nil,
+            kind: .prompt(PromptTool(
+                systemPrompt: nil, userPrompt: "u", contexts: [],
+                provider: .fixed(providerId: "p", modelId: nil),
+                temperature: nil, maxTokens: nil, variables: [:]
+            )),
+            visibleWhen: nil,
+            displayMode: .window,
+            outputBinding: OutputBinding(primary: .replace, sideEffects: []),
+            permissions: [], provenance: .firstParty,
+            budget: nil, hotkey: nil, labelStyle: .icon, tags: []
+        )
+        let template = DefaultV2Configuration.initial()
+        let cfg = V2Configuration(
+            schemaVersion: template.schemaVersion,
+            providers: [], tools: [badTool],  // 注入非法 Tool
+            hotkeys: template.hotkeys,
+            triggers: template.triggers, telemetry: template.telemetry,
+            appBlocklist: template.appBlocklist, appearance: template.appearance
+        )
+
+        do {
+            try await store.save(cfg)
+            XCTFail("save() 必须在 tool validate 失败时 throw")
+        } catch SliceError.configuration(.validationFailed(let msg)) {
+            XCTAssertTrue(msg.contains("bad-tool"), "msg missing tool id; got: \(msg)")
+        } catch {
+            XCTFail("expected .validationFailed, got \(error)")
+        }
+
+        // 关键不变量：validate 抛错时磁盘文件必须不存在
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: v2URL.path),
+            "config-v2.json must not be created when validation fails"
+        )
+    }
+
     // MARK: - Helper
 
     private func fixtureData(_ name: String) throws -> Data {

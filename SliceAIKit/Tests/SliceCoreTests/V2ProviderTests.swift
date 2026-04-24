@@ -154,6 +154,49 @@ final class V2ProviderTests: XCTestCase {
         XCTAssertNil(decoded.baseURL)
     }
 
+    // MARK: - Public `validate()` 写入边界校验（第八轮 P2-1 修复）
+    //
+    // 背景：decoder 侧已校验 baseURL；但 `init(id:...)` 非 throws、允许代码侧
+    // 构造非法对象（典型场景：测试 fixture、默认值、migrator 输出）。M3 接入后
+    // 这些对象会通过 `V2ConfigurationStore.save()` 落盘——因此 save() 必须在
+    // 写盘前调用 `p.validate()` 拦截。本组测试锁定 validate() 本身的契约。
+
+    /// openAICompatible 协议族 + nil baseURL → validate() 必须 throw .validationFailed
+    func test_validate_throwsForOpenAICompatibleWithNilBaseURL() {
+        let p = V2Provider(
+            id: "broken",
+            kind: .openAICompatible,
+            name: "Broken",
+            baseURL: nil,
+            apiKeyRef: "keychain:broken",
+            defaultModel: "gpt-5",
+            capabilities: []
+        )
+        XCTAssertThrowsError(try p.validate()) { error in
+            guard case SliceError.configuration(.validationFailed(let msg)) = error else {
+                XCTFail("expected .configuration(.validationFailed), got \(error)")
+                return
+            }
+            // msg 必须包含 provider id + 字段名，便于用户定位
+            XCTAssertTrue(msg.contains("broken"), "msg missing provider id; got: \(msg)")
+            XCTAssertTrue(msg.contains("baseURL"), "msg missing field name; got: \(msg)")
+        }
+    }
+
+    /// anthropic 协议族 + nil baseURL 合法 → validate() 必须不 throw
+    func test_validate_passesForAnthropicWithNilBaseURL() {
+        let p = V2Provider(
+            id: "claude",
+            kind: .anthropic,
+            name: "Claude",
+            baseURL: nil,
+            apiKeyRef: "keychain:claude",
+            defaultModel: "claude-sonnet-4-6",
+            capabilities: [.promptCaching]
+        )
+        XCTAssertNoThrow(try p.validate())
+    }
+
     // MARK: - Helpers
 
     private func encode<T: Encodable>(_ value: T) throws -> Data {

@@ -71,8 +71,28 @@ public actor V2ConfigurationStore {
     }
 
     /// 写 v2；永不碰 v1
+    ///
+    /// **写入边界（第八轮 P2-1/P2-2 修复）**：落盘前逐个 validate providers / tools。
+    /// 首个违规直接 throw `SliceError.configuration(.validationFailed)`，磁盘文件不会被写入/覆盖。
+    /// `update()` 是 `try await save(...); cached = configuration`，因此 validate 失败时
+    /// 缓存也不会被更新——天然符合"非法对象不入磁盘、不入内存"的不变量。
     public func save(_ configuration: V2Configuration) async throws {
+        try validate(configuration)
         try writeV2(configuration)
+    }
+
+    /// 在落盘前逐个 validate providers / tools；首个违规立即抛出
+    ///
+    /// 目的是让 V2Provider / V2Tool 的写入边界在 save() 路径上集中执行。
+    /// decoder 已校验的是 JSON 输入（用户手改 config-v2.json），而此处校验的是
+    /// 代码构造的对象（测试 / 默认值 / migrator 输出 / UI 未来的 ToolEditor）。
+    private func validate(_ cfg: V2Configuration) throws {
+        for p in cfg.providers {
+            try p.validate()
+        }
+        for t in cfg.tools {
+            try t.validate()
+        }
     }
 
     // MARK: - Path helpers

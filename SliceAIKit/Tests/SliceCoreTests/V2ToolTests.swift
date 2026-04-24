@@ -208,6 +208,80 @@ final class V2ToolTests: XCTestCase {
         XCTAssertNil(decoded.outputBinding)
     }
 
+    // MARK: - Public `validate()` 写入边界校验（第八轮 P2-2 修复）
+    //
+    // 背景：decoder 侧已校验 displayMode/outputBinding.primary 一致性；但
+    // `init(id:...)` 非 throws、允许代码侧构造不一致对象。M3 接入后这些对象
+    // 会通过 V2ConfigurationStore.save() 落盘——save() 必须在写盘前调用
+    // `t.validate()` 拦截。
+
+    /// displayMode != outputBinding.primary 时 validate() 必须 throw .validationFailed
+    func test_validate_throwsForMismatchedOutputBindingPrimary() {
+        let tool = V2Tool(
+            id: "mismatch",
+            name: "Mismatch",
+            icon: "!",
+            description: nil,
+            kind: .prompt(PromptTool(
+                systemPrompt: nil, userPrompt: "u", contexts: [],
+                provider: .fixed(providerId: "p", modelId: nil),
+                temperature: nil, maxTokens: nil, variables: [:]
+            )),
+            visibleWhen: nil,
+            displayMode: .window,  // 故意与 outputBinding.primary 不一致
+            outputBinding: OutputBinding(primary: .replace, sideEffects: []),
+            permissions: [], provenance: .firstParty,
+            budget: nil, hotkey: nil, labelStyle: .icon, tags: []
+        )
+        XCTAssertThrowsError(try tool.validate()) { error in
+            guard case SliceError.configuration(.validationFailed(let msg)) = error else {
+                XCTFail("expected .configuration(.validationFailed), got \(error)")
+                return
+            }
+            // msg 必须定位到 tool id + 两个字段名 + 两个值
+            XCTAssertTrue(msg.contains("mismatch"), "msg missing tool id; got: \(msg)")
+            XCTAssertTrue(msg.contains("outputBinding"), "msg missing field name; got: \(msg)")
+            XCTAssertTrue(msg.contains("displayMode"), "msg missing field name; got: \(msg)")
+            XCTAssertTrue(msg.contains("window"), "msg missing displayMode value; got: \(msg)")
+            XCTAssertTrue(msg.contains("replace"), "msg missing primary value; got: \(msg)")
+        }
+    }
+
+    /// displayMode == outputBinding.primary / outputBinding 为 nil 时 validate() 必须不 throw
+    func test_validate_passesForMatchingOrNilOutputBinding() {
+        // 场景 A：两者一致
+        let matching = V2Tool(
+            id: "a", name: "A", icon: "i", description: nil,
+            kind: .prompt(PromptTool(
+                systemPrompt: nil, userPrompt: "u", contexts: [],
+                provider: .fixed(providerId: "p", modelId: nil),
+                temperature: nil, maxTokens: nil, variables: [:]
+            )),
+            visibleWhen: nil,
+            displayMode: .replace,
+            outputBinding: OutputBinding(primary: .replace, sideEffects: []),
+            permissions: [], provenance: .firstParty,
+            budget: nil, hotkey: nil, labelStyle: .icon, tags: []
+        )
+        XCTAssertNoThrow(try matching.validate())
+
+        // 场景 B：outputBinding 本身为 nil（不触发一致性校验）
+        let nilBinding = V2Tool(
+            id: "b", name: "B", icon: "i", description: nil,
+            kind: .prompt(PromptTool(
+                systemPrompt: nil, userPrompt: "u", contexts: [],
+                provider: .fixed(providerId: "p", modelId: nil),
+                temperature: nil, maxTokens: nil, variables: [:]
+            )),
+            visibleWhen: nil,
+            displayMode: .window,
+            outputBinding: nil,
+            permissions: [], provenance: .firstParty,
+            budget: nil, hotkey: nil, labelStyle: .icon, tags: []
+        )
+        XCTAssertNoThrow(try nilBinding.validate())
+    }
+
     /// encode → decode 对称：displayMode=replace + outputBinding 非 nil 的 V2Tool 必须 round-trip 相等
     func test_encode_roundtrip_withOutputBinding() throws {
         let tool = V2Tool(

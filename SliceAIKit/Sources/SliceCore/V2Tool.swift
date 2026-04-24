@@ -65,6 +65,28 @@ public struct V2Tool: Identifiable, Sendable, Codable, Equatable {
         self.tags = tags
     }
 
+    /// 校验 V2Tool 的类型不变量
+    ///
+    /// **与 decoder 校验的关系**：decoder 对 JSON 输入做同样检查（`init(from:)`），但
+    /// public `init(id:...)` 非 throws、允许代码侧临时构造非法对象（测试 fixture /
+    /// 默认值 / migrator 输出）。`validate()` 是写入边界的守护——
+    /// `V2ConfigurationStore.save()` 在落盘前对所有 tool 调用一次。
+    ///
+    /// 当前校验项（与 decoder 对齐）：
+    /// 1. `outputBinding != nil && outputBinding.primary != displayMode` → throw
+    ///    （单一事实源：同时存在两个可能冲突的字段时，ExecutionEngine 只会读其中一个）
+    ///
+    /// - Throws: `SliceError.configuration(.validationFailed(msg))`，msg 包含 tool id、两个字段名与冲突的值
+    public func validate() throws {
+        // outputBinding 存在时 primary 必须与 displayMode 一致
+        if let ob = outputBinding, ob.primary != displayMode {
+            throw SliceError.configuration(.validationFailed(
+                "Tool '\(id)': outputBinding.primary (\(ob.primary.rawValue)) "
+                + "must equal displayMode (\(displayMode.rawValue))"
+            ))
+        }
+    }
+
     // MARK: - Codable（手写 init/encode；除了保持字段 round-trip，额外校验 displayMode / outputBinding.primary 一致性）
     //
     // P2b 修复：V2Tool 既有 displayMode（non-optional）又有 outputBinding.primary（同 enum，可 nil）。

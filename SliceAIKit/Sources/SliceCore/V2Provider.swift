@@ -48,6 +48,27 @@ public struct V2Provider: Identifiable, Sendable, Codable, Equatable {
         self.capabilities = Array(Set(capabilities)).sorted { $0.rawValue < $1.rawValue }
     }
 
+    /// 校验 V2Provider 的类型不变量
+    ///
+    /// **与 decoder 校验的关系**：decoder 对 JSON 输入做同样的检查（`init(from:)`），
+    /// 但 public `init(id:...)` 非 throws、允许代码侧构造暂时不合规的对象（测试 fixture /
+    /// 默认值 / migrator 输出）。`validate()` 是写入边界的守护——
+    /// `V2ConfigurationStore.save()` 在落盘前对所有 provider 调用一次，阻止非法对象写盘。
+    ///
+    /// 当前校验项（与 decoder 对齐）：
+    /// 1. `kind ∈ {.openAICompatible, .ollama}` 时 `baseURL` 必须非 nil
+    ///    （两个协议族都是"用户填 endpoint"的设计；anthropic / gemini 的官方 SDK endpoint 固定，允许 nil）
+    ///
+    /// - Throws: `SliceError.configuration(.validationFailed(msg))`，msg 包含 provider id、协议族名与违规字段
+    public func validate() throws {
+        // openAICompatible / ollama 必须有 baseURL
+        if (kind == .openAICompatible || kind == .ollama) && baseURL == nil {
+            throw SliceError.configuration(.validationFailed(
+                "Provider '\(id)': kind=\(kind.rawValue) requires non-nil baseURL"
+            ))
+        }
+    }
+
     /// apiKeyRef 前缀，与 v1 保持一致
     public static let keychainRefPrefix = "keychain:"
 
