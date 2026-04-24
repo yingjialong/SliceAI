@@ -45,6 +45,10 @@ public enum SliceError: Error, Sendable, Equatable {
             case .schemaVersionTooNew(let v): return "configuration.schemaVersionTooNew(\(v))"
             case .invalidJSON: return "configuration.invalidJSON(<redacted>)"
             case .referencedProviderMissing(let id): return "configuration.referencedProviderMissing(\(id))"
+            // 脱敏规则：虽然 validationFailed 的 msg 由内部 validator 生成、不含用户自由文本（参见
+            // V2Provider.validate / V2Tool.validate），但统一按"任意 String payload 一律 <redacted>"
+            // 原则处理，避免未来扩展 validator 时误把 prompt / apiKey 等拼进 msg 导致日志泄漏。
+            case .validationFailed: return "configuration.validationFailed(<redacted>)"
             }
         case .permission(let e):
             switch e {
@@ -109,6 +113,12 @@ public enum ConfigurationError: Error, Sendable, Equatable {
     case schemaVersionTooNew(Int)
     case invalidJSON(String)
     case referencedProviderMissing(String)
+    /// 配置落盘前的类型不变量校验失败（第八轮 P2 新增）
+    ///
+    /// 由 `V2Provider.validate()` / `V2Tool.validate()` 抛出，`V2ConfigurationStore.save()`
+    /// 在写入磁盘前调用。msg 由 validator 生成，只包含 provider id / tool id / 字段名等"技术描述"——
+    /// **不得**包含 prompt / API Key 等用户自由文本。
+    case validationFailed(String)
 
     public var userMessage: String {
         switch self {
@@ -120,6 +130,9 @@ public enum ConfigurationError: Error, Sendable, Equatable {
             return "配置文件 JSON 格式不正确，请参考 config.schema.json 校验。"
         case .referencedProviderMissing(let id):
             return "工具引用的供应商 \"\(id)\" 不存在。"
+        case .validationFailed(let msg):
+            // validator 生成的 msg 原样带给用户，便于定位到具体 provider / tool 字段
+            return "配置校验失败：\(msg)"
         }
     }
 }
