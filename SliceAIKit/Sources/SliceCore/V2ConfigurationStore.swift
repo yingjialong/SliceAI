@@ -38,6 +38,9 @@ public actor V2ConfigurationStore {
     /// 下次 update() 会把默认值写回原路径，用户原有 providers / tools 永久丢失。
     ///
     /// "两个文件都不存在"不是错误：`load()` 会直接返回默认配置。
+    ///
+    /// **错误不缓存**：throw 时 `cached` 保持 nil，下次调用会重新从磁盘 load——这样用户
+    /// 修好 `config-v2.json` 后下一次 `current()` 即可自动恢复，无需重启 app。
     public func current() async throws -> V2Configuration {
         if let cached { return cached }
         let loaded = try await load()

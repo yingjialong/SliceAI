@@ -57,12 +57,17 @@ public struct V2Provider: Identifiable, Sendable, Codable, Equatable {
         return String(apiKeyRef.dropFirst(Self.keychainRefPrefix.count))
     }
 
-    // MARK: - Codable（手写 init；保证解码路径也做 capabilities 去重+排序）
+    // MARK: - Codable（手写 init；保证解码路径也做 capabilities 去重+排序 + baseURL 必填校验）
     //
     // 评审修正（Codex 第七轮 P2）：仅在 init(id:…:capabilities:) 里做归一化不够——
     // 用户手改 `config-v2.json`（如 `"capabilities":["toolCalling","promptCaching","toolCalling"]`）
     // 直接走自动合成的 decoder 会保留重复/乱序，违反"JSON 数组顺序稳定 + Set 语义"承诺。
-    // 本版手写 `init(from:)` 在解码时跑同样的规范化；`encode(to:)` 走自动合成（因为 init 已保证 self.capabilities 有序无重）。
+    // 本版手写 `init(from:)` 在解码时跑同样的规范化，并加 baseURL 必填校验（P2a）。
+    //
+    // **encode 不手写**：序列化侧不需要对称手写，原因——
+    // (a) self.capabilities 已由 init / decoder 统一归一化为有序无重，encode 直接走自动合成即可；
+    // (b) baseURL 必填约束只影响"读入侧"——能通过 init/decode 构造的 V2Provider 已经合法，
+    //     encode 出去的 JSON 永远满足约束，无需再校验一次。
 
     private enum CodingKeys: String, CodingKey {
         case id, kind, name, baseURL, apiKeyRef, defaultModel, capabilities

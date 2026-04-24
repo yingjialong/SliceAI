@@ -70,7 +70,11 @@ public struct V2Tool: Identifiable, Sendable, Codable, Equatable {
     // P2b 修复：V2Tool 既有 displayMode（non-optional）又有 outputBinding.primary（同 enum，可 nil）。
     // 自动合成 Codable 会让 JSON 里声明 displayMode="window" + outputBinding.primary="replace" 的
     // Tool 通过解码，未来 ExecutionEngine 只能读其中一个，另一个默默被忽略 → 单一事实源违反。
-    // 这里显式手写 Codable 加一致性校验；encode 也同步手写保证两端对称（字段名、顺序和自动合成保持一致）。
+    // 这里显式手写 Codable 加一致性校验；encode 也同步手写保证两端对称。
+    //
+    // **JSON shape contract**：只锁定**字段名**与自动合成一致（`test_v2tool_goldenJSON_promptKind_usesKindDiscriminator`
+    // 已覆盖关键 key 名），**不**把 CodingKeys 声明顺序作为 API 契约——JSON 里 key 的实际顺序由
+    // `JSONEncoder.outputFormatting`（当前配置含 `.sortedKeys`）决定，与 CodingKeys 枚举顺序无关。
 
     private enum CodingKeys: String, CodingKey {
         case id, name, icon, description, kind, visibleWhen, displayMode, outputBinding,
