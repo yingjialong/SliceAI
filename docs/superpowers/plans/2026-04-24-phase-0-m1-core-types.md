@@ -34,7 +34,9 @@
 
 ## 评审修正索引（Review Amendments）
 
-> 本 plan 在撰写与实施期间经历多轮 Codex 评审，关键改动集中在此（按时序）。旧章节里的部分 Swift 片段仍保留原始类型名以保留"为何要改"的上下文，当落地代码与本索引不一致时，**以本索引 + 实际代码为准**。
+> 本 plan 在撰写与实施期间经历多轮 Codex 评审，关键改动集中在此（按时序）。
+>
+> **代码块快照约定（第八轮评审补记）**：plan 正文里的 Swift 代码块是"实施期路径指南"，记录 Task N 那一刻的实现蓝本，**不会**回填后续 fix commit 的更新。后续 worker 需要**最终源码**时应读 `SliceAIKit/Sources/SliceCore/` 下的对应文件，而非 plan 里的代码块。当落地代码与本 plan 叙述/代码块不一致时，**以本索引 + 最终源码为准**。
 
 ### A. 实施期改名（与旧设计文字不一致）
 
@@ -56,6 +58,20 @@
 | **P2b** `V2Tool.displayMode` vs `outputBinding.primary` 单一事实源 | `displayMode: PresentationMode`（必填）与 `outputBinding: OutputBinding?`（`primary` 也是 `PresentationMode`）共存，允许 `displayMode = .window + outputBinding.primary = .replace`，未来 `ExecutionEngine` 读哪个都对不上另一个 | `d141c05` | V2Tool 从自动合成 Codable 改为手写 `init(from:) / encode(to:)`（JSON shape 不变，既有 golden 测试全绿），解码时当 `outputBinding != nil && outputBinding.primary != displayMode` 时 throw `DecodingError.dataCorrupted`；未来 ExecutionEngine 以 `displayMode` 为 primary truth，`outputBinding.primary` 仅作对称展示以兼容 OutputBinding 数据模型 | +4 tests |
 
 **M3 承接**：M3 重命名阶段，AppContainer 接入 `V2ConfigurationStore.current()` 时必须处理 `throws`——建议在启动时用 alert 告警并中止启动，**不要**静默回退（这条正是 P1 修复的原始意图）。
+
+### C. 第八轮评审（Codex 2026-04-24，收紧类型层不变量）
+
+> 承接第七轮：第七轮把不变量锁在 decoder（只挡"外部 JSON 输入"），第八轮把相同不变量延伸到**写入边界**（挡"代码构造非法对象再保存"）+ **migrator 校验 schema**。M1 本身无真实生产路径不会立即爆炸，但 M3 UI / AppContainer 一接入这些 public init 就是用户入口——不能等到那时才守。
+
+| Finding | 问题 | 修复 commit | 修复范围 |
+|---|---|---|---|
+| **P2-1** `V2Provider` 的 `baseURL` 必填约束只覆盖 decoder | `init(from:)` 拒绝 `.openAICompatible` / `.ollama` + nil baseURL，但 public `init(id:...)` 非 throws 仍允许同样的非法对象被代码构造后写入 `config-v2.json`。类型层不变量没被完全锁定 | `03fa632` | 加 `public func validate() throws`（镜像 decoder 校验，抛 `SliceError.configuration(.validationFailed(msg))`）；`V2ConfigurationStore.save()` 在 `writeV2` 前逐个 `try p.validate()`；主 `init(id:...)` 非 throws 保持不变（保护 `DefaultV2Configuration.openAIDefault` 作为 `static let` 的可行性）；decoder 既有校验不变。+2 tests |
+| **P2-2** `V2Tool.displayMode` / `outputBinding.primary` 一致性同问题 | 同 P2-1，手改 JSON 被挡但代码构造非法 V2Tool 仍可被 `V2ConfigurationStore.update()` 保存 | `03fa632` | 同方案：`V2Tool.validate()` + `V2ConfigurationStore.save()` 写入边界调用。**拒绝**备选方案"自动规范化 outputBinding.primary = displayMode"——静默修改用户显式声明违反最小意外原则。+2 tests |
+| **P2-3** `ConfigMigratorV1ToV2` 不校验 `v1.schemaVersion` | migrator 读了 `LegacyConfigV1.schemaVersion` 但从未校验；手改 `config.json` 为 `schemaVersion: 2` 且字段碰巧兼容时会被盲目迁移，导致数据含义错乱 | `2f4f8d9` | `migrate(_ v1:)` 改 throwing，首行 `guard v1.schemaVersion == 1 else throw SliceError.configuration(.schemaVersionTooNew(v1.schemaVersion))`；`V2ConfigurationStore.migrateFromLegacy` 调用加 `try`。+2 tests（migrator 单测 + load 端到端）|
+
+**配套改动**：`SliceError.ConfigurationError` 加 `case validationFailed(String)`（`14a5500`）：`userMessage` 透传 msg，`developerContext` 按脱敏规则输出 `"configuration.validationFailed(<redacted>)"`。+1 test。
+
+**M3 承接**：AppContainer 的 settings UI 写入新 Provider / Tool 前，应当在 UI 层先 call `.validate()` 给用户即时反馈（save() 是最后一道防线、不应该是首次反馈）。
 
 ---
 

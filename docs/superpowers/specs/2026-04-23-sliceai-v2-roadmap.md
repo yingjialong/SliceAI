@@ -30,6 +30,11 @@
   - **P2a**（`2b7095c`）：`V2Provider.init(from:)` 加校验——`ProviderKind.openAICompatible` / `.ollama` 必须非 nil baseURL（注释里的 "Anthropic/Gemini 可 nil" intent 类型层未 enforce）
   - **P2b**（`d141c05`）：`V2Tool` 手写 Codable，解码时拒绝 `outputBinding.primary != displayMode` 的 JSON（单一事实源原则；`displayMode` 为 primary truth）
   - M3 承接：AppContainer 接入 `V2ConfigurationStore.current()` 时必须处理 `throws`，建议 alert 告警 + 中止启动，不要静默回退
+- **评审与修订（第六轮：收紧写入边界 + migrator schema 校验）**：2026-04-24 Codex 第八轮 review 指出第五轮的不变量只覆盖"读入边界"（decoder），未锁定"写入边界"（代码构造非法对象再保存）与 migrator 输入的 schema 合法性；三条 P2 全部接受并落地，M3 UI/AppContainer 接入前补齐最后一层守护：
+  - **P2-1/P2-2**（`03fa632`）：`V2Provider` / `V2Tool` 各加 `public func validate() throws`（镜像 decoder 校验），`V2ConfigurationStore.save()` 在 `writeV2` 前逐个 validate；非法对象 save 失败时磁盘文件不被写入 / 覆盖。`init(id:...)` 非 throws 保持（保护 `DefaultV2Configuration` `static let`）
+  - **P2-3**（`2f4f8d9`）：`ConfigMigratorV1ToV2.migrate(_ v1:)` 改 throwing，首行 `guard v1.schemaVersion == 1`；手改 `config.json` 为 `schemaVersion: 2/99` 时不再被盲目迁移
+  - 配套（`14a5500`）：`SliceError.ConfigurationError.validationFailed(String)` 新 case，developerContext 按脱敏规则输出 `<redacted>`
+  - M3 承接：UI 层写入新 Provider/Tool 前应当先 call `.validate()` 给用户即时反馈；save() 是最后防线不应是首次反馈
 
 ---
 
