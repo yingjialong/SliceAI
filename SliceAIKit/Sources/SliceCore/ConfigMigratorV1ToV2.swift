@@ -20,12 +20,22 @@ internal enum ConfigMigratorV1ToV2 {
     /// 执行迁移
     /// - Parameter v1: v1 配置快照
     /// - Returns: V2Configuration（独立 v2 类型）
+    /// - Throws: `SliceError.configuration(.schemaVersionTooNew)` 当 v1.schemaVersion != 1
     ///
     /// 访问控制说明（评审修正 Codex 第六轮 P1-2）：`LegacyConfigV1` 是 `internal`，
     /// 因此 `ConfigMigratorV1ToV2` 与 `migrate(_:)` 也必须是 `internal`——否则 Swift
     /// 会报"public API uses internal type"编译错误。M1 只有 SliceCore 内部与
     /// `@testable import SliceCore` 的测试需要访问；外部模块不直接调 migrator。
-    internal static func migrate(_ v1: LegacyConfigV1) -> V2Configuration {
+    ///
+    /// **schemaVersion 校验（第八轮 P2-3 修复）**：v1 schema 只有版本 1；非 1 说明文件
+    /// 本身不是 v1（可能是用户手把 v2 写进了 config.json、未来版本降级、或无关格式恰好
+    /// 通过了 LegacyConfigV1.Decodable）。即使字段碰巧对齐也不能当作 v1 迁移——盲目映射
+    /// 会让 v2 配置被错值覆盖且随后由 V2ConfigurationStore 写盘，彻底破坏用户数据。
+    internal static func migrate(_ v1: LegacyConfigV1) throws -> V2Configuration {
+        // 严格拒绝非 v1 schema；错误沿用 schemaVersionTooNew（语义："应用不理解此版本"）
+        guard v1.schemaVersion == 1 else {
+            throw SliceError.configuration(.schemaVersionTooNew(v1.schemaVersion))
+        }
         let providers = v1.providers.map(migrateProvider)
         let tools = v1.tools.map(migrateTool)
         let hotkeys = HotkeyBindings(toggleCommandPalette: v1.hotkeys.toggleCommandPalette)

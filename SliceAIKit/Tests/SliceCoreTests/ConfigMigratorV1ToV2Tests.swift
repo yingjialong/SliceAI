@@ -17,7 +17,7 @@ final class ConfigMigratorV1ToV2Tests: XCTestCase {
     func test_migrate_minimal_preservesProviderId() throws {
         let data = try loadFixture("config-v1-minimal")
         let v1 = try JSONDecoder().decode(LegacyConfigV1.self, from: data)
-        let v2 = ConfigMigratorV1ToV2.migrate(v1)
+        let v2 = try ConfigMigratorV1ToV2.migrate(v1)
 
         XCTAssertEqual(v2.schemaVersion, 2)
         XCTAssertEqual(v2.providers.count, 1)
@@ -29,7 +29,7 @@ final class ConfigMigratorV1ToV2Tests: XCTestCase {
     func test_migrate_minimal_toolToPromptKind() throws {
         let data = try loadFixture("config-v1-minimal")
         let v1 = try JSONDecoder().decode(LegacyConfigV1.self, from: data)
-        let v2 = ConfigMigratorV1ToV2.migrate(v1)
+        let v2 = try ConfigMigratorV1ToV2.migrate(v1)
 
         XCTAssertEqual(v2.tools.count, 1)
         let tool = v2.tools[0]
@@ -49,7 +49,7 @@ final class ConfigMigratorV1ToV2Tests: XCTestCase {
     func test_migrate_minimal_preservesHotkeys_andTriggers_defaults() throws {
         let data = try loadFixture("config-v1-minimal")
         let v1 = try JSONDecoder().decode(LegacyConfigV1.self, from: data)
-        let v2 = ConfigMigratorV1ToV2.migrate(v1)
+        let v2 = try ConfigMigratorV1ToV2.migrate(v1)
 
         XCTAssertEqual(v2.hotkeys.toggleCommandPalette, "option+space")
         XCTAssertEqual(v2.triggers.floatingToolbarEnabled, true)
@@ -65,7 +65,7 @@ final class ConfigMigratorV1ToV2Tests: XCTestCase {
     func test_migrate_minimal_appearanceDefaultsAuto() throws {
         let data = try loadFixture("config-v1-minimal")
         let v1 = try JSONDecoder().decode(LegacyConfigV1.self, from: data)
-        let v2 = ConfigMigratorV1ToV2.migrate(v1)
+        let v2 = try ConfigMigratorV1ToV2.migrate(v1)
         XCTAssertEqual(v2.appearance, .auto)
     }
 
@@ -74,7 +74,7 @@ final class ConfigMigratorV1ToV2Tests: XCTestCase {
     func test_migrate_full_preservesAllFields() throws {
         let data = try loadFixture("config-v1-full")
         let v1 = try JSONDecoder().decode(LegacyConfigV1.self, from: data)
-        let v2 = ConfigMigratorV1ToV2.migrate(v1)
+        let v2 = try ConfigMigratorV1ToV2.migrate(v1)
 
         XCTAssertEqual(v2.schemaVersion, 2)
         XCTAssertEqual(v2.appearance, .dark)
@@ -92,7 +92,7 @@ final class ConfigMigratorV1ToV2Tests: XCTestCase {
     func test_migrate_full_preservesLabelStyle() throws {
         let data = try loadFixture("config-v1-full")
         let v1 = try JSONDecoder().decode(LegacyConfigV1.self, from: data)
-        let v2 = ConfigMigratorV1ToV2.migrate(v1)
+        let v2 = try ConfigMigratorV1ToV2.migrate(v1)
         XCTAssertEqual(v2.tools[0].labelStyle, .iconAndName)
         XCTAssertEqual(v2.tools[1].labelStyle, .icon)
     }
@@ -100,7 +100,7 @@ final class ConfigMigratorV1ToV2Tests: XCTestCase {
     func test_migrate_full_nullFieldsPreserved() throws {
         let data = try loadFixture("config-v1-full")
         let v1 = try JSONDecoder().decode(LegacyConfigV1.self, from: data)
-        let v2 = ConfigMigratorV1ToV2.migrate(v1)
+        let v2 = try ConfigMigratorV1ToV2.migrate(v1)
 
         guard case .prompt(let polishPT) = v2.tools[1].kind else { XCTFail(); return }
         XCTAssertNil(polishPT.systemPrompt)
@@ -111,9 +111,43 @@ final class ConfigMigratorV1ToV2Tests: XCTestCase {
     func test_migrate_allTools_provenanceIsFirstParty() throws {
         let data = try loadFixture("config-v1-full")
         let v1 = try JSONDecoder().decode(LegacyConfigV1.self, from: data)
-        let v2 = ConfigMigratorV1ToV2.migrate(v1)
+        let v2 = try ConfigMigratorV1ToV2.migrate(v1)
         for tool in v2.tools {
             XCTAssertEqual(tool.provenance, .firstParty)
+        }
+    }
+
+    // MARK: - schemaVersion 校验（第八轮 P2-3 修复）
+    //
+    // 背景：`LegacyConfigV1` 结构有 `schemaVersion: Int` 字段但历史 migrator 从未校验。
+    // 如果用户手改 config.json 把 schemaVersion 改成 2（或更新版本）而其他字段碰巧
+    // 能通过 LegacyConfigV1.Decodable，migrator 仍然会盲目把它当 v1 迁移——字段含义错乱，
+    // v2 配置被错误生成且覆盖（V2ConfigurationStore.load 会接着写 v2 文件）。
+    // 本组测试锁定"非 v1 schemaVersion → throw，拒绝盲目迁移"的不变量。
+
+    /// schemaVersion 不等于 1 时 migrate() 必须 throw，避免把未来版本/非 v1 文件当 v1 处理
+    func test_migrate_throwsForUnknownSchemaVersion() throws {
+        // 手工构造：schemaVersion=2 但其他字段仍符合 v1 shape
+        // 这里模拟"用户误把 v2 文件存成 config.json"的场景
+        let badJSON = #"""
+        {
+          "schemaVersion": 2,
+          "providers": [],
+          "tools": [],
+          "hotkeys": {"toggleCommandPalette": "option+space"},
+          "triggers": {"floatingToolbarEnabled": true, "commandPaletteEnabled": true, "minimumSelectionLength": 1, "triggerDelayMs": 150},
+          "telemetry": {"enabled": false},
+          "appBlocklist": []
+        }
+        """#.data(using: .utf8)!
+        let v1 = try JSONDecoder().decode(LegacyConfigV1.self, from: badJSON)
+
+        XCTAssertThrowsError(try ConfigMigratorV1ToV2.migrate(v1)) { error in
+            guard case SliceError.configuration(.schemaVersionTooNew(let v)) = error else {
+                XCTFail("expected .schemaVersionTooNew, got \(error)")
+                return
+            }
+            XCTAssertEqual(v, 2)
         }
     }
 
@@ -133,7 +167,7 @@ final class ConfigMigratorV1ToV2Tests: XCTestCase {
         }
         """#.data(using: .utf8)!
         let v1 = try JSONDecoder().decode(LegacyConfigV1.self, from: badJSON)
-        let v2 = ConfigMigratorV1ToV2.migrate(v1)
+        let v2 = try ConfigMigratorV1ToV2.migrate(v1)
         XCTAssertEqual(v2.tools[0].displayMode, .window)
     }
 }

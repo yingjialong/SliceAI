@@ -157,7 +157,9 @@ public actor V2ConfigurationStore {
         } catch {
             throw SliceError.configuration(.invalidJSON("<redacted>"))
         }
-        return ConfigMigratorV1ToV2.migrate(v1)
+        // migrate() 现在 throws（第八轮 P2-3 修复）：v1.schemaVersion ≠ 1 时原样抛出
+        // .schemaVersionTooNew，阻止 current()/load() 把未知版本的配置写成 v2
+        return try ConfigMigratorV1ToV2.migrate(v1)
     }
 
     /// 原子写 v2 文件

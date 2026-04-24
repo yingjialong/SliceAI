@@ -175,6 +175,46 @@ final class V2ConfigurationStoreTests: XCTestCase {
         }
     }
 
+    /// v1 文件 schemaVersion 不等于 1 时 current() 必须 throw（第八轮 P2-3 修复）
+    ///
+    /// 场景：用户误把 config-v2.json 内容写进 config.json（或未来 v3 降级），LegacyConfigV1
+    /// 的可选/兼容字段让 decode 能通过，但语义已变。此时 migrator 必须拒绝迁移，而不是盲目
+    /// 把错值映射为 v2 写盘（会彻底破坏用户数据）。
+    func test_load_throwsWhenLegacyHasUnknownSchemaVersion() async throws {
+        let v1URL = tempDir.appendingPathComponent("config.json")
+        let v2URL = tempDir.appendingPathComponent("config-v2.json")
+
+        // schemaVersion=2 但 shape 仍符合 v1（其他字段 decode 通过）
+        let weirdV1JSON = #"""
+        {
+          "schemaVersion": 2,
+          "providers": [],
+          "tools": [],
+          "hotkeys": {"toggleCommandPalette": "option+space"},
+          "triggers": {"floatingToolbarEnabled": true, "commandPaletteEnabled": true, "minimumSelectionLength": 1, "triggerDelayMs": 150},
+          "telemetry": {"enabled": false},
+          "appBlocklist": []
+        }
+        """#
+        try Data(weirdV1JSON.utf8).write(to: v1URL, options: .atomic)
+
+        let store = V2ConfigurationStore(fileURL: v2URL, legacyFileURL: v1URL)
+        do {
+            _ = try await store.current()
+            XCTFail("current() 必须在 v1 schemaVersion 未知时 throw")
+        } catch SliceError.configuration(.schemaVersionTooNew(let v)) {
+            XCTAssertEqual(v, 2)
+        } catch {
+            XCTFail("expected .schemaVersionTooNew, got \(error)")
+        }
+
+        // 关键不变量：migrator 抛错 → v2 文件不应被创建
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: v2URL.path),
+            "config-v2.json must not be created when migration is rejected"
+        )
+    }
+
     /// v2 不存在但 v1 文件损坏时，current() 必须 throw，避免无声丢失 v1 数据
     func test_current_throwsOnCorruptedLegacyJSON() async throws {
         let v1URL = tempDir.appendingPathComponent("config.json")
