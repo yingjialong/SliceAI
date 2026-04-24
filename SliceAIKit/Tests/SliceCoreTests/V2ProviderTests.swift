@@ -101,6 +101,59 @@ final class V2ProviderTests: XCTestCase {
         XCTAssertNil(p.keychainAccount)
     }
 
+    // MARK: - Decoder 校验 baseURL 要求（P2a 修复）
+    //
+    // 背景：ProviderKind.openAICompatible / .ollama 协议族必须有 baseURL（两者都是
+    // "用户填入 endpoint"的设计）。init(id:…:) 历史上允许传 nil，但生产路径都是
+    // 开发期可控的 static let 常量；真正的外部输入入口是 decoder（用户手改
+    // config-v2.json）。本组测试锁定 decoder 的不变量。
+
+    /// openAICompatible 协议族 JSON 若缺 baseURL / baseURL=null，decoder 必须拒绝
+    func test_decode_openAICompatibleRequiresNonNilBaseURL() {
+        let json = #"""
+        {"id":"x","kind":"openAICompatible","name":"X","baseURL":null,"apiKeyRef":"keychain:x","defaultModel":"gpt-4","capabilities":[]}
+        """#
+        XCTAssertThrowsError(try JSONDecoder().decode(V2Provider.self, from: Data(json.utf8))) { error in
+            guard case DecodingError.dataCorrupted = error else {
+                XCTFail("expected DecodingError.dataCorrupted, got \(error)")
+                return
+            }
+        }
+    }
+
+    /// ollama 同样要求 baseURL（本地 endpoint 必填，如 http://localhost:11434/v1）
+    func test_decode_ollamaRequiresNonNilBaseURL() {
+        let json = #"""
+        {"id":"x","kind":"ollama","name":"X","baseURL":null,"apiKeyRef":"keychain:x","defaultModel":"llama3","capabilities":[]}
+        """#
+        XCTAssertThrowsError(try JSONDecoder().decode(V2Provider.self, from: Data(json.utf8))) { error in
+            guard case DecodingError.dataCorrupted = error else {
+                XCTFail("expected DecodingError.dataCorrupted, got \(error)")
+                return
+            }
+        }
+    }
+
+    /// anthropic 协议族允许 baseURL=nil（官方 SDK endpoint 固定，无需用户填）
+    func test_decode_anthropicAllowsNilBaseURL() throws {
+        let json = #"""
+        {"id":"x","kind":"anthropic","name":"X","baseURL":null,"apiKeyRef":"keychain:x","defaultModel":"claude-sonnet-4","capabilities":[]}
+        """#
+        let decoded = try JSONDecoder().decode(V2Provider.self, from: Data(json.utf8))
+        XCTAssertEqual(decoded.kind, .anthropic)
+        XCTAssertNil(decoded.baseURL)
+    }
+
+    /// gemini 同样允许 baseURL=nil
+    func test_decode_geminiAllowsNilBaseURL() throws {
+        let json = #"""
+        {"id":"x","kind":"gemini","name":"X","baseURL":null,"apiKeyRef":"keychain:x","defaultModel":"gemini-2","capabilities":[]}
+        """#
+        let decoded = try JSONDecoder().decode(V2Provider.self, from: Data(json.utf8))
+        XCTAssertEqual(decoded.kind, .gemini)
+        XCTAssertNil(decoded.baseURL)
+    }
+
     // MARK: - Helpers
 
     private func encode<T: Encodable>(_ value: T) throws -> Data {

@@ -74,6 +74,15 @@ public struct V2Provider: Identifiable, Sendable, Codable, Equatable {
         self.kind = try c.decode(ProviderKind.self, forKey: .kind)
         self.name = try c.decode(String.self, forKey: .name)
         self.baseURL = try c.decodeIfPresent(URL.self, forKey: .baseURL)
+        // P2a 修复：openAICompatible / ollama 必须有 baseURL（用户填 endpoint 的协议族）。
+        // 在 fail fast 路径上拒绝 nil，避免把无效 Provider 推到运行时才发现 endpoint 缺失。
+        // anthropic / gemini 官方 SDK endpoint 固定，允许 nil。
+        if (self.kind == .openAICompatible || self.kind == .ollama) && self.baseURL == nil {
+            throw DecodingError.dataCorrupted(.init(
+                codingPath: c.codingPath,
+                debugDescription: "V2Provider.kind=\(self.kind.rawValue) requires non-nil baseURL"
+            ))
+        }
         self.apiKeyRef = try c.decode(String.self, forKey: .apiKeyRef)
         self.defaultModel = try c.decode(String.self, forKey: .defaultModel)
         // 解码后同样做归一化，保证"外部 JSON 手改后 round-trip 结果稳定"
