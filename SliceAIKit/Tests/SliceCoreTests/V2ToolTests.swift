@@ -167,4 +167,65 @@ final class V2ToolTests: XCTestCase {
         let data = Data(json.utf8)
         XCTAssertThrowsError(try JSONDecoder().decode(V2Tool.self, from: data))
     }
+
+    // MARK: - displayMode 与 outputBinding.primary 一致性校验（P2b 修复）
+    //
+    // 背景：V2Tool 同时持有 displayMode: PresentationMode（non-optional）和
+    // outputBinding: OutputBinding?（其 primary 也是 PresentationMode）。同一个 Tool
+    // 可以在 JSON 里声明 displayMode="window" + outputBinding.primary="replace"，未来
+    // ExecutionEngine 读谁都会让另一方失效。decoder 必须把这个不一致挡在加载期。
+
+    /// displayMode 与 outputBinding.primary 不一致时 decoder 必须拒绝
+    func test_decode_rejectsMismatchedOutputBindingPrimary() {
+        let json = #"""
+        {"id":"t","name":"n","icon":"i","kind":{"prompt":{"userPrompt":"u","contexts":[],"provider":{"fixed":{"providerId":"p"}},"variables":{}}},"displayMode":"window","outputBinding":{"primary":"replace","sideEffects":[]},"permissions":[],"provenance":{"firstParty":{}},"labelStyle":"icon","tags":[]}
+        """#
+        XCTAssertThrowsError(try JSONDecoder().decode(V2Tool.self, from: Data(json.utf8))) { error in
+            guard case DecodingError.dataCorrupted = error else {
+                XCTFail("expected DecodingError.dataCorrupted, got \(error)")
+                return
+            }
+        }
+    }
+
+    /// displayMode == outputBinding.primary 时必须接受
+    func test_decode_acceptsMatchingOutputBindingPrimary() throws {
+        let json = #"""
+        {"id":"t","name":"n","icon":"i","kind":{"prompt":{"userPrompt":"u","contexts":[],"provider":{"fixed":{"providerId":"p"}},"variables":{}}},"displayMode":"replace","outputBinding":{"primary":"replace","sideEffects":[]},"permissions":[],"provenance":{"firstParty":{}},"labelStyle":"icon","tags":[]}
+        """#
+        let decoded = try JSONDecoder().decode(V2Tool.self, from: Data(json.utf8))
+        XCTAssertEqual(decoded.displayMode, .replace)
+        XCTAssertEqual(decoded.outputBinding?.primary, .replace)
+    }
+
+    /// outputBinding 字段缺席（显式 nil）时不触发一致性校验
+    func test_decode_acceptsNilOutputBinding() throws {
+        let json = #"""
+        {"id":"t","name":"n","icon":"i","kind":{"prompt":{"userPrompt":"u","contexts":[],"provider":{"fixed":{"providerId":"p"}},"variables":{}}},"displayMode":"window","permissions":[],"provenance":{"firstParty":{}},"labelStyle":"icon","tags":[]}
+        """#
+        let decoded = try JSONDecoder().decode(V2Tool.self, from: Data(json.utf8))
+        XCTAssertEqual(decoded.displayMode, .window)
+        XCTAssertNil(decoded.outputBinding)
+    }
+
+    /// encode → decode 对称：displayMode=replace + outputBinding 非 nil 的 V2Tool 必须 round-trip 相等
+    func test_encode_roundtrip_withOutputBinding() throws {
+        let tool = V2Tool(
+            id: "t", name: "n", icon: "i", description: nil,
+            kind: .prompt(PromptTool(
+                systemPrompt: nil, userPrompt: "u", contexts: [],
+                provider: .fixed(providerId: "p", modelId: nil),
+                temperature: nil, maxTokens: nil, variables: [:]
+            )),
+            visibleWhen: nil,
+            displayMode: .replace,
+            outputBinding: OutputBinding(primary: .replace, sideEffects: [.copyToClipboard]),
+            permissions: [.clipboard],
+            provenance: .firstParty,
+            budget: nil, hotkey: nil, labelStyle: .icon, tags: []
+        )
+        let data = try JSONEncoder().encode(tool)
+        let decoded = try JSONDecoder().decode(V2Tool.self, from: data)
+        XCTAssertEqual(tool, decoded)
+    }
 }
