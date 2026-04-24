@@ -20,18 +20,18 @@
 | 当前 Milestone | **M1 完成，等 merge**；M2 / M3 未启动 |
 | 下一个动作 | 等 PR #1 merge → 启动 **Phase 0 M2**（Orchestration + Capabilities 骨架）的 brainstorming + writing-plans |
 | 阻塞 | 无（PR #1 已开、CI 可自动跑） |
-| 累计进度 | 整体 v2 重构 **约 17%** 完成（M1 = Phase 0 的 ~40%，Phase 0 = 全重构的 ~15%–20%） |
 
-**进度条（按 Phase）**
+**Milestone 状态**
 
-```
-Phase 0 （底层重构）       [■■■■□□□□□□] 40%  (M1 done, M2/M3 pending)
-Phase 1 （MCP + Context）  [□□□□□□□□□□] 0%   (design-frozen, plan 未写)
-Phase 2 （Skill + DisplayMode）  [□□□□□□□□□□] 0% (directional)
-Phase 3 （Prompt IDE + 本地模型）[□□□□□□□□□□] 0% (directional)
-Phase 4 （生态与分享）          [□□□□□□□□□□] 0% (directional)
-Phase 5 （高级编排）            [□□□□□□□□□□] 0% (directional)
-```
+> 不在此处给"整体完成百分比"——spec §4.8 明确仅 Phase 0–1 有时间承诺，Phase 2–5 是 directional 无人天估算，谈总进度没基准。
+
+| Phase | Milestone | 状态 |
+|---|---|---|
+| 0 | M1 | ✅ 已完成，PR #1 OPEN 待 merge |
+| 0 | M2 | ⏳ 未启动（等 M1 merge） |
+| 0 | M3 | ⏳ 未启动（等 M2 merge） |
+| 1 | — | ⏳ 设计已 Freeze，plan 未写 |
+| 2–5 | — | 🟦 Directional，进入前需重新 spec |
 
 ---
 
@@ -155,7 +155,7 @@ Phase 5 （高级编排）            [□□□□□□□□□□] 0% (direc
 - [ ] PR #1 已 merge 到 `origin/main`
 - [ ] 本地 `main` 已 pull 最新（`git pull origin main`）
 - [ ] 新建 worktree：`git worktree add .worktrees/phase-0-m2 -b feature/phase-0-m2-orchestration`（参考 superpowers:using-git-worktrees skill）
-- [ ] 确认 M2 **子任务在 spec §4.2.3 M2.1–M2.9 冻结不变**（如需调整，先在 plan 里记"评审修正"）
+- [ ] 确认 M2 **子任务在 spec §4.2.3 M2.1–M2.9 冻结不变（含 M2.3a PermissionGraph，共 10 项）**（如需调整，先在 plan 里记"评审修正"）
 - [ ] 用 superpowers:brainstorming skill 预走一遍 M2（可选——spec 已 freeze，如果没有新问题可直接跳到 writing-plans）
 
 **任务拆解**（抄自 spec §4.2.3 M2）：
@@ -203,19 +203,11 @@ Phase 5 （高级编排）            [□□□□□□□□□□] 0% (direc
 - [ ] 本地 main 已 pull
 - [ ] 新 worktree `feature/phase-0-m3-switch-to-v2`
 - [ ] 回答的 open question：M1 里的 V2* 独立类型 rename 策略最终确认（M1 plan 顶部评审修正索引 A 已列；M3 进入前需 sanity check）
+- [ ] **先写并评审 M3 mini-spec**：M1 plan 明确要求 "spec §4.2 M3 的任务清单需要在 M3 启动前独立 spec 一次"（见 M1 plan:24）。因为 M3 要做的是 **rename + 切换真实启动路径 + 删旧**，风险比 M1/M2 高一个数量级，不能只靠 spec §4.2.3 的 6 项清单启动；先写 `docs/superpowers/specs/YYYY-MM-DD-phase-0-m3-mini-spec.md` 过一轮 Codex review 再走 writing-plans
 
-**任务拆解**（抄自 spec §4.2.3 M3）：
+**任务拆解**（抄自 spec §4.2.3 M3，**rename pass 升为一等主任务，与 M3.1–M3.6 同级；见下方 M3.0 + 原表**）：
 
-| # | 任务 | 人天 | 交付物 |
-|---|---|---|---|
-| M3.1 | `SliceAIApp/AppContainer.swift` 装配 `ExecutionEngine` + 各依赖 | 1 | 装配链路 + 启动冒烟 |
-| M3.2 | 触发通路（FloatingToolbar / CommandPalette）从 `ToolExecutor.execute` 切到 `ExecutionEngine.execute(tool:seed:)` | 1 | 对齐 `ExecutionSeed` 构造方式 |
-| M3.3 | `ConfigurationStore` 启动时按 §3.7 规则选择 v1/v2 路径，运行 migrator | 0.5 | 启动逻辑 + 单测 |
-| M3.4 | 删除 `SliceCore/ToolExecutor.swift` | 0.5 | PR |
-| M3.5 | 端到端手动回归（见 §4.2.5 清单） | 1.5 | checklist 全过 |
-| M3.6 | 更新 `README.md` 项目修改变动记录、Module 文档、Task-detail | 1 | 文档 |
-
-**M3 rename pass 额外任务**（M1 遗留技术债，必须在 M3 完成，与 spec M3.1–M3.6 并行）：
+**M3.0（一等主任务）— v1→v2 rename pass**（M1 plan 明文要求：plan:15-24 "**必须把以下任务列为一等主任务**，而非附带清理"；预计 3–5 人天，是 M3 最大工作量）：
 
 - [ ] 删除旧 `Tool.swift` / `Provider.swift` / `Configuration.swift` / `DefaultConfiguration.swift` / `SelectionPayload.swift` / `ConfigurationStore.swift`
 - [ ] 把 `V2Tool.swift` → `Tool.swift`（同理 V2Provider / V2Configuration / V2ConfigurationStore / DefaultV2Configuration），类型 + 文件名双重 rename
@@ -225,6 +217,17 @@ Phase 5 （高级编排）            [□□□□□□□□□□] 0% (direc
 - [ ] 首次启动时对既有用户的 `~/Library/Application Support/SliceAI/config.json` 做 migration
 - [ ] 升级 `ToolEditorView` UI（v1 扁平字段 → v2 按 `ToolKind` 分派到 prompt/agent/pipeline 编辑器）
 - [ ] 更新所有涉及 `Tool` / `Provider` / `Configuration` 的测试引用
+
+**M3.1–M3.6（抄自 spec §4.2.3，与 M3.0 并行）**：
+
+| # | 任务 | 人天 | 交付物 |
+|---|---|---|---|
+| M3.1 | `SliceAIApp/AppContainer.swift` 装配 `ExecutionEngine` + 各依赖 | 1 | 装配链路 + 启动冒烟 |
+| M3.2 | 触发通路（FloatingToolbar / CommandPalette）从 `ToolExecutor.execute` 切到 `ExecutionEngine.execute(tool:seed:)` | 1 | 对齐 `ExecutionSeed` 构造方式 |
+| M3.3 | `ConfigurationStore` 启动时按 §3.7 规则选择 v1/v2 路径，运行 migrator | 0.5 | 启动逻辑 + 单测 |
+| M3.4 | 删除 `SliceCore/ToolExecutor.swift` | 0.5 | PR |
+| M3.5 | 端到端手动回归（见 §4.2.5 清单） | 1.5 | checklist 全过 |
+| M3.6 | 更新 `README.md` 项目修改变动记录、Module 文档、Task-detail | 1 | 文档 |
 
 **Exit criteria（DoD）**：
 
@@ -270,15 +273,18 @@ Phase 5 （高级编排）            [□□□□□□□□□□] 0% (direc
 
 **状态**：**设计已 Freeze**，**plan 未写**。
 
-**Entry criteria**：
+**Entry criteria**（启动 plan 起草的前置条件）：
 
 - [ ] Phase 0 全部 milestone merge（v0.2 已发布）
-- [ ] 回答 spec §5.3 的 Open Question：
-  - [ ] Q5：`web-search-summarize` 实测用户对"Tool Permission 弹窗确认"的容忍度
-  - [ ] Q6：`selfManaged` MCP 的"用户审读后接受"UX 设计
-  - [ ] Q7：`PermissionGrant` 持久化粒度（本次会话 / 今日 / 永久）的默认
 - [ ] 用 superpowers:brainstorming skill 走一遍 Phase 1 设计（spec 已 freeze 但细节需要再走一遍）
 - [ ] 产出 `docs/superpowers/plans/YYYY-MM-DD-phase-1-mcp-context.md`
+- [ ] plan 过一轮 Codex review，直到 APPROVED / COMMENT
+
+**Early validation（Phase 1 早期验收，不是启动门槛）**——按 spec §5.3 定位，在首个真实 Agent Tool `web-search-summarize` 开发阶段实测：
+
+- [ ] Q5：用户对"Tool Permission 弹窗确认"的容忍度（实测或 A/B）
+- [ ] Q6：`selfManaged` MCP 的"用户审读后接受"UX（一次文本警告是否足够，实机迭代）
+- [ ] Q7：`PermissionGrant` 持久化粒度默认（本次会话 / 今日 / 永久，A/B）
 
 **关键交付**（抄自 spec §4.3.2）：
 
@@ -317,7 +323,8 @@ Phase 5 （高级编排）            [□□□□□□□□□□] 0% (direc
 > 2. 产出新的 `docs/superpowers/specs/YYYY-MM-DD-phase-N-<topic>.md`（设计冻结）
 > 3. 走 Codex 评审（至少一轮，直到 APPROVED）
 > 4. 产出 `docs/superpowers/plans/YYYY-MM-DD-phase-N-<topic>.md`（实施 plan）
-> 5. 本文件的 §0 Dashboard 更新 + 在对应 phase 章节展开子任务
+> 5. plan 完成后再过一轮 Codex 评审，直到 APPROVED / COMMENT（与 §8 阶段 2 对齐）
+> 6. 本文件的 §0 Dashboard 更新 + 在对应 phase 章节展开子任务
 
 ### 5.1 Phase 2：Skill + 多 DisplayMode
 
@@ -334,6 +341,13 @@ Phase 5 （高级编排）            [□□□□□□□□□□] 0% (direc
 - [ ] `Orchestration/OutputDispatcher` 填充所有 DisplayMode
 - [ ] Anthropic Skills 兼容性测试（`obra/superpowers` 等公开仓库）
 - [ ] 新内置 Tool Pack：`english-tutor`
+
+**Definition of Done**（抄自 spec §4.4.3，进入前可重写）：
+
+- [ ] 至少 3 个公开 Anthropic Skill 能在 SliceAI 中直接工作
+- [ ] `english-tutor` Tool 能触发"语法分析 + 改写 + 朗读"全流程
+- [ ] `replace` 模式在 Notes / VSCode 上通过；Figma / Slack 降级为复制 + 通知
+- [ ] `structured` 模式支持动态表单渲染（至少 5 种字段类型）
 
 **Open questions 必答**（spec §5.3 Q1 / Q2）：
 
@@ -358,6 +372,13 @@ Phase 5 （高级编排）            [□□□□□□□□□□] 0% (direc
 - [ ] Cost Panel
 - [ ] Tool 声明 `privacy: local-only`
 
+**Definition of Done**（抄自 spec §4.5.3，进入前可重写）：
+
+- [ ] 同一 Tool 可以通过 Playground 并排跑 Claude Sonnet 4.6 / GPT-5 / Llama3.3 三家
+- [ ] Per-Tool Memory 能注入 prompt 并通过 E2E 测试
+- [ ] `privacy: local-only` 的 Tool 在无 Ollama 运行时正确报错
+- [ ] Cost Panel 数据与真实 Provider 账单偏差 < 5%
+
 **Open question 必答**（spec §5.3 Q3）：Ollama function-calling 主流模型稳定度
 
 ### 5.3 Phase 4：生态与分享
@@ -377,6 +398,13 @@ Phase 5 （高级编排）            [□□□□□□□□□□] 0% (direc
 - [ ] 6 个官方 Starter Packs
 - [ ] **Signing + Notarization**（决定是否迈出这步 — 见 spec §5.1）
 
+**Definition of Done**（抄自 spec §4.6.3，进入前可重写）：
+
+- [ ] 从 Marketplace 一键安装 5 个 Starter Pack 全部成功
+- [ ] Claude Desktop 中添加 SliceAI 为 MCP server，能调用到 SliceAI 的 Tool
+- [ ] macOS Shortcuts 中出现 SliceAI Action
+- [ ] Safari 右键 → Services → SliceAI Tool 可用
+
 **Open question 必答**（spec §5.3 Q4）：macOS Services 菜单在 unsigned app 上是否受限
 
 ### 5.4 Phase 5：高级编排
@@ -391,6 +419,12 @@ Phase 5 （高级编排）            [□□□□□□□□□□] 0% (direc
 - [ ] 浮条动态工具排序
 - [ ] `cascade` 规则 + provider fallback
 - [ ] Agent `stepCompleted` 回调接入 Pipeline 进度条
+
+**Definition of Done**（抄自 spec §4.7.3，进入前可重写）：
+
+- [ ] 至少 3 个内置 Pipeline 工具（Translate→Anki、Commit→Push、Paper→Notion）
+- [ ] 选中代码时浮条首位自动变成"Explain Code"，选中 URL 时自动变成"Summarize Webpage"
+- [ ] Cascade 规则在"长文本 > 8k token 走 Claude Haiku"场景下工作正确
 
 ### 5.5 v1.0 Gate
 
@@ -519,7 +553,7 @@ Phase 5 （高级编排）            [□□□□□□□□□□] 0% (direc
 **关键原则**（从 M1 实施总结出的血泪教训）：
 
 1. **质量优先，不为效率牺牲**：每个 task 都走完整两阶段评审。快不等于好。
-2. **v1 zero-touch 严格验证**：`git diff origin/main..HEAD -- <v1 files>` 必须为 0 行（或只包含 milestone 明确声明的 v1 改动）。
+2. **v1 zero-touch 严格验证**（**仅适用 M1 / M2**）：`git diff origin/main..HEAD -- <v1 files>` 必须为 0 行。**M3 阶段此原则不适用**——M3.0 rename pass 会大面积删除 / 重命名 v1 类型；M3 的等价验收是 §3.3 的回归清单 + 迁移单测 + 切回旧分支仍能打开旧 config.json 的兼容性测试。
 3. **SliceError 脱敏规则**：所有带 String payload 的 case → `developerContext` 输出 `<redacted>`。
 4. **手写 Codable 模板**：enum with associated values 必须用 `allKeys.count == 1` 单键 guard + `DecodingError.dataCorrupted(.init(codingPath:, debugDescription:))`。
 5. **decoder 与 validator 双守**：decoder 挡外部 JSON 输入、`.validate()` 挡代码构造；不变量在两处都要 enforce，写入边界（store.save）统一调 validate。
