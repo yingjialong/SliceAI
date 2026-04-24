@@ -31,17 +31,19 @@ public actor V2ConfigurationStore {
     }
 
     /// 获取当前 v2 配置：优先缓存 → v2 文件 → migrator → 默认配置
-    public func current() async -> V2Configuration {
+    ///
+    /// **抛错语义（P1 修复）**：v2 JSON 损坏 / schemaVersion 高于支持 / v1 迁移失败时
+    /// 原样向外抛出 `SliceError.configuration(...)`，由上层（M3 AppContainer）决定是否
+    /// 告警用户 + 中止启动。严禁回退 DefaultV2Configuration.initial() 覆盖损坏文件——否则
+    /// 下次 update() 会把默认值写回原路径，用户原有 providers / tools 永久丢失。
+    ///
+    /// "两个文件都不存在"不是错误：`load()` 会直接返回默认配置。
+    public func current() async throws -> V2Configuration {
         if let cached { return cached }
-        if let loaded = try? await load() {
-            cached = loaded
-            v2ConfigLog.debug("current() loaded v2 config")
-            return loaded
-        }
-        let fallback = DefaultV2Configuration.initial()
-        cached = fallback
-        v2ConfigLog.debug("current() falling back to DefaultV2Configuration.initial()")
-        return fallback
+        let loaded = try await load()
+        cached = loaded
+        v2ConfigLog.debug("current() loaded v2 config")
+        return loaded
     }
 
     /// 更新并持久化到 v2 路径

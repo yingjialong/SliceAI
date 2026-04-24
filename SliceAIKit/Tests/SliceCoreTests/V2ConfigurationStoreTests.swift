@@ -124,6 +124,86 @@ final class V2ConfigurationStoreTests: XCTestCase {
         XCTAssertTrue(json.contains("\"schemaVersion\" : 1"), "v1 store must write schemaVersion=1; got: \(json)")
     }
 
+    // MARK: - current() 抛错语义（P1 修复：禁止吞错回退默认，防止覆盖丢失）
+
+    /// 覆盖"v2 JSON 损坏时 current() 必须 throw invalidJSON"
+    ///
+    /// 修复前：current() 用 `try? await load()` 吞错 → 回退 DefaultV2Configuration.initial() →
+    /// 下次 update() 把默认值写回原路径 → 用户原有 providers / tools 永久丢失。
+    /// 修复后：load() 的 throw 原样向外传播，调用方（M3 AppContainer）必须显式处理。
+    func test_current_throwsOnCorruptedV2JSON() async throws {
+        let v2URL = tempDir.appendingPathComponent("config-v2.json")
+        try Data("{ not valid json".utf8).write(to: v2URL, options: .atomic)
+
+        let store = V2ConfigurationStore(fileURL: v2URL, legacyFileURL: nil)
+        do {
+            _ = try await store.current()
+            XCTFail("current() 必须在 v2 JSON 损坏时 throw")
+        } catch SliceError.configuration(.invalidJSON) {
+            // expected
+        } catch {
+            XCTFail("expected .configuration(.invalidJSON), got \(error)")
+        }
+    }
+
+    /// schemaVersion 高于当前应用时 current() 必须 throw，避免用默认配置覆盖未来版本
+    func test_current_throwsOnSchemaTooNew() async throws {
+        let v2URL = tempDir.appendingPathComponent("config-v2.json")
+        // 基于 DefaultV2Configuration 合成合法 JSON，仅改 schemaVersion = 999
+        let template = DefaultV2Configuration.initial()
+        let future = V2Configuration(
+            schemaVersion: 999,
+            providers: template.providers,
+            tools: template.tools,
+            hotkeys: template.hotkeys,
+            triggers: template.triggers,
+            telemetry: template.telemetry,
+            appBlocklist: template.appBlocklist,
+            appearance: template.appearance
+        )
+        let data = try JSONEncoder().encode(future)
+        try data.write(to: v2URL, options: .atomic)
+
+        let store = V2ConfigurationStore(fileURL: v2URL, legacyFileURL: nil)
+        do {
+            _ = try await store.current()
+            XCTFail("current() 必须 throw schemaVersionTooNew")
+        } catch SliceError.configuration(.schemaVersionTooNew(let v)) {
+            XCTAssertEqual(v, 999)
+        } catch {
+            XCTFail("expected .configuration(.schemaVersionTooNew), got \(error)")
+        }
+    }
+
+    /// v2 不存在但 v1 文件损坏时，current() 必须 throw，避免无声丢失 v1 数据
+    func test_current_throwsOnCorruptedLegacyJSON() async throws {
+        let v1URL = tempDir.appendingPathComponent("config.json")
+        let v2URL = tempDir.appendingPathComponent("config-v2.json")
+        try Data("bad".utf8).write(to: v1URL, options: .atomic)
+
+        let store = V2ConfigurationStore(fileURL: v2URL, legacyFileURL: v1URL)
+        do {
+            _ = try await store.current()
+            XCTFail("current() 必须在 v1 JSON 损坏时 throw")
+        } catch SliceError.configuration(.invalidJSON) {
+            // expected
+        } catch {
+            XCTFail("expected .configuration(.invalidJSON), got \(error)")
+        }
+    }
+
+    /// 两个路径都不存在是合法情况（首次启动）：必须返回默认配置，不抛错
+    func test_current_fallsBackWhenBothMissing() async throws {
+        let v1URL = tempDir.appendingPathComponent("config.json")
+        let v2URL = tempDir.appendingPathComponent("config-v2.json")
+
+        let store = V2ConfigurationStore(fileURL: v2URL, legacyFileURL: v1URL)
+        let cfg = try await store.current()
+
+        XCTAssertEqual(cfg.schemaVersion, V2Configuration.currentSchemaVersion)
+        XCTAssertEqual(cfg.tools.count, 4)  // DefaultV2Configuration 4 个内置工具
+    }
+
     // MARK: - Helper
 
     private func fixtureData(_ name: String) throws -> Data {
