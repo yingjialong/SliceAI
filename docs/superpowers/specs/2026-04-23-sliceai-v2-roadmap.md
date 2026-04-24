@@ -21,6 +21,15 @@
 - **评审与修订（第三轮）**：2026-04-23 Codex 三次评审给出 `REWORK_REQUIRED`（2 条 P1，已收敛到 `CONDITIONAL_APPROVE` 边界）。本文件继续原地修订：
   - **Canonical schema 闭合（D-24 补全）**：`Tool` / `Skill` / `MCPDescriptor` 正式定义加 `provenance: Provenance`（§3.3.1 / §3.3.8 + 附录 B）；`ContextProvider` protocol 加 `static inferredPermissions(for args:)`（§3.3.3）；`SideEffect` 加 computed `inferredPermissions`（§3.3.6）；`Provenance` enum **唯一 canonical 定义**提升到 §3.3.5（SliceCore 权限体系），§3.9.1 与 §3.9.4.2 的重复定义删除
   - **firstParty 授权规则收敛（D-25 新）**：§3.9.1 的"已声明即授权"描述删除；§3.9.2 下限列改为"所有来源均适用"；三处规则（§3.9.1 / §3.9.2 / §3.9.6）统一为 **"默认未授权 → 按下限触发确认 → 按 provenance 只调整确认 UX 文案"**；`firstParty` 对 `readonly-network` / `local-write` **不再跳过首次确认**
+- **评审与修订（第四轮：M1 实施期命名更新）**：2026-04-24 落地 Phase 0 M1 时发现两个 v2 新类型名与 v1 既有声明冲突，为保证"v1 zero-touch"不变量，M1 阶段引入临时改名；本 spec 源代码块保留原始设计名以便阅读连贯，但落地代码采用新名。M3 rename pass 会在删除 v1 冲突声明后，把新名重命名回 spec 原意。
+  - `DisplayMode` → **`PresentationMode`**（v2 六态）：v1 `Tool.swift:85` 已存在 `public enum DisplayMode`（3-case），名字直接复用会造成 API 歧义；新名 rawValue 完全超集 v1（`window`/`bubble`/`replace` 保留原字符串），migrator 零损失
+  - `SelectionSource` → **`SelectionOrigin`**（v2 三值枚举 `.accessibility` / `.clipboardFallback` / `.inputBox`）：v1 `SelectionCapture/SelectionSource.swift` 已有 `public protocol SelectionSource`，跨 target 命名冲突；`SelectionSnapshot.source` 字段类型相应改名
+  - 详细评审修正索引见 M1 plan [2026-04-24-phase-0-m1-core-types.md](../plans/2026-04-24-phase-0-m1-core-types.md) "评审修正索引" 段
+- **评审与修订（第五轮：M1 merge 前 Codex 质量评审）**：2026-04-24 Codex 针对 36 commit 的 M1 实施做最终评审，三条 findings（1 P1 + 2 P2）全部接受并落地为独立 fix commit，**不影响 M1 功能范围**，只收紧类型不变量：
+  - **P1**（`e64c3d3`）：`V2ConfigurationStore.current()` 的 `try?` 吞掉所有错误，M3 接入后会导致用户 config 损坏时默认值覆盖真实文件（数据丢失）；改为 `async throws`，"两份文件都不存在"继续是 first-launch 默认
+  - **P2a**（`2b7095c`）：`V2Provider.init(from:)` 加校验——`ProviderKind.openAICompatible` / `.ollama` 必须非 nil baseURL（注释里的 "Anthropic/Gemini 可 nil" intent 类型层未 enforce）
+  - **P2b**（`d141c05`）：`V2Tool` 手写 Codable，解码时拒绝 `outputBinding.primary != displayMode` 的 JSON（单一事实源原则；`displayMode` 为 primary truth）
+  - M3 承接：AppContainer 接入 `V2ConfigurationStore.current()` 时必须处理 `throws`，建议 alert 告警 + 中止启动，不要静默回退
 
 ---
 

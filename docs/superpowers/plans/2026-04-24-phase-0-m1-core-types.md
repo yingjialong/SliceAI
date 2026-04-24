@@ -32,6 +32,33 @@
 
 ---
 
+## 评审修正索引（Review Amendments）
+
+> 本 plan 在撰写与实施期间经历多轮 Codex 评审，关键改动集中在此（按时序）。旧章节里的部分 Swift 片段仍保留原始类型名以保留"为何要改"的上下文，当落地代码与本索引不一致时，**以本索引 + 实际代码为准**。
+
+### A. 实施期改名（与旧设计文字不一致）
+
+| 旧名（spec / plan 初稿） | 新名（M1 实际落地） | 原因 | 影响范围 |
+|---|---|---|---|
+| `DisplayMode`（v2 六态新枚举） | **`PresentationMode`** | `SliceAIKit/Sources/SliceCore/Tool.swift:85` 已存在 v1 `public enum DisplayMode`（3-case，v1 Tool 专用），v2 直接复用名字会造成 API 歧义；rawValue 完全超集 v1，migrator 零损失 | `OutputBinding.primary` / `V2Tool.displayMode` 字段类型 |
+| `SelectionSource`（v2 枚举：`.accessibility` / `.clipboardFallback` / `.inputBox`） | **`SelectionOrigin`** | `SliceAIKit/Sources/SelectionCapture/SelectionSource.swift` 已存在 v1 `public protocol SelectionSource`，v2 直接复用名字会造成跨 target 命名冲突 | `SelectionSnapshot.source` 字段类型 |
+
+**M3 rename pass 统一处理**：M3 删除 v1 `DisplayMode` enum 与 `SelectionSource` protocol 之后，再把 `PresentationMode` → `DisplayMode` / `SelectionOrigin` → `SelectionSource` 重命名回 spec 原始意图。
+
+### B. 第七轮评审（Codex 2026-04-24，M1 merge 前）
+
+> 针对已完成 36 commit 的 M1 实施做最终质量评审；三条 findings 全部接受并落地为独立 fix commit，**不影响 M1 功能范围**，只收紧类型不变量。
+
+| Finding | 问题 | 修复 commit | 修复范围 |
+|---|---|---|---|
+| **P1** `V2ConfigurationStore.current()` 吞错误 | `try? await load()` 把"v2 JSON 损坏 / schema 太新 / v1 JSON 损坏"都静默回退到 `DefaultV2Configuration.initial()`；M3 接入后下一次 `update()` 会**永久覆盖**用户配置文件 = 真实数据丢失 | `e64c3d3` | `current()` 签名改为 `async throws`，让 `load()` 的错误原样外抛；"两份文件都不存在"继续走 `load()` 内部的 first-launch 默认分支。+4 tests（corrupted v2 / schemaTooNew / corrupted legacy / both missing）|
+| **P2a** `V2Provider.baseURL` 类型层无约束 | 注释声明 "Anthropic/Gemini 允许 nil" 的 intent，但 `ProviderKind.openAICompatible` / `.ollama`（必须用户填 endpoint 才能工作）的 baseURL 也能是 nil；手改 `config-v2.json` 写 `"kind":"openAICompatible","baseURL":null` 能解码成功，只在真实调用时才炸 | `2b7095c` | `init(from:)` 加 fail-fast 校验：`kind == .openAICompatible \|\| .ollama` 且 `baseURL == nil` 时 throw `DecodingError.dataCorrupted`；主构造器 `init(id:...)` 非 throws 保持不变（`DefaultV2Configuration.openAIDefault` 作为开发期 `static let` 由 review 保证不变量）。+4 decoder tests |
+| **P2b** `V2Tool.displayMode` vs `outputBinding.primary` 单一事实源 | `displayMode: PresentationMode`（必填）与 `outputBinding: OutputBinding?`（`primary` 也是 `PresentationMode`）共存，允许 `displayMode = .window + outputBinding.primary = .replace`，未来 `ExecutionEngine` 读哪个都对不上另一个 | `d141c05` | V2Tool 从自动合成 Codable 改为手写 `init(from:) / encode(to:)`（JSON shape 不变，既有 golden 测试全绿），解码时当 `outputBinding != nil && outputBinding.primary != displayMode` 时 throw `DecodingError.dataCorrupted`；未来 ExecutionEngine 以 `displayMode` 为 primary truth，`outputBinding.primary` 仅作对称展示以兼容 OutputBinding 数据模型 | +4 tests |
+
+**M3 承接**：M3 重命名阶段，AppContainer 接入 `V2ConfigurationStore.current()` 时必须处理 `throws`——建议在启动时用 alert 告警并中止启动，**不要**静默回退（这条正是 P1 修复的原始意图）。
+
+---
+
 ## 文件清单（File Structure）
 
 | 类型 | 路径 | 责任 |
@@ -47,14 +74,14 @@
 | Create | `SliceAIKit/Sources/SliceCore/Permission.swift` | `Permission` / `PermissionGrant` / `Provenance` / `GrantSource` / `GrantScope` |
 | Create | `SliceAIKit/Sources/SliceCore/SelectionSnapshot.swift` | v2 干净类型：`text` / `source` / `length` / `language` / `contentType`；**不含** v1 `appBundleID` / `url` / `screenPoint` / `timestamp`；**不提供 typealias 到 SelectionPayload** |
 | Keep | `SliceAIKit/Sources/SliceCore/SelectionPayload.swift` | **原封不动**；v1 触发链继续使用；M3 才做 `SelectionPayload → ExecutionSeed` 一次性映射 |
-| Create | `SliceAIKit/Sources/SliceCore/SelectionContentType.swift` | `SelectionContentType` / `SelectionSource`（新 enum；`SelectionPayload.Source` 原样保留独立） |
+| Create | `SliceAIKit/Sources/SliceCore/SelectionContentType.swift` | `SelectionContentType` / `SelectionOrigin`（新 enum；`SelectionPayload.Source` 原样保留独立；命名避开 `SelectionCapture/SelectionSource.swift` 的 `protocol SelectionSource` 冲突——详见 Task 4） |
 | Create | `SliceAIKit/Sources/SliceCore/AppSnapshot.swift` | 包装 `appBundleID` / `appName` / `url` / `windowTitle` |
 | Create | `SliceAIKit/Sources/SliceCore/TriggerSource.swift` | `TriggerSource` enum |
 | Create | `SliceAIKit/Sources/SliceCore/ExecutionSeed.swift` | 不可变 seed |
 | Create | `SliceAIKit/Sources/SliceCore/ContextBag.swift` | `ContextBag` + `ContextValue` |
 | Create | `SliceAIKit/Sources/SliceCore/ResolvedExecutionContext.swift` | 不可变解析后 context |
 | Create | `SliceAIKit/Sources/SliceCore/Context.swift` | `ContextRequest` + `ContextProvider` protocol（含 `inferredPermissions`，D-24） |
-| Create | `SliceAIKit/Sources/SliceCore/OutputBinding.swift` | `OutputBinding` + `DisplayMode`（六态）+ `SideEffect` + `inferredPermissions` extension |
+| Create | `SliceAIKit/Sources/SliceCore/OutputBinding.swift` | `OutputBinding` + `PresentationMode`（六态）+ `SideEffect` + `inferredPermissions` extension |
 | Create | `SliceAIKit/Sources/SliceCore/ProviderSelection.swift` | `ProviderSelection` + `ProviderCapability` + `CascadeRule` + `ConditionExpr`（手写 Codable） |
 | Create | `SliceAIKit/Sources/SliceCore/V2Provider.swift` | **独立 v2 类型** `V2Provider` + `ProviderKind`；`baseURL: URL?` 允许 Anthropic/Gemini 等协议族 nil；**不改** 现有 `Provider.swift` |
 | Keep | `SliceAIKit/Sources/SliceCore/Provider.swift` | **原封不动**；LLMProviders / SettingsUI 继续消费 |
@@ -197,7 +224,7 @@ func test_fooKind_goldenJSON_usesSingleKeyDiscriminator() throws {
 
 ### 不需要手写 Codable 的类型
 
-- **raw-value enum**（如 `ProviderKind: String, Codable`、`ProviderCapability: String, Codable`、`DisplayMode: String, Codable`、`GrantSource: String, Codable`、`TriggerSource: String, Codable`、`SelectionContentType: String, Codable`、`ToolbarSize: String, Codable`、`MCPTransport: String, Codable`、`Requiredness: String, Codable`、`StepFailurePolicy: String, Codable`、`StopCondition: String, Codable`、`BuiltinCapability: String, Codable`、`AppearanceMode: String, Codable`、`ToolLabelStyle: String, Codable`）：合成的产物就是字符串，稳定且人类可读，保留自动合成。
+- **raw-value enum**（如 `ProviderKind: String, Codable`、`ProviderCapability: String, Codable`、`PresentationMode: String, Codable`、`GrantSource: String, Codable`、`TriggerSource: String, Codable`、`SelectionContentType: String, Codable`、`ToolbarSize: String, Codable`、`MCPTransport: String, Codable`、`Requiredness: String, Codable`、`StepFailurePolicy: String, Codable`、`StopCondition: String, Codable`、`BuiltinCapability: String, Codable`、`AppearanceMode: String, Codable`、`ToolLabelStyle: String, Codable`）：合成的产物就是字符串，稳定且人类可读，保留自动合成。
 - **struct**（`PromptTool` / `AgentTool` / `PipelineTool` / `V2Tool` / `V2Provider` / `V2Configuration` / `PermissionGrant` / `ContextRequest` / `ToolBudget` / `ToolMatcher` / `Skill` / `SkillManifest` / `SkillReference` / `SkillResource` / `MCPDescriptor` / `MCPToolRef` / `CascadeRule` / `OutputBinding` / `SelectionSnapshot` / `AppSnapshot` / `ExecutionSeed` 等）：字段都是标量或前面已手写 Codable 的 enum，自动合成可预测且稳定。
 
 ### 手写 Codable 强制覆盖清单
@@ -1112,9 +1139,9 @@ final class SelectionSnapshotTests: XCTestCase {
         ])
     }
 
-    func test_selectionSource_rawValues() {
-        XCTAssertEqual(SelectionSource.accessibility.rawValue, "accessibility")
-        XCTAssertEqual(SelectionSource.clipboardFallback.rawValue, "clipboardFallback")
+    func test_selectionOrigin_rawValues() {
+        XCTAssertEqual(SelectionOrigin.accessibility.rawValue, "accessibility")
+        XCTAssertEqual(SelectionOrigin.clipboardFallback.rawValue, "clipboardFallback")
     }
 
     // 显式断言：SelectionSnapshot 与 SelectionPayload 是 **两个不同的类型**
@@ -1158,8 +1185,14 @@ public enum SelectionContentType: String, Codable, Sendable, CaseIterable {
     case other
 }
 
-/// 选中文字的来源；从旧 `SelectionPayload.Source` 提升到独立类型便于复用
-public enum SelectionSource: String, Codable, Sendable, CaseIterable {
+/// 选中文字的来源渠道；从旧 `SelectionPayload.Source` 提升到独立类型便于复用
+///
+/// **命名说明**：命名有意避开 `SelectionCapture` 模块的既有 `public protocol SelectionSource`
+/// （见 `SelectionCapture/SelectionSource.swift`，语义是"读取器接口"，被 AXSelectionSource /
+/// ClipboardSelectionSource 实现）。两者名字同但语义正交；为不触动 `SelectionCapture/` 同时
+/// 让测试链（`SelectionCaptureTests @testable import SliceCore` + `SelectionCapture` 同时存在
+/// 时 Swift 解析会混淆）保持绿色，v2 enum 命名为 `SelectionOrigin`。
+public enum SelectionOrigin: String, Codable, Sendable, CaseIterable {
     /// 通过 AX API 直接读取
     case accessibility
     /// 通过模拟 Cmd+C + 剪贴板备份恢复获取
@@ -1201,7 +1234,7 @@ public struct SelectionSnapshot: Sendable, Equatable, Codable {
     /// 选中文字
     public let text: String
     /// 来源（AX / clipboard fallback / 命令面板输入框）
-    public let source: SelectionSource
+    public let source: SelectionOrigin
     /// 字符长度（`text.count`，显式字段便于日志不写原文）
     public let length: Int
     /// BCP-47 语言代码；Phase 0 M1 可为 nil，Phase 1+ 填充
@@ -1216,7 +1249,7 @@ public struct SelectionSnapshot: Sendable, Equatable, Codable {
     ///   - length: 字符数；调用方负责计算（通常 `text.count`）
     ///   - language: BCP-47 语言代码，未知传 nil
     ///   - contentType: 内容类型，未识别传 nil
-    public init(text: String, source: SelectionSource, length: Int, language: String?, contentType: SelectionContentType?) {
+    public init(text: String, source: SelectionOrigin, length: Int, language: String?, contentType: SelectionContentType?) {
         self.text = text
         self.source = source
         self.length = length
@@ -2195,7 +2228,9 @@ seed for caller ergonomics without exposing mutation."
 
 ---
 
-## Task 10: OutputBinding + DisplayMode + SideEffect + inferredPermissions
+## Task 10: OutputBinding + PresentationMode + SideEffect + inferredPermissions
+
+> **评审修正（执行阶段 2026-04-24）**：原 plan 把新 6-case 枚举命名为 `DisplayMode`，与 `Tool.swift:85` 既有 `public enum DisplayMode` （3-case，v1）同名冲突，Swift 不允许同 module 两个同名 public enum。M1 要求 `Tool.swift` 零改动（否则还要连带改 `SettingsUI/ToolEditorView.swift` 的 switch，违反"零触及 SettingsUI"）。收敛为：v2 canonical 6-case enum 命名为 `PresentationMode`；v1 `Tool.DisplayMode` 原封保留。M3 rename 阶段再决定是否把 `V2Tool.presentationMode`/`PresentationMode` 一次性 rename 回 `displayMode`/`DisplayMode`。本修订已扩散到 Task 10 / 15 / 17 / 20 所有 `DisplayMode` 引用。
 
 **Files:**
 - Create: `SliceAIKit/Sources/SliceCore/OutputBinding.swift`
@@ -2211,16 +2246,16 @@ import XCTest
 
 final class OutputBindingTests: XCTestCase {
 
-    // MARK: - DisplayMode
+    // MARK: - PresentationMode
 
     func test_displayMode_allCases_stable() {
-        XCTAssertEqual(Set(DisplayMode.allCases), [.window, .bubble, .replace, .file, .silent, .structured])
+        XCTAssertEqual(Set(PresentationMode.allCases), [.window, .bubble, .replace, .file, .silent, .structured])
     }
 
     func test_displayMode_codable() throws {
-        for mode in DisplayMode.allCases {
+        for mode in PresentationMode.allCases {
             let data = try JSONEncoder().encode(mode)
-            let decoded = try JSONDecoder().decode(DisplayMode.self, from: data)
+            let decoded = try JSONDecoder().decode(PresentationMode.self, from: data)
             XCTAssertEqual(mode, decoded)
         }
     }
@@ -2317,7 +2352,7 @@ final class OutputBindingTests: XCTestCase {
 - [ ] **Step 2: 运行看失败**
 
 Run: `cd SliceAIKit && swift test --filter OutputBindingTests`
-Expected: FAIL（`DisplayMode` 等缺失或不完整）。
+Expected: FAIL（`PresentationMode` 等缺失或不完整）。
 
 - [ ] **Step 3: 实现**
 
@@ -2329,12 +2364,12 @@ import Foundation
 /// Tool 的输出绑定；决定结果展示形态 + 并行副作用
 public struct OutputBinding: Sendable, Equatable, Codable {
     /// 主展示方式
-    public let primary: DisplayMode
+    public let primary: PresentationMode
     /// 并行副作用；按数组顺序触发
     public let sideEffects: [SideEffect]
 
     /// 构造 OutputBinding
-    public init(primary: DisplayMode, sideEffects: [SideEffect]) {
+    public init(primary: PresentationMode, sideEffects: [SideEffect]) {
         self.primary = primary
         self.sideEffects = sideEffects
     }
@@ -2346,7 +2381,7 @@ public struct OutputBinding: Sendable, Equatable, Codable {
 /// - Phase 0 (v0.1 继承): `.window`
 /// - Phase 2: `.replace` / `.bubble` / `.structured` / `.silent`（配合 InlineReplaceOverlay / BubblePanel / StructuredResultView）
 /// - Phase 2+: `.file`
-public enum DisplayMode: String, Sendable, Codable, CaseIterable {
+public enum PresentationMode: String, Sendable, Codable, CaseIterable {
     /// 独立浮窗（v0.1 默认）
     case window
     /// 小气泡，自动消失
@@ -2485,9 +2520,9 @@ Expected: 0 violations.
 ```bash
 git add SliceAIKit/Sources/SliceCore/OutputBinding.swift \
         SliceAIKit/Tests/SliceCoreTests/OutputBindingTests.swift
-git commit -m "feat(core): add OutputBinding, DisplayMode, SideEffect
+git commit -m "feat(core): add OutputBinding, PresentationMode, SideEffect
 
-Six DisplayMode values are defined as first-class members of the data model
+Six PresentationMode values are defined as first-class members of the data model
 (v0.1 only implements .window; Phase 2+ fills the rest). SideEffect carries
 the D-24 inferredPermissions contract so PermissionGraph.compute() can
 statically derive effective permissions without running the tool."
@@ -4112,7 +4147,7 @@ public struct V2Tool: Identifiable, Sendable, Codable, Equatable {
     public var description: String?
     public var kind: ToolKind
     public var visibleWhen: ToolMatcher?
-    public var displayMode: DisplayMode
+    public var displayMode: PresentationMode
     public var outputBinding: OutputBinding?
     public var permissions: [Permission]
     public var provenance: Provenance
@@ -4129,7 +4164,7 @@ public struct V2Tool: Identifiable, Sendable, Codable, Equatable {
         description: String?,
         kind: ToolKind,
         visibleWhen: ToolMatcher?,
-        displayMode: DisplayMode,
+        displayMode: PresentationMode,
         outputBinding: OutputBinding?,
         permissions: [Permission],
         provenance: Provenance,
@@ -4655,7 +4690,7 @@ final class ConfigMigratorV1ToV2Tests: XCTestCase {
         }
     }
 
-    func test_migrate_unknownDisplayModeFallsBackToWindow() throws {
+    func test_migrate_unknownPresentationModeFallsBackToWindow() throws {
         // 手工构造一个 v1 结构含非标 displayMode
         let badJSON = #"""
         {
@@ -4761,7 +4796,7 @@ internal enum ConfigMigratorV1ToV2 {
 
     /// v1 Tool → V2Tool（.prompt kind + firstParty provenance）
     private static func migrateTool(_ v1t: LegacyConfigV1.Tool) -> V2Tool {
-        let displayMode = DisplayMode(rawValue: v1t.displayMode) ?? .window
+        let displayMode = PresentationMode(rawValue: v1t.displayMode) ?? .window
         if displayMode.rawValue != v1t.displayMode {
             migrationLog.warning("unknown displayMode '\(v1t.displayMode, privacy: .public)' in tool '\(v1t.id, privacy: .public)', falling back to window")
         }
@@ -5519,7 +5554,7 @@ Task 0 已经创建了 `docs/Task-detail/<今日日期>-phase-0-m1-core-types.md
 按 Plan 20 个 task 顺序执行。核心产出：
 
 - **新增 10 个 library target 中的 2 个**：`Orchestration` / `Capabilities` 空 target + placeholder + test target（Package.swift 两个新 target 都 exclude README.md）
-- **SliceCore 新增 v2 独立类型**：ContextKey / Requiredness / Permission / PermissionGrant / Provenance / GrantSource / GrantScope / SelectionContentType / SelectionSource / SelectionSnapshot / AppSnapshot / TriggerSource / ExecutionSeed / ContextBag / ContextValue / ResolvedExecutionContext / ContextRequest / CachePolicy / ContextProvider protocol / OutputBinding / DisplayMode / SideEffect (+inferredPermissions) / MCPToolRef / ProviderSelection / ProviderCapability / CascadeRule / ConditionExpr / Skill / SkillManifest / SkillReference / SkillResource / MCPDescriptor / MCPTransport / MCPCapability / ToolBudget / ToolMatcher / ToolKind / PromptTool / AgentTool / PipelineTool / PipelineStep / StepFailurePolicy / StopCondition / BuiltinCapability / TransformOp / LegacyConfigV1 / ProviderKind / **V2Provider** / **V2Tool** / **V2Configuration** / **DefaultV2Configuration** / **V2ConfigurationStore**
+- **SliceCore 新增 v2 独立类型**：ContextKey / Requiredness / Permission / PermissionGrant / Provenance / GrantSource / GrantScope / SelectionContentType / SelectionOrigin / SelectionSnapshot / AppSnapshot / TriggerSource / ExecutionSeed / ContextBag / ContextValue / ResolvedExecutionContext / ContextRequest / CachePolicy / ContextProvider protocol / OutputBinding / PresentationMode / SideEffect (+inferredPermissions) / MCPToolRef / ProviderSelection / ProviderCapability / CascadeRule / ConditionExpr / Skill / SkillManifest / SkillReference / SkillResource / MCPDescriptor / MCPTransport / MCPCapability / ToolBudget / ToolMatcher / ToolKind / PromptTool / AgentTool / PipelineTool / PipelineStep / StepFailurePolicy / StopCondition / BuiltinCapability / TransformOp / LegacyConfigV1 / ProviderKind / **V2Provider** / **V2Tool** / **V2Configuration** / **DefaultV2Configuration** / **V2ConfigurationStore**
 - **SliceCore 零改动**：`Tool.swift` / `Provider.swift` / `Configuration.swift` / `ConfigurationStore.swift` / `DefaultConfiguration.swift` / `SelectionPayload.swift` 全部保持 v1 形状
 - **Migration**：ConfigMigratorV1ToV2 纯函数 migrator 产出 `V2Configuration`；V2ConfigurationStore 独立 actor 读写 `config-v2.json`；**真实 app 启动路径不经过 migrator**，仍走 v1 `FileConfigurationStore(fileURL: FileConfigurationStore.standardFileURL())`
 
@@ -5624,7 +5659,7 @@ git diff $(git merge-base HEAD main)..HEAD -- SliceAIApp/AppContainer.swift | he
   - `Provenance` canonical 仅在 Task 3 定义；Skill / MCPDescriptor / V2Tool 的 provenance 字段都引用同一 enum
   - `ProviderSelection.fixed(providerId:modelId:)` 在 Task 11 定义 → Task 15 V2Tool / Task 17 migrator 使用同一签名
   - `SelectionSnapshot` vs `SelectionPayload`：**两个独立类型**（评审修正 P1-1），全文无 typealias、无 v1 字段互染
-  - `DisplayMode` 唯一定义在 Task 10 OutputBinding.swift；不在 V2Tool.swift 重复定义
+  - `PresentationMode` 唯一定义在 Task 10 OutputBinding.swift；不在 V2Tool.swift 重复定义
   - **V2* 命名一致性**（评审修正第五轮 P1-1 / P1-2）：v2 canonical 类型一律以 `V2` 前缀命名（V2Tool / V2Provider / V2Configuration / V2ConfigurationStore / DefaultV2Configuration），现有 `Tool` / `Provider` / `Configuration` / `FileConfigurationStore` / `DefaultConfiguration` 全部保持 v1 形状零改动
 - [x] **向后兼容与隔离（评审修正第五轮）**: v1 代码路径（ToolExecutor / AppContainer / ToolEditorView / SettingsViewModel / OpenAICompatibleProvider / FileConfigurationStore / DefaultConfiguration）消费**现有 Tool / Provider / Configuration**；v2 代码路径（migrator / V2ConfigurationStore）消费 V2Tool / V2Provider / V2Configuration；两条路径**没有共享 Codable、没有共享 init、没有共享 accessor**，canonical model 不会被 v1 写入污染
 - [x] **M1 DoD 口径**：只承诺"migrator fixture 单测全绿 + V2ConfigurationStore 独立 actor 就绪 + v1 config.json 在真实运行路径上仍只会被写入 schemaVersion=1（由 `test_v1Store_unchanged_stillWritesSchemaVersion1` 断言保证）"；**不**承诺真实 app 启动路径已完成迁移（那在 M3.3）
