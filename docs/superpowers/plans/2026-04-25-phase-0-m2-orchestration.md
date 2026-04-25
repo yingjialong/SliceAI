@@ -21,7 +21,7 @@ SliceAIKit/Sources/Orchestration/                      （M1 已建空 target，
   │   └─ ProviderResolutionError.swift                  Task 2
   ├─ Context/                                           （上下文采集）
   │   ├─ ContextCollector.swift                         Task 5
-  │   └─ ContextCollectorError.swift                    Task 5
+  │   └─ (ContextCollectorError.swift 已废弃 — Round 4 改用 SliceCore.ContextError)
   ├─ Permissions/                                       （权限闭环）
   │   ├─ PermissionBrokerProtocol.swift                 Task 6
   │   ├─ PermissionBroker.swift                         Task 6
@@ -219,6 +219,23 @@ SliceAIKit/Tests/CapabilitiesTests/
 
 **预期**：Round 7 verdict ≥ CONDITIONAL_APPROVE（按 Round 6 Codex 明确信号）；如果 Round 7 仍发现 P1，必属 R6 修订自引入的新问题（按"breaking the loop"承诺将再次 stop & sync）。
 
+#### Round 7（2026-04-25，Round 6 修订后）
+
+**Verdict**: REWORK_REQUIRED → Round 6 全部 4 P1 中 R6-P1.3 / R6-P1.4 仅"部分落地"（同源系统性问题，本轮真正闭合）；新发现 3 P1 + 3 P2 + 1 P3；**Codex 明确说"3 个 P1 均为机械可修，不是架构方向问题，修复后可直接进入 Round 8 验证"**——继续修复路径不变；P1 数量趋势 R5(5)→R6(4)→R7(3)，下降中。
+
+| Finding | 问题 | 修复落地 |
+|---|---|---|
+| **R6-P1.3 + R7-P1.1** Task 4 主流程变量作用域系统性问题 | R6 加 do/catch 后但 `effective` / `resolved` / `provider` 都在内层 do 块 `let` 声明，外层 catch / Step 6 的 catch 看不到（Swift 词法作用域）；同时 gate 调用缺 `effective:` 参数标签 | 在 ExecutionEngine.execute 函数顶层（Step 1 之后、Step 2 之前）声明 `var effective: EffectivePermissions = .empty` / `var resolved: ResolvedExecutionContext! = nil` / `var provider: V2Provider! = nil` 三个 mutable var；Step 2/3/4 的 do 块去掉内层 `let`，赋值给顶层 var；所有 `permissionBroker.gate(...)` 调用补 `effective:` 参数标签 |
+| **R7-P1.2** ConsentUXHint 类型未定义 | GateOutcome 用 ConsentUXHint，ExecutionEvent.permissionWouldBeRequested 用 String，类型不一致 | KISS 方案：在 PermissionBrokerProtocol.swift 顶部加 `public typealias ConsentUXHint = String`；类型等价 String，跨 ExecutionEvent 透传无损 |
+| **R7-P2.1** SliceError 新增 case 缺完整 Swift 代码块 | plan 仅文字描述 userMessage / developerContext 修订，未给完整可编译代码 | 文件清单后新增独立段 "SliceCore 纯增完整 Swift 代码块（R7-P2.1）"，含 SliceError exhaustive switch + ContextError 完整 enum + ToolPermissionError 完整 enum + ConfigurationError.invalidTool case 完整代码（每段 userMessage / developerContext 全覆盖+ 脱敏遵循 spec §3.9.5） |
+| **R7-P2.2** zero-touch grep 验证对象错误 | `git show origin/main:...` 只证明 main 上旧 case 存在，不证明 HEAD 没破坏；`origin/main..HEAD` 受 main 后续移动影响 | Task 14 Step 3 改用 `BASE=$(git merge-base HEAD origin/main)`；grep 改为 `git show HEAD:...`（验证当前 HEAD 既有 case 仍存在）；diff 用 `$BASE..HEAD` 锁定 base |
+| **R7-P2.3** 旧命名残留（line 24/339/958/1482-1484） | line 24 / 339 仍写 ContextCollectorError.swift Create；line 1482-1484 附录仍写 .permission(.undeclared/.denied) 旧 case | 4 处全部修订：line 24 文件结构图改"已废弃"；line 339 文件清单改 ~~strikethrough~~；附录改 .toolPermission(.undeclared/.denied) |
+| **R7-P3.1** unused uxHint warning | Step 2.5 `.requiresUserConsent(let permission, let uxHint)` 但 uxHint 不用 | 改为 `.requiresUserConsent(let permission, _)` 占位；Step 7 同理 4 case 都用 `_` 占位（不用 permission/uxHint） |
+
+**未做修订**：无。Round 7 全部 7 条 finding 接受 Codex 修复方案直接落地。**verify pass 见 commit 后 grep 验证段。**
+
+**预期**：Round 8 verdict ≥ CONDITIONAL_APPROVE（按 Codex Round 7 明确信号"修复后可直接进入 Round 8 验证"）；P1 趋势收敛，下一轮应该收尾。
+
 修订后 verify：grep `indirect enum ContextError\|indirect case requiredFailed` 至少 1 处 / grep `public struct InvocationReport.*Codable` 1 处 / grep `\[String: any ContextProvider\]` 实例不带 `.Type` 至少 2 处 / grep `permission: Permission, reason\|permission: Permission, uxHint` GateOutcome 签名一致 / grep `usd TEXT NOT NULL` 1 处 / grep `catch SliceError\.` 不带 `let` 前缀至少 3 处 / grep `catch let SliceError\.` 已无残留。
 
 ---
@@ -318,10 +335,141 @@ Settings → Privacy 的 "记录选区原文" opt-in 由 Phase 2 实现，M2 阶
 
 ## 文件清单（File Structure）
 
+### SliceCore 纯增完整 Swift 代码块（**Round 7 R7-P2.1 修订**）
+
+> 实施 Task 4（SliceError modify）/ Task 5（ContextError create）/ Task 7（ToolPermissionError create）时**直接照抄**以下代码——避免文字描述的歧义。
+
+**`SliceError.swift` 既有 enum 追加 case + 既有 switch 补分支**（其余既有内容不动）：
+
+```swift
+public enum SliceError: Error, Sendable, Equatable {
+    case selection(SelectionError)            // 既有
+    case provider(ProviderError)              // 既有
+    case configuration(ConfigurationError)    // 既有
+    case permission(PermissionError)          // 既有：系统权限
+    // Round 4 新增：v2 ExecutionEngine 失败语义
+    case context(ContextError)                // 上下文采集失败
+    case toolPermission(ToolPermissionError)  // 工具权限决策失败
+
+    public var userMessage: String {
+        switch self {
+        case .selection(let e): return e.userMessage      // 既有
+        case .provider(let e): return e.userMessage       // 既有
+        case .configuration(let e): return e.userMessage  // 既有
+        case .permission(let e): return e.userMessage     // 既有
+        // Round 4 新增分支
+        case .context(let e): return e.userMessage
+        case .toolPermission(let e): return e.userMessage
+        }
+    }
+
+    public var developerContext: String {
+        switch self {
+        case .selection(let e):    /* 既有 */ ...
+        case .provider(let e):     /* 既有 */ ...
+        case .configuration(let e): /* 既有，含 R7 新增 invalidTool 分支 */ ...
+        case .permission(let e):   /* 既有 */ ...
+        // Round 4 新增分支（按 spec §3.9.5 脱敏：携带 String payload 的 case 一律 <redacted>）
+        case .context(let e):
+            switch e {
+            case .requiredFailed(let key, _): return "context.requiredFailed(\(key.rawValue),<redacted>)"
+            case .providerNotFound(let id): return "context.providerNotFound(\(id))"
+            case .timeout(let key): return "context.timeout(\(key.rawValue))"
+            }
+        case .toolPermission(let e):
+            switch e {
+            case .undeclared(let missing): return "toolPermission.undeclared(count=\(missing.count))"
+            case .denied(_, _): return "toolPermission.denied(<redacted>)"
+            case .notGranted: return "toolPermission.notGranted"
+            case .unknownProvider(let id): return "toolPermission.unknownProvider(\(id))"
+            case .sandboxViolation: return "toolPermission.sandboxViolation(<redacted>)"
+            }
+        }
+    }
+}
+
+// ConfigurationError 既有 enum 追加 case + 既有 switch 补分支
+public enum ConfigurationError: Error, Sendable, Equatable {
+    case fileNotFound                          // 既有
+    case schemaVersionTooNew(Int)              // 既有
+    case invalidJSON(String)                   // 既有
+    case referencedProviderMissing(String)     // 既有
+    case validationFailed(String)              // 既有
+    case invalidTool(id: String, reason: String)  // Round 4 新增：tool manifest 错误（如 unknown provider id）
+
+    public var userMessage: String {
+        switch self {
+        // ... 既有 5 case ...
+        case .invalidTool(let id, let reason):
+            return "工具 \"\(id)\" 配置错误：\(reason)"
+        }
+    }
+}
+```
+
+**`ContextError.swift`（新建）**：
+
+```swift
+import Foundation
+
+/// v2 上下文采集失败语义；SliceError.context 关联值
+///
+/// **`indirect`**（Round 5 R5-P1.1）：requiredFailed.underlying: SliceError
+/// 让 SliceError → ContextError → SliceError 直接递归，必须 indirect 才能编译。
+public indirect enum ContextError: Error, Sendable, Equatable {
+    case requiredFailed(key: ContextKey, underlying: SliceError)
+    case providerNotFound(id: String)
+    case timeout(key: ContextKey)
+
+    public var userMessage: String {
+        switch self {
+        case .requiredFailed(let key, _): return "必填上下文 \"\(key.rawValue)\" 采集失败。"
+        case .providerNotFound(let id): return "未注册的上下文提供方 \"\(id)\"。"
+        case .timeout(let key): return "上下文 \"\(key.rawValue)\" 采集超时。"
+        }
+    }
+}
+```
+
+**`ToolPermissionError.swift`（新建）**：
+
+```swift
+import Foundation
+
+/// v2 工具权限决策失败语义；SliceError.toolPermission 关联值
+///
+/// 与 SliceCore.PermissionError（系统权限：accessibility / inputMonitoring）独立——
+/// 后者是 macOS 系统权限错误命名空间，本类型是 v2 工具运行时权限决策错误。
+public enum ToolPermissionError: Error, Sendable, Equatable {
+    case undeclared(missing: Set<Permission>)
+    case denied(permission: Permission, reason: String)
+    case notGranted(permission: Permission)
+    case unknownProvider(id: String)
+    case sandboxViolation(path: String)
+
+    public var userMessage: String {
+        switch self {
+        case .undeclared(let missing):
+            return "工具尝试访问未声明的权限（\(missing.count) 项）。"
+        case .denied(_, let reason):
+            return "权限被拒绝：\(reason)"
+        case .notGranted:
+            return "权限未授予，无法执行该工具。"
+        case .unknownProvider(let id):
+            return "未注册的提供方 \"\(id)\"。"
+        case .sandboxViolation:
+            return "路径访问被沙箱拦截。"
+        }
+    }
+}
+```
+
+---
+
 | 类型 | 路径 | 责任 | Task |
 |---|---|---|---|
 | Modify | `SliceAIKit/Package.swift` | 移除 placeholder testTarget 行（如有），新增 OrchestrationTests / CapabilitiesTests 真正的 testTarget 依赖 | Task 1 |
-| **Modify** | `SliceAIKit/Sources/SliceCore/SliceError.swift` | **Round 4 修订（C-1 放宽）+ Round 5 R5-P1.1 补全**：纯增 case 表达 v2 ExecutionEngine 失败语义。具体追加：(a) `SliceError.context(ContextError)` 顶层 case + `SliceError.toolPermission(ToolPermissionError)` 顶层 case；(b) `ConfigurationError.invalidTool(id: String, reason: String)` case；(c) **既有 SliceError.userMessage / developerContext exhaustive switch（line 11-18 / 22-58）必须补上 .context / .toolPermission 两 case 的处理分支**——userMessage 透传 underlying.userMessage，developerContext 按 R-spec §3.9.5 脱敏（`.context(let e)` → `"context.\(e.case-name)(...)"` 简短描述；`.toolPermission(let e)` 同理）。**严禁** 修改既有 4 顶层 case + 13 子 case 的任何字段 / 名字 / 顺序；只追加 case + 在既有 switch 加分支 | Task 4（实施）|
+| **Modify** | `SliceAIKit/Sources/SliceCore/SliceError.swift` | **Round 4 修订（C-1 放宽）+ Round 5 R5-P1.1 + Round 7 R7-P2.1 完整化**：纯增 case 表达 v2 ExecutionEngine 失败语义。具体追加：(a) `SliceError.context(ContextError)` 顶层 case + `SliceError.toolPermission(ToolPermissionError)` 顶层 case；(b) `ConfigurationError.invalidTool(id: String, reason: String)` case；(c) **既有 SliceError.userMessage / developerContext exhaustive switch 补 .context / .toolPermission 两 case 分支**。**完整 Swift 代码块见下方 §"SliceCore 纯增完整 Swift 代码块（R7-P2.1）"**。**严禁** 修改既有 4 顶层 case + 13 子 case 的任何字段 / 名字 / 顺序；只追加 case + 在既有 switch 加分支 | Task 4（实施）|
 | **Create** | `SliceAIKit/Sources/SliceCore/ContextError.swift` | **Round 4 新增 + Round 5 R5-P1.1 修订**：`public indirect enum ContextError: Error, Sendable, Equatable { case requiredFailed(key: ContextKey, underlying: SliceError); case providerNotFound(id: String); case timeout(key: ContextKey) }` —— v2 上下文采集失败语义；**关键字 `indirect`**（**Round 5 R5-P1.1**）：因为 SliceError → ContextError → SliceError 是直接递归（非 case 间接递归），必须在 enum 声明加 `indirect` 才能编译。Equatable / Sendable 自动合成对 indirect enum 仍可用。`underlying: SliceError` 也可改用 `indirect case requiredFailed(...)` 单 case indirect（更精细），但整体 indirect 更简单——M2 选择整体 indirect | Task 5（同 ContextCollector 一并落地） |
 | **Create** | `SliceAIKit/Sources/SliceCore/ToolPermissionError.swift` | **Round 4 新增**：`public enum ToolPermissionError: Error, Sendable, Equatable { case undeclared(missing: Set<Permission>); case denied(permission: Permission, reason: String); case notGranted(permission: Permission); case unknownProvider(id: String); case sandboxViolation(path: String) }` —— v2 工具权限决策错误，与 SliceCore.PermissionError（系统权限）独立共存 | Task 7（同 PermissionGraph 一并落地）；**取代 Round 3 的 PermissionDecisionError**（不再独立创建，因为 SliceError.toolPermission 是更 clean 的封装路径）|
 | Delete | `SliceAIKit/Sources/Orchestration/Placeholder.swift` | M1 placeholder（M2 起 Orchestration 有真实代码后删除） | Task 1 |
@@ -336,7 +484,7 @@ Settings → Privacy 的 "记录选区原文" opt-in 由 Phase 2 实现，M2 阶
 | Create | `SliceAIKit/Sources/Orchestration/Engine/ProviderResolutionError.swift` | provider lookup 错误 | Task 2 |
 | Create | `SliceAIKit/Sources/Orchestration/Engine/ExecutionEngine.swift` | `ExecutionEngine` actor + dispatch by `ToolKind` | Task 3 / 4 |
 | Create | `SliceAIKit/Sources/Orchestration/Context/ContextCollector.swift` | 平铺并发 resolve | Task 5 |
-| Create | `SliceAIKit/Sources/Orchestration/Context/ContextCollectorError.swift` | timeout / required-failed | Task 5 |
+| ~~Create~~ | ~~`SliceAIKit/Sources/Orchestration/Context/ContextCollectorError.swift`~~ | **Round 4 + Round 7 R7-P2.3 删除**：用 SliceCore.ContextError，不再独立 Orchestration error 类型 | — |
 | Create | `SliceAIKit/Sources/Orchestration/Permissions/PermissionBrokerProtocol.swift` | broker 接口 + GrantScope / GrantSource | Task 6 |
 | Create | `SliceAIKit/Sources/Orchestration/Permissions/PermissionBroker.swift` | 默认实现 + §3.9.2 下限硬编码 | Task 6 |
 | Create | `SliceAIKit/Sources/Orchestration/Permissions/PermissionGrantStore.swift` | session/persistent grant 存储 | Task 6 |
@@ -908,14 +1056,22 @@ EOF
   - `finishSuccess(report: InvocationReport)` → `await auditLog.append(.invocationCompleted(report))` → `yield .finished(report)` → 流结束。
 - 成功路径（spec §3.4 Step 1–10）：
   - **Step 1**：`yield .started(invocationId)`（`invocationId = UUID()` 在入口生成）；`let startedAt = Date()`
-  - **Step 2**（**Round 4 R4-P1.a + Round 5 catch syntax 修订**）：`do { let effective = try await permissionGraph.compute(tool: tool); if !effective.undeclared.isEmpty { finishFailure(error: .toolPermission(.undeclared(missing: effective.undeclared)), ...); return } } catch SliceError.toolPermission(.unknownProvider(let id)) { finishFailure(error: .configuration(.invalidTool(id: id, reason: "context provider not registered")), ...); return }`（**Round 5 修订**：catch pattern 写 `catch <Enum>.<case>(let payload)` 直接匹配——`let` **只放在 case 关联值上**，**不要写** `catch let SliceError.<case>(...)`（多余的 `let`）；**严禁** `catch let e as ... where case ... = e`，Swift 不支持 `where + case` 联用）
-  - **Step 2.5**：`let outcome = await permissionBroker.gate(effective.union, provenance: tool.provenance, scope: .session, isDryRun: seed.isDryRun)`；**实现必须用无 `default` 的 `switch outcome`** 覆盖全 4 case（Round 2 B-3）：
+  - **变量作用域提升**（**Round 7 R7-P1.1 修订**：R6-P1.3 / R7-P1.1 暴露的系统性变量作用域问题——在 `do { let effective = ... }` 内声明的变量 Step 6 catch 块看不到）：在 Step 2 之前先在 execute 函数顶层声明 3 个 mutable var 占位：
+    ```swift
+    // 函数顶层（Step 1 之后，Step 2 之前）
+    var effective: EffectivePermissions = .empty  // 初值，Step 2 do 块内赋真值
+    var resolved: ResolvedExecutionContext! = nil // implicitly unwrapped；Step 3 赋真值前不会被 Step 6+ 用到
+    var provider: V2Provider! = nil               // 同上；Step 4 赋真值前不会被 Step 5+ 用到
+    ```
+    **设计权衡**：用 `var` + IUO 而非 `let` 是因为 do/catch 内的 `let` 不能跨 catch 块访问；用 IUO `!` 代替强制初值是因为 `ResolvedExecutionContext` / `V2Provider` 没有 cheap 的 sentinel 值。catch 块的失败路径都 `return` 立刻退出，不会读 nil 的变量；Step 6 的 catch 仅在 Step 5 完成后才能进入，此时 provider/resolved 已被赋值。
+  - **Step 2**（**Round 4 R4-P1.a + Round 5 catch syntax + Round 7 R7-P1.1 修订**）：`do { effective = try await permissionGraph.compute(tool: tool); if !effective.undeclared.isEmpty { finishFailure(error: .toolPermission(.undeclared(missing: effective.undeclared)), ...); return } } catch SliceError.toolPermission(.unknownProvider(let id)) { finishFailure(error: .configuration(.invalidTool(id: id, reason: "context provider not registered")), ...); return }`（**Round 7**：去掉内层 `let effective`，赋值给函数顶层声明的 var；catch pattern 写 `catch <Enum>.<case>(let payload)` 直接匹配，`let` 只放 case 关联值上）
+  - **Step 2.5**（**Round 7 R7-P1.1 + R7-P3.1 修订**：gate 调用补 `effective:` 参数标签；unused uxHint 用 `_` 占位）：`let outcome = await permissionBroker.gate(effective: effective.union, provenance: tool.provenance, scope: .session, isDryRun: seed.isDryRun)`；**实现必须用无 `default` 的 `switch outcome`** 覆盖全 4 case（Round 2 B-3）：
     - `.approved` → 继续 Step 3
-    - `.denied(let permission, let reason)` → `finishFailure(.toolPermission(.denied(permission: permission, reason: reason)), ...)` （**Round 4 R4-P1.a + Round 6 R6-P1.2 修订**：消费端 case 绑定 `let permission, let reason` 与 Task 6 定义端 `.denied(permission:reason:)` 签名一致——R5-P1.5 漏修被 R6 暴露；触发 permission 由 broker 在 gate 决策时填入关联值）
-    - `.requiresUserConsent(let permission, let uxHint)` → `finishFailure(.toolPermission(.notGranted(permission: permission)), ...)` （**Round 4 R4-P1.a + Round 6 R6-P1.2 修订**：消费端补 `let permission` 绑定）
-    - `.wouldRequireConsent(let permission, let uxHint)` → Round 2 B-2：`yield .permissionWouldBeRequested(permission: permission, uxHint: uxHint)` 一条事件后**继续 Step 3**（dry-run 合法终态，不 finishFailure）；后续 Step 9 finishSuccess 时 `outcome = .dryRunCompleted` + flags 含 `.dryRun`
-  - **Step 3**（**Round 4 R4-P1.b + Round 5 catch syntax 修订**）：先 pattern match 取出 contexts —— `let contextRequests: [ContextRequest]; switch tool.kind { case .prompt(let p): contextRequests = p.contexts; case .agent(let a): contextRequests = a.contexts; case .pipeline(let p): contextRequests = p.steps.compactMap { if case .prompt(let inline, _) = $0 { return inline.contexts } else { return nil } }.flatMap { $0 } }`；然后 `do { let resolved = try await contextCollector.resolve(seed: seed, requests: contextRequests) } catch SliceError.context(.requiredFailed(let key, let underlying)) { finishFailure(.context(.requiredFailed(key: key, underlying: underlying)), ...); return }`（**Round 4 R4-P1.a**：用 `SliceError.context(ContextError)` 新顶层 case；**Round 5 修订**：catch pattern 去掉多余的 `let SliceError`）
-  - **Step 4**（**Round 4 R4-P1.b 修订**）：`let providerSelection: ProviderSelection; switch tool.kind { case .prompt(let p): providerSelection = p.provider; case .agent(let a): providerSelection = a.provider; case .pipeline: providerSelection = .fixed(providerId: "<pipeline-default>", modelId: nil) /* Pipeline 各 step 自己解析 */ }`；然后 `do { let provider = try await providerResolver.resolve(providerSelection) } catch ProviderResolutionError.notFound(let id) { finishFailure(.configuration(.referencedProviderMissing(id)), ...); return }`（**Round 4 R4-P1.a**：复用 M1 既有 `SliceError.configuration(.referencedProviderMissing)` 表达 provider 找不到，避免新增冗余）
+    - `.denied(let permission, let reason)` → `finishFailure(.toolPermission(.denied(permission: permission, reason: reason)), ...)` （**Round 4 R4-P1.a + Round 6 R6-P1.2 修订**）
+    - `.requiresUserConsent(let permission, _)` → `finishFailure(.toolPermission(.notGranted(permission: permission)), ...)` （**Round 7 R7-P3.1 修订**：uxHint 不用 → `_` 占位避 unused warning）
+    - `.wouldRequireConsent(let permission, let uxHint)` → Round 2 B-2：`yield .permissionWouldBeRequested(permission: permission, uxHint: uxHint)` 一条事件后**继续 Step 3**；后续 Step 9 finishSuccess 时 `outcome = .dryRunCompleted` + flags 含 `.dryRun`
+  - **Step 3**（**Round 4 R4-P1.b + Round 5 catch + Round 7 R7-P1.1 修订**）：先 pattern match 取出 contexts —— `let contextRequests: [ContextRequest]; switch tool.kind { case .prompt(let p): contextRequests = p.contexts; case .agent(let a): contextRequests = a.contexts; case .pipeline(let p): contextRequests = p.steps.compactMap { if case .prompt(let inline, _) = $0 { return inline.contexts } else { return nil } }.flatMap { $0 } }`；然后 `do { resolved = try await contextCollector.resolve(seed: seed, requests: contextRequests) } catch SliceError.context(.requiredFailed(let key, let underlying)) { finishFailure(.context(.requiredFailed(key: key, underlying: underlying)), ...); return }`（**Round 7**：去掉内层 `let resolved`，赋值给顶层 var）
+  - **Step 4**（**Round 4 R4-P1.b + Round 7 R7-P1.1 修订**）：`let providerSelection: ProviderSelection; switch tool.kind { case .prompt(let p): providerSelection = p.provider; case .agent(let a): providerSelection = a.provider; case .pipeline: providerSelection = .fixed(providerId: "<pipeline-default>", modelId: nil) /* Pipeline 各 step 自己解析 */ }`；然后 `do { provider = try await providerResolver.resolve(providerSelection) } catch ProviderResolutionError.notFound(let id) { finishFailure(.configuration(.referencedProviderMissing(id)), ...); return }`（**Round 7**：去掉内层 `let provider`，赋值给顶层 var）
   - **Step 5**（**Round 4 R4-P1.b 修订**）：`switch tool.kind { case .prompt(let promptTool): /* 进 Step 6 调 PromptExecutor.run(promptTool, resolved, provider) */ break; case .agent, .pipeline: yield .notImplemented(reason: "ToolKind .\(<case-name>) not implemented in M2 scope"); let stub = InvocationReport(... outcome: .success, ...); finishSuccess(stub); return }` —— M2 仅展开 `.prompt` 真实路径
   - **Step 6**（**Round 6 R6-P1.3 修订**：补 do/catch，否则 LLM stream 抛错会绕过 finishFailure / AuditLog 写入，违反 spec §3.9.7）：
     ```swift
@@ -933,7 +1089,7 @@ EOF
         return
     }
     ```（Round 1 P2-3：传 `tool.displayMode` 不传 `outputBinding.primary`）
-  - **Step 7**（Round 2 B-2 + **Round 4 R4-P3.b**）：`var partialFailure = false; for sideEffect in tool.outputBinding?.sideEffects ?? [] { let g = await permissionBroker.gate(Set(sideEffect.inferredPermissions), provenance: tool.provenance, scope: .session, isDryRun: seed.isDryRun); switch g { case .approved: if seed.isDryRun { yield .sideEffectSkippedDryRun(sideEffect) } else { /* execute - Phase 1 才填 */; yield .sideEffectTriggered(sideEffect); await auditLog.append(.sideEffectTriggered(invocationId: invocationId, sideEffect: sideEffect, executedAt: Date())) } case .denied: partialFailure = true; continue; case .requiresUserConsent: partialFailure = true; continue; case .wouldRequireConsent: yield .sideEffectSkippedDryRun(sideEffect) } }`
+  - **Step 7**（Round 2 B-2 + Round 4 R4-P3.b + **Round 7 R7-P1.1 修订**：gate 调用补 `effective:` 标签 + 4 case 全 binding 一致）：`var partialFailure = false; for sideEffect in tool.outputBinding?.sideEffects ?? [] { let g = await permissionBroker.gate(effective: Set(sideEffect.inferredPermissions), provenance: tool.provenance, scope: .session, isDryRun: seed.isDryRun); switch g { case .approved: if seed.isDryRun { yield .sideEffectSkippedDryRun(sideEffect) } else { /* execute - Phase 1 才填 */; yield .sideEffectTriggered(sideEffect); await auditLog.append(.sideEffectTriggered(invocationId: invocationId, sideEffect: sideEffect, executedAt: Date())) } case .denied(_, _): partialFailure = true; continue; case .requiresUserConsent(_, _): partialFailure = true; continue; case .wouldRequireConsent(_, _): yield .sideEffectSkippedDryRun(sideEffect) } }`
   - **Step 8**：`await costAccounting.record(...)`（含 invocationId / toolId / providerId / model / inputTokens / outputTokens / 估算 USD；详见 Task 8 CostRecord 完整字段）
   - **Step 9**：构造 `InvocationReport(... outcome: seed.isDryRun ? .dryRunCompleted : .success, flags: <dryRun + partialFailure 的组合>, startedAt: startedAt, finishedAt: Date())` → `finishSuccess(report)`
 - **失败路径全部走 finishFailure helper**——保证 audit 永远记录；report.outcome.errorKind 提供错误大类
@@ -997,6 +1153,7 @@ EOF
   - `.denied(permission: Permission, reason: String)`：拒绝某具体 permission（**R5-P1.5 补 permission 参数**）；用户曾经显式拒绝过 / 黑名单等
   - `.requiresUserConsent(permission: Permission, uxHint: ConsentUXHint)`：需要弹 UI 确认某具体 permission（**R5-P1.5 补 permission**；M2 测试中 MockPermissionBroker 不会返回此态；生产路径 M3 才接 UI）
   - `.wouldRequireConsent(permission: Permission, uxHint: ConsentUXHint)` **（Round 1 P1-1 新增 + R5-P1.5 补 permission）**：dry-run 路径下，本应弹确认的 permission——给 Playground UI 显示"如果实际执行需要 X 权限"用，**不静默 .approved**；caller 应识别此态后跳过实际副作用执行但继续主流程
+- **`ConsentUXHint` 类型定义**（**Round 7 R7-P1.2 修订**：plan 多处引用但未定义；与 `ExecutionEvent.permissionWouldBeRequested(uxHint: String)` 对齐）：在 `PermissionBrokerProtocol.swift` 顶部加 `public typealias ConsentUXHint = String`——KISS 方案，避免新建 struct；ExecutionEvent 透传时类型一致（typealias 等价 String）
 - 下限决策：把 Permission 映射到 5 个 tier（readonly-local / readonly-network / local-write / network-write / exec），每个 tier 对应 lowerBound policy；**lowerBound 仅依赖 tier，与 provenance 完全无关**（spec §3.9.2 关键性质，D-22）
 - **dry-run 不豁免下限（Round 1 P1-1 修订）**：spec §3.9.2 明确"下限只依赖 tier"，dry-run 仅由 ExecutionEngine Step 7 跳过副作用**实际执行**（P1-2 Step 7 修订对齐），broker 入口必须正常计算 gate：
   - 对 readonly-local / readonly-network / local-write 的 permission（context resolution / LLM 路径所需）：**仍走完整 gate 流程**，dry-run 不允许跳
@@ -1311,15 +1468,17 @@ git diff origin/main..HEAD -- \
   | wc -l
 # 期望: 0
 
-# 2. SliceCore 白名单纯增验证（**Round 6 R6-P1.4 新增**）
-# 既有 case 名 + 字段名仍存在（M1 既有不变量未破坏）
-git show origin/main:SliceAIKit/Sources/SliceCore/SliceError.swift | grep -E "case (selection|provider|configuration|permission)\b" | wc -l
-# 期望: ≥ 4
-git show origin/main:SliceAIKit/Sources/SliceCore/SliceError.swift | grep -cE "(axUnavailable|axEmpty|clipboardTimeout|textTooLong|unauthorized|rateLimited|fileNotFound|schemaVersionTooNew|invalidJSON|referencedProviderMissing|validationFailed|accessibilityDenied|inputMonitoringDenied)"
-# 期望: ≥ 13
+# 2. SliceCore 白名单纯增验证（**Round 6 R6-P1.4 + Round 7 R7-P2.2 修订**）
+# Round 7 修订：用 git merge-base 锁定 base，避免 origin/main 后续移动；grep 验证 HEAD 而非 origin/main（验证当前修改后既有 case 仍存在）
+BASE=$(git merge-base HEAD origin/main)
+# 既有 case 名 + 字段名在 HEAD 仍存在（M1 既有不变量未破坏）
+git show HEAD:SliceAIKit/Sources/SliceCore/SliceError.swift | grep -E "case (selection|provider|configuration|permission)\b" | wc -l
+# 期望: ≥ 4（4 既有顶层 case + 可能新增 .context / .toolPermission）
+git show HEAD:SliceAIKit/Sources/SliceCore/SliceError.swift | grep -cE "(axUnavailable|axEmpty|clipboardTimeout|textTooLong|unauthorized|rateLimited|fileNotFound|schemaVersionTooNew|invalidJSON|referencedProviderMissing|validationFailed|accessibilityDenied|inputMonitoringDenied)"
+# 期望: ≥ 13（既有 13 子 case 都在）
 
-# 3. SliceCore 实际改动只限白名单 3 文件
-git diff --name-only origin/main..HEAD -- SliceAIKit/Sources/SliceCore | sort -u
+# 3. SliceCore 实际改动只限白名单 3 文件（基于 merge-base 不受 main 后续移动影响）
+git diff --name-only "$BASE..HEAD" -- SliceAIKit/Sources/SliceCore | sort -u
 # 期望仅出现:
 #   SliceAIKit/Sources/SliceCore/SliceError.swift
 #   SliceAIKit/Sources/SliceCore/ContextError.swift
@@ -1479,8 +1638,8 @@ EOF
 | Step | spec 描述 | M2 落地 Task | 备注 |
 |---|---|---|---|
 | 1 | yield .started(invocationId) | Task 4 | invocationId = UUID() 在 execute 入口生成 |
-| 2 | PermissionGraph.compute + ⊆ 校验 | Task 4 + Task 7 | 失败 → yield .failed(.permission(.undeclared)) |
-| 2.5 | PermissionBroker.gate（按下限 + provenance） | Task 4 + Task 6 | 失败 → yield .failed(.permission(.denied)) |
+| 2 | PermissionGraph.compute + ⊆ 校验 | Task 4 + Task 7 | 失败 → yield .failed(.toolPermission(.undeclared)) |
+| 2.5 | PermissionBroker.gate（按下限 + provenance） | Task 4 + Task 6 | 失败 → yield .failed(.toolPermission(.denied)) |
 | 3 | ContextCollector.resolve | Task 4 + Task 5 | 必填失败 → yield .failed(.context(.required)) |
 | 4 | ProviderResolver.resolve | Task 4 + Task 2 | M2 仅 .fixed 形态；其他 throw .notImplemented |
 | 5 | dispatch by tool.kind | Task 4 + Task 11 | M2 仅 .prompt；.agent / .pipeline → yield .notImplemented + finished |
