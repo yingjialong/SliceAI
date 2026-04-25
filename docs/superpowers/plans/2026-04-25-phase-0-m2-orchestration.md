@@ -86,7 +86,7 @@ SliceAIKit/Tests/CapabilitiesTests/
 - Spec: `docs/superpowers/specs/2026-04-23-sliceai-v2-roadmap.md` §3.4 / §3.3.5 / §3.3.6 / §3.9 / §4.2.3 M2
 - M1 落地文件: `SliceAIKit/Sources/SliceCore/` 下 19 个 V2* / 领域类型（M1 plan 顶部"评审修正索引 A"——M2 一律使用 `V2Tool` / `V2Provider` / `V2Configuration` / `PresentationMode` / `SelectionOrigin` 等 M1 实际落地名，**不**用 spec 中的 `Tool` / `Provider` / `DisplayMode` / `SelectionSource` 原始名）
 - 决策：D-17（平铺并发非 DAG）/ D-22（能力下限不可由 Provenance 突破）/ D-24（PermissionGraph 静态闭环）/ D-25（Provenance 只调 UX 文案）
-- v1 zero-touch 范围: `LLMProviders` / `SelectionCapture` / `HotkeyManager` / `DesignSystem` / `Windowing` / `Permissions` / `SettingsUI` / `SliceAIApp` 一律不动；`SliceCore` 也不动（M1 已就绪，M2 仅消费 V2* 类型）
+- v1 zero-touch 范围（**Round 6 R6-P1.4 修订**：与 §C-1 R4 放宽边界对齐）: `LLMProviders` / `SelectionCapture` / `HotkeyManager` / `DesignSystem` / `Windowing` / `Permissions` / `SettingsUI` / `SliceAIApp` 一律不动；`SliceCore` **既有类型 + 既有 case + 既有字段不动**——但允许"白名单纯增"：仅 `SliceError.swift Modify`（追加 .context / .toolPermission case + 既有 switch 补分支） + `ContextError.swift Create` + `ToolPermissionError.swift Create` 三个文件的非破坏性追加。详见 §C-1 完整规则
 - M1 PR / merge commit 基线: `5cdf0f7`（main HEAD as of 2026-04-25）
 
 ---
@@ -201,8 +201,23 @@ SliceAIKit/Tests/CapabilitiesTests/
 
 **未做修订 / Push back（Round 5 receiving-code-review skill 应用）**：
 
-- **R5-P2.2 C-1 表述冲突**：Codex 看到 plan 多处提"zero-touch"觉得与 R4 放宽矛盾，但 verify 后这些位置（line 264/988/1094/1106）说的是"v1 ToolExecutor / LLMProviderFactory 严格不动"——属于 v1 严格 zero-touch（非 SliceCore 范围）。Codex 提出的问题是术语歧义而非真实矛盾，§C-1 顶部已明确"v1 模块严格 0 + SliceCore 允许纯增"两类规则。**未改 plan 文字**，但本次 verify 增加 `grep "SliceCore.*0\|SliceCore.*不动" plan` 的反向断言到 §C-1 验证段。
+- **R5-P2.2 C-1 表述冲突**：Codex 看到 plan 多处提"zero-touch"觉得与 R4 放宽矛盾，但 verify 后这些位置（line 264/988/1094/1106）说的是"v1 ToolExecutor / LLMProviderFactory 严格不动"——属于 v1 严格 zero-touch（非 SliceCore 范围）。Codex 提出的问题是术语歧义而非真实矛盾，§C-1 顶部已明确"v1 模块严格 0 + SliceCore 允许纯增"两类规则。**未改 plan 文字**，但本次 verify 增加 `grep "SliceCore.*0\|SliceCore.*不动" plan` 的反向断言到 §C-1 验证段。**注：R6 后续证明此 push back 不彻底——R6-P1.4 重新发现 line 89 / 1271-1282 / 1357 / 1398 仍写"SliceCore diff = 0"门禁，与 §C-1 R4 放宽真实矛盾；Round 6 全部修订**
 - 其他 7 条 finding（5 P1 + 1 P2 + 1 P3 + 1 自检 fix）全部接受 Codex 修复方案直接落地
+
+#### Round 6（2026-04-25，Round 5 修订后）
+
+**Verdict**: REWORK_REQUIRED → Round 5 全部 9 子 finding 落地（其中 R5-P1.5 / R5-P2.2 部分落地，本轮补全）；新发现 **4 P1**——其中 2 个是 R5 漏修（R6-P1.2 GateOutcome 消费端、R6-P1.4 zero-touch 文案）+ 2 个是 R5 自引入新问题（R6-P1.1 InvocationFlag 缺 Hashable、R6-P1.3 Step 6 LLM stream 缺 catch）；**Codex 明确说"修复后可直接 APPROVED 进入 Task 2-13 详细 TDD 展开"**——这是 5+ 轮迭代后的"路在前方"信号。
+
+| Finding | 问题 | 修复落地 |
+|---|---|---|
+| **R6-P1.1** InvocationFlag 缺 Hashable | InvocationReport.flags 是 `Set<InvocationFlag>` 但 InvocationFlag 仅 `String, Sendable, Codable, Equatable`——Set 元素必须 Hashable，缺则编译失败 | InvocationFlag 加 `Hashable` conformance（String enum 自动合成 Hashable，加在声明里即可） |
+| **R6-P1.2** GateOutcome 消费端漏修（R5-P1.5 部分落地） | 定义端 R5 已改为 `.denied(permission:reason:)` / `.requiresUserConsent(permission:uxHint:)`，但 Task 4 Step 2.5 消费端仍写 `.denied(let reason)` / `.requiresUserConsent(let uxHint)`——签名错配编译失败 | Task 4 Step 2.5 case binding 全部改为 `.denied(let permission, let reason)` / `.requiresUserConsent(let permission, let uxHint)` 与定义端一致 |
+| **R6-P1.3** Step 6 LLM stream 抛错绕过 finishFailure | Step 6 仅 `for try await chunk in promptExecutor.run(...)`，无 do/catch；LLM provider 抛错会逃逸 ExecutionEngine 整个 stream，绕过 .failed 事件与 AuditLog 写入；违反 spec §3.9.7 "任何 execute 至少 1 条 InvocationReport" | Step 6 包 `do { for try await chunk in ... } catch let error as SliceError { finishFailure(error: error, ...) } catch { finishFailure(error: .provider(.invalidResponse("...")), ...) }`；非 SliceError 兜底包装为 .provider |
+| **R6-P1.4** zero-touch gate 与 §C-1 自相矛盾（R5-P2.2 push back 不彻底） | line 89（References）/ 1271-1282（Task 14 Step 3）/ 1357（PR checklist）/ 1398（Self-Review）仍写"SliceCore diff = 0"门禁；§C-1 已允许 SliceCore 白名单纯增（追加 case + 新建 ContextError/ToolPermissionError）；DoD 自相矛盾，实施者无法同时满足 | 全部 4 处文案改为"v1 既有类型 zero-touch + SliceCore 仅白名单 3 文件纯增（SliceError.swift Modify / ContextError.swift Create / ToolPermissionError.swift Create）"；Task 14 Step 3 git diff 命令移除 SliceCore，新增 SliceCore 白名单纯增的反向 grep 验证 + M1 既有 341 测试全绿验证 |
+
+**未做修订**：无。Round 6 全部 4 P1 接受 Codex 修复方案直接落地。修订后 verify：grep `Hashable` 在 InvocationFlag 声明 1 处 / grep `let permission, let reason` 消费端 ≥1 处 / Step 6 含 `} catch let error as SliceError {` ≥1 处 / Task 14 Step 3 含 SliceCore 白名单 grep 与 M1 测试 verify / line 89/1357/1398 文案与 §C-1 一致；连续两轮（R5+R6）的"漏修"问题靠本轮 verify pass 闭合。
+
+**预期**：Round 7 verdict ≥ CONDITIONAL_APPROVE（按 Round 6 Codex 明确信号）；如果 Round 7 仍发现 P1，必属 R6 修订自引入的新问题（按"breaking the loop"承诺将再次 stop & sync）。
 
 修订后 verify：grep `indirect enum ContextError\|indirect case requiredFailed` 至少 1 处 / grep `public struct InvocationReport.*Codable` 1 处 / grep `\[String: any ContextProvider\]` 实例不带 `.Type` 至少 2 处 / grep `permission: Permission, reason\|permission: Permission, uxHint` GateOutcome 签名一致 / grep `usd TEXT NOT NULL` 1 处 / grep `catch SliceError\.` 不带 `let` 前缀至少 3 处 / grep `catch let SliceError\.` 已无残留。
 
@@ -668,7 +683,7 @@ public struct InvocationReport: Sendable, Equatable, Codable {  // **Round 5 R5-
     }
 }
 
-public enum InvocationFlag: String, Sendable, Codable, Equatable {
+public enum InvocationFlag: String, Sendable, Codable, Hashable, Equatable {  // **Round 6 R6-P1.1 修订**：加 Hashable（InvocationReport.flags 是 Set<InvocationFlag>，Set 元素必须 Hashable；之前漏写编译失败）
     case dryRun
     case permissionUndeclared
     case partialFailure
@@ -896,13 +911,28 @@ EOF
   - **Step 2**（**Round 4 R4-P1.a + Round 5 catch syntax 修订**）：`do { let effective = try await permissionGraph.compute(tool: tool); if !effective.undeclared.isEmpty { finishFailure(error: .toolPermission(.undeclared(missing: effective.undeclared)), ...); return } } catch SliceError.toolPermission(.unknownProvider(let id)) { finishFailure(error: .configuration(.invalidTool(id: id, reason: "context provider not registered")), ...); return }`（**Round 5 修订**：catch pattern 写 `catch <Enum>.<case>(let payload)` 直接匹配——`let` **只放在 case 关联值上**，**不要写** `catch let SliceError.<case>(...)`（多余的 `let`）；**严禁** `catch let e as ... where case ... = e`，Swift 不支持 `where + case` 联用）
   - **Step 2.5**：`let outcome = await permissionBroker.gate(effective.union, provenance: tool.provenance, scope: .session, isDryRun: seed.isDryRun)`；**实现必须用无 `default` 的 `switch outcome`** 覆盖全 4 case（Round 2 B-3）：
     - `.approved` → 继续 Step 3
-    - `.denied(let reason)` → `finishFailure(.toolPermission(.denied(permission: <triggered>, reason: reason)), ...)` （**Round 4 R4-P1.a**：用 `SliceError.toolPermission(.denied(permission:reason:))`；触发 permission 由 broker 决策时记录到 `GateOutcome.denied` 关联值——M2 简化为传 `effective.union.first(where: { tier(of: $0) != .readonlyLocal }) ?? effective.union.first!`）
-    - `.requiresUserConsent(let uxHint)` → `finishFailure(.toolPermission(.notGranted(permission: <triggered>)), ...)` （Round 4 R4-P1.a）
+    - `.denied(let permission, let reason)` → `finishFailure(.toolPermission(.denied(permission: permission, reason: reason)), ...)` （**Round 4 R4-P1.a + Round 6 R6-P1.2 修订**：消费端 case 绑定 `let permission, let reason` 与 Task 6 定义端 `.denied(permission:reason:)` 签名一致——R5-P1.5 漏修被 R6 暴露；触发 permission 由 broker 在 gate 决策时填入关联值）
+    - `.requiresUserConsent(let permission, let uxHint)` → `finishFailure(.toolPermission(.notGranted(permission: permission)), ...)` （**Round 4 R4-P1.a + Round 6 R6-P1.2 修订**：消费端补 `let permission` 绑定）
     - `.wouldRequireConsent(let permission, let uxHint)` → Round 2 B-2：`yield .permissionWouldBeRequested(permission: permission, uxHint: uxHint)` 一条事件后**继续 Step 3**（dry-run 合法终态，不 finishFailure）；后续 Step 9 finishSuccess 时 `outcome = .dryRunCompleted` + flags 含 `.dryRun`
   - **Step 3**（**Round 4 R4-P1.b + Round 5 catch syntax 修订**）：先 pattern match 取出 contexts —— `let contextRequests: [ContextRequest]; switch tool.kind { case .prompt(let p): contextRequests = p.contexts; case .agent(let a): contextRequests = a.contexts; case .pipeline(let p): contextRequests = p.steps.compactMap { if case .prompt(let inline, _) = $0 { return inline.contexts } else { return nil } }.flatMap { $0 } }`；然后 `do { let resolved = try await contextCollector.resolve(seed: seed, requests: contextRequests) } catch SliceError.context(.requiredFailed(let key, let underlying)) { finishFailure(.context(.requiredFailed(key: key, underlying: underlying)), ...); return }`（**Round 4 R4-P1.a**：用 `SliceError.context(ContextError)` 新顶层 case；**Round 5 修订**：catch pattern 去掉多余的 `let SliceError`）
   - **Step 4**（**Round 4 R4-P1.b 修订**）：`let providerSelection: ProviderSelection; switch tool.kind { case .prompt(let p): providerSelection = p.provider; case .agent(let a): providerSelection = a.provider; case .pipeline: providerSelection = .fixed(providerId: "<pipeline-default>", modelId: nil) /* Pipeline 各 step 自己解析 */ }`；然后 `do { let provider = try await providerResolver.resolve(providerSelection) } catch ProviderResolutionError.notFound(let id) { finishFailure(.configuration(.referencedProviderMissing(id)), ...); return }`（**Round 4 R4-P1.a**：复用 M1 既有 `SliceError.configuration(.referencedProviderMissing)` 表达 provider 找不到，避免新增冗余）
   - **Step 5**（**Round 4 R4-P1.b 修订**）：`switch tool.kind { case .prompt(let promptTool): /* 进 Step 6 调 PromptExecutor.run(promptTool, resolved, provider) */ break; case .agent, .pipeline: yield .notImplemented(reason: "ToolKind .\(<case-name>) not implemented in M2 scope"); let stub = InvocationReport(... outcome: .success, ...); finishSuccess(stub); return }` —— M2 仅展开 `.prompt` 真实路径
-  - **Step 6**：`for try await chunk in promptExecutor.run(promptTool: promptTool, resolved: resolved, provider: provider) { yield .llmChunk(delta: chunk); await output.handle(chunk: chunk, mode: tool.displayMode, invocationId: invocationId) }`（Round 1 P2-3：传 `tool.displayMode` 不传 `outputBinding.primary`）
+  - **Step 6**（**Round 6 R6-P1.3 修订**：补 do/catch，否则 LLM stream 抛错会绕过 finishFailure / AuditLog 写入，违反 spec §3.9.7）：
+    ```swift
+    do {
+        for try await chunk in promptExecutor.run(promptTool: promptTool, resolved: resolved, provider: provider) {
+            yield .llmChunk(delta: chunk)
+            await output.handle(chunk: chunk, mode: tool.displayMode, invocationId: invocationId)
+        }
+    } catch let error as SliceError {
+        finishFailure(error: error, invocationId: invocationId, toolId: tool.id, declared: tool.permissions, effective: effective.union, flags: [], startedAt: startedAt)
+        return
+    } catch {
+        // 非 SliceError 包装为 .provider(.invalidResponse(<redacted>))（PromptExecutor 内部应已包装；此处兜底）
+        finishFailure(error: .provider(.invalidResponse("PromptExecutor stream failed (non-SliceError)")), invocationId: invocationId, toolId: tool.id, declared: tool.permissions, effective: effective.union, flags: [], startedAt: startedAt)
+        return
+    }
+    ```（Round 1 P2-3：传 `tool.displayMode` 不传 `outputBinding.primary`）
   - **Step 7**（Round 2 B-2 + **Round 4 R4-P3.b**）：`var partialFailure = false; for sideEffect in tool.outputBinding?.sideEffects ?? [] { let g = await permissionBroker.gate(Set(sideEffect.inferredPermissions), provenance: tool.provenance, scope: .session, isDryRun: seed.isDryRun); switch g { case .approved: if seed.isDryRun { yield .sideEffectSkippedDryRun(sideEffect) } else { /* execute - Phase 1 才填 */; yield .sideEffectTriggered(sideEffect); await auditLog.append(.sideEffectTriggered(invocationId: invocationId, sideEffect: sideEffect, executedAt: Date())) } case .denied: partialFailure = true; continue; case .requiresUserConsent: partialFailure = true; continue; case .wouldRequireConsent: yield .sideEffectSkippedDryRun(sideEffect) } }`
   - **Step 8**：`await costAccounting.record(...)`（含 invocationId / toolId / providerId / model / inputTokens / outputTokens / 估算 USD；详见 Task 8 CostRecord 完整字段）
   - **Step 9**：构造 `InvocationReport(... outcome: seed.isDryRun ? .dryRunCompleted : .success, flags: <dryRun + partialFailure 的组合>, startedAt: startedAt, finishedAt: Date())` → `finishSuccess(report)`
@@ -1265,11 +1295,11 @@ swiftlint lint --strict
 # 期望: 0 violations / 0 serious
 ```
 
-- [ ] **Step 3: zero-touch 验证**
+- [ ] **Step 3: zero-touch 验证**（**Round 6 R6-P1.4 修订**：从 §C-1 放宽对齐——SliceCore 不在严格 diff=0 列表；改为白名单纯增）
 
 ```bash
+# 1. 严格 zero-touch 模块（git diff 必须为 0）—— Round 6 修订：移除 SliceCore，改用白名单 grep 验证
 git diff origin/main..HEAD -- \
-  SliceAIKit/Sources/SliceCore \
   SliceAIKit/Sources/LLMProviders \
   SliceAIKit/Sources/SelectionCapture \
   SliceAIKit/Sources/HotkeyManager \
@@ -1280,6 +1310,25 @@ git diff origin/main..HEAD -- \
   SliceAIApp \
   | wc -l
 # 期望: 0
+
+# 2. SliceCore 白名单纯增验证（**Round 6 R6-P1.4 新增**）
+# 既有 case 名 + 字段名仍存在（M1 既有不变量未破坏）
+git show origin/main:SliceAIKit/Sources/SliceCore/SliceError.swift | grep -E "case (selection|provider|configuration|permission)\b" | wc -l
+# 期望: ≥ 4
+git show origin/main:SliceAIKit/Sources/SliceCore/SliceError.swift | grep -cE "(axUnavailable|axEmpty|clipboardTimeout|textTooLong|unauthorized|rateLimited|fileNotFound|schemaVersionTooNew|invalidJSON|referencedProviderMissing|validationFailed|accessibilityDenied|inputMonitoringDenied)"
+# 期望: ≥ 13
+
+# 3. SliceCore 实际改动只限白名单 3 文件
+git diff --name-only origin/main..HEAD -- SliceAIKit/Sources/SliceCore | sort -u
+# 期望仅出现:
+#   SliceAIKit/Sources/SliceCore/SliceError.swift
+#   SliceAIKit/Sources/SliceCore/ContextError.swift
+#   SliceAIKit/Sources/SliceCore/ToolPermissionError.swift
+# 任何其他 SliceCore 文件出现都是违规
+
+# 4. M1 既有 SliceCoreTests 全绿（既有不变量未破坏的最强 verify）
+cd SliceAIKit && swift test --filter SliceCoreTests
+# 期望: 341/341 + Round 6 SliceError 新增 case 的测试 pass
 ```
 
 - [ ] **Step 4: xcodebuild app 仍能编译**
@@ -1354,7 +1403,7 @@ gh pr create --base main --head feature/phase-0-m2-orchestration --title "Phase 
 - [ ] swiftlint lint --strict 0 violations
 - [ ] Orchestration 覆盖率 ≥ 75%
 - [ ] Capabilities 覆盖率 ≥ 60%
-- [ ] zero-touch 验证（v1 + M1 SliceCore git diff = 0）
+- [ ] zero-touch 验证（v1 既有类型 git diff = 0 + SliceCore 仅白名单 3 文件 Modify/Create + M1 既有 341 测试全绿；详见 Task 14 Step 3）
 - [ ] xcodebuild app 仍能编译
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
@@ -1395,7 +1444,7 @@ EOF
 
 ### 4. 关键不变量复盘
 
-- [ ] **C-1 zero-touch**：每个 task 的 Files 段都明确只在 `Sources/Orchestration/` `Sources/Capabilities/` `Tests/Orchestration*Tests/` `Tests/Capabilities*Tests/` 下；无对 `SliceCore/` `LLMProviders/` 等的 Modify
+- [ ] **C-1 zero-touch（Round 6 R6-P1.4 修订）**：每个 task 的 Files 段都明确改动限定在 `Sources/Orchestration/` / `Sources/Capabilities/` / `Tests/Orchestration*Tests/` / `Tests/Capabilities*Tests/` / **SliceCore 白名单 3 文件**（`SliceError.swift Modify` + `ContextError.swift Create` + `ToolPermissionError.swift Create`）；无对 `LLMProviders/` `SelectionCapture/` `HotkeyManager/` `DesignSystem/` `Windowing/` `Permissions/` `SettingsUI/` `SliceAIApp/` 的 Modify；M1 既有 341 SliceCoreTests 全绿（既有不变量未破坏）
 - [ ] **C-3 平铺并发**：Task 5 的关键设计点明确 "withTaskGroup 不实现 DAG"
 - [ ] **C-4 PermissionGraph 静态校验**：Task 7 关键设计点明确 "纯函数不做 I/O"，且 Task 4 主流程顺序 Step 2 PermissionGraph → Step 3 ContextCollector
 - [ ] **C-5 firstParty 不能放行 network-write/exec**：Task 6 测试矩阵覆盖此条
