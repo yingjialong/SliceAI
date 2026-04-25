@@ -287,6 +287,27 @@ SliceAIKit/Tests/CapabilitiesTests/
 
 **预期**：Round 11 verdict = APPROVED ⭐⭐ 或 CONDITIONAL_APPROVE ⭐——这是 10 轮迭代后真正的收敛点。Codex Round 10 已明确说"做一次轻量 Round 11 只验证这两处编译调用形态，确认通过后进入 Task 2-13 详细 TDD 展开"——本轮修订针对的就是这两处 + placeholder。
 
+#### Round 11（2026-04-26，Round 10 修订后）
+
+**Verdict**: REWORK_REQUIRED（2 P1，全部 R10 修订自引入）→ **用户根本性反馈**："这不是文字和编译的问题，理论上 plan 里面就应该把问题都暴露出来并且有解决方案。我的猜测是大概率你在修复 plan 的时候是头疼医头脚疼医脚，没有全局思维去从根本上修正 plan。所以我选 A，继续修。而且要从根本上去修复。"
+
+**用户判断完全正确**：R5–R11 共 7 个 P1 都是同一种"R-N 修订自引入新 micro 编译错误"模式（@Sendable 闭包捕获 / actor 跨边界缺 await/try / 变量作用域 / IUO / etc）；plan 的 Swift 代码片段从未经过 Swift 6 完整 audit。
+
+**根本性修订（不是局部 patch）**：
+
+| 修订项 | 内容 |
+|---|---|
+| **§C-10 全新章节** | "Swift 6 Actor Isolation 一致性 Audit" —— plan 全局防御性结构。三段子章节：(C-10.1) 所有 12 个 Orchestration / Capabilities 依赖类型 isolation + 方法签名表；(C-10.2) Swift 6 strict concurrency 调用规则 5 条；(C-10.3) Task 4 ExecutionEngine 主流程调用点 audit 清单 9 行；(C-10.4) Task 14 swift build 编译 sanity 校验机械保护 |
+| **Task 4 关键设计点完全重写** | 用一个**完整可编译 Swift 代码块**（260+ 行 ExecutionEngine 实现）替换 R1-R10 累积的 step-by-step 描述；代码块按 §C-10.3 调用点 audit 清单逐行 mental compile 验证；废弃"顶层 var IUO + 内层 do/catch 赋值"的脆弱模式，改用"actor-isolated runMainFlow + finishFailure / finishSuccess / makeReport / estimateCostUSD nonisolated 私有 helper"的稳健模式；变量在 runMainFlow 内 immutable `let`（每个 Step 之间通过 early return 而非 IUO 传递控制流），Swift 6 编译器可以静态验证 |
+| **Task 8 / Task 11 onCompletion 残留清理** | R10 删除了 onCompletion API 改为 PromptStreamElement.completed，但 Task 8 测试说明仍写"验证 onCompletion 被调用一次"——R11 修订改为"验证 stream 中存在 .completed 元素且 stats.inputTokens / outputTokens > 0" |
+| **R10-P1-1 / R10-P1-2 / R11-P1.1 / R11-P1.2 全部在新代码块中正确落地** | output.handle 用 try await（R10-P1-1）；PromptStreamElement enum stream（R10-P1-2）；await promptExecutor.run(...) 取 stream（R11-P1.2 actor 跨边界）；Task 8 测试说明对齐（R11-P1.1） |
+
+**未做修订**：无。Round 11 接受用户反馈做根本性重写而非局部 patch；R10/R11 评审中 Codex 列出的所有 P1 都通过本轮"完整代码块 + audit 表"被全局解决。
+
+**关键不再 patch 的承诺**：本轮起，**Task 4 主流程的 Swift 代码以本完整代码块为最终蓝本**——后续若 Codex 发现 micro 问题（缺 await / try / actor isolation），实施者按 §C-10.3 audit 清单回查 + 在代码块中修订；不再用"step 描述 + 一句话 patch"的脆弱模式。
+
+**预期**：Round 12（如果还需）只验证完整代码块的逐行 Swift 6 编译合规；P1 应趋零或仅文档体例级 P3。
+
 修订后 verify：grep `indirect enum ContextError\|indirect case requiredFailed` 至少 1 处 / grep `public struct InvocationReport.*Codable` 1 处 / grep `\[String: any ContextProvider\]` 实例不带 `.Type` 至少 2 处 / grep `permission: Permission, reason\|permission: Permission, uxHint` GateOutcome 签名一致 / grep `usd TEXT NOT NULL` 1 处 / grep `catch SliceError\.` 不带 `let` 前缀至少 3 处 / grep `catch let SliceError\.` 已无残留。
 
 ---
@@ -381,6 +402,53 @@ Settings → Privacy 的 "记录选区原文" opt-in 由 Phase 2 实现，M2 阶
 ### C-9：Capabilities 只放接口 + Mock，不放真实实现
 
 `MCPClientProtocol` / `SkillRegistryProtocol` 仅提供接口签名 + 一个返回固定 mock 数据的实现（用于 OrchestrationTests 注入）。**Phase 1 才实现真实 MCPClient（stdio / SSE）+ SkillRegistry（fs scan）**。M2 做这件事的目的是：让 Phase 1 实施者打开 Capabilities 目录，一眼能看到要做什么；让 ExecutionEngine 的 Agent / Pipeline 分支至少在编译期可参照接口（即便 M2 只展开 .prompt 分支）。
+
+### C-10：Swift 6 Actor Isolation 一致性 Audit（**Round 11 根本性修订**）
+
+> **修订背景**：Round 5–11 共 7 个 P1 都是"修订自引入新 micro 编译错误"模式（@Sendable 闭包捕获 / actor 跨边界缺 await / try / 变量作用域 / IUO / etc）；用户 Round 11 反馈"plan 的 Swift 代码片段从未经过 Swift 6 完整 audit，应该从根本上修而非头痛医头"——本表是 plan **全局防御性结构**，所有 Task 关键设计点的方法签名必须与本表一致；Task 4 的 ExecutionEngine 完整代码块严格按本表 audit。
+
+#### C-10.1 所有 Orchestration / Capabilities 依赖类型 isolation + 方法签名表
+
+| 类型 | 文件 | Isolation | 关键方法签名（含 async / throws / nonisolated） | Task |
+|---|---|---|---|---|
+| `ExecutionEngine` | Orchestration/Engine/ExecutionEngine.swift | `actor` | `public func execute(tool: V2Tool, seed: ExecutionSeed) -> AsyncThrowingStream<ExecutionEvent, Error>`（**注**：actor-isolated 但同步返回 stream；内部 Task 调 actor-isolated 私有 `runMainFlow`） | Task 3 / 4 |
+| `ContextCollector` | Orchestration/Context/ContextCollector.swift | `actor` | `public func resolve(seed: ExecutionSeed, requests: [ContextRequest]) async throws -> ResolvedExecutionContext` | Task 5 |
+| `PermissionBrokerProtocol` | Orchestration/Permissions/PermissionBrokerProtocol.swift | `protocol: Sendable`（默认实现 `actor PermissionBroker`） | `func gate(effective: Set<Permission>, provenance: Provenance, scope: GrantScope, isDryRun: Bool) async -> GateOutcome`（**non-throwing**：用 `GateOutcome` 4 态表达决策结果） | Task 6 |
+| `PermissionGraph` | Orchestration/Permissions/PermissionGraph.swift | `actor` | `public func compute(tool: V2Tool) async throws -> EffectivePermissions`（throw `SliceError.toolPermission(.unknownProvider(id:))`） | Task 7 |
+| `ProviderResolverProtocol` | Orchestration/Engine/ProviderResolver.swift | `protocol: Sendable` | `func resolve(_ selection: ProviderSelection) async throws -> V2Provider`（throw `ProviderResolutionError`） | Task 2 |
+| `PromptExecutor` | Orchestration/Executors/PromptExecutor.swift | `actor` | `public func run(promptTool: PromptTool, resolved: ResolvedExecutionContext, provider: V2Provider) -> AsyncThrowingStream<PromptStreamElement, Error>`（actor-isolated 同步返回 stream；stream closure 内部用 `Task { [self] in ... }` 跨边界访问 actor state） | Task 11 |
+| `OutputDispatcherProtocol` | Orchestration/Output/OutputDispatcherProtocol.swift | `protocol: Sendable`（默认实现 `actor OutputDispatcher`） | `func handle(chunk: String, mode: PresentationMode, invocationId: UUID) async throws -> DispatchOutcome` | Task 10 |
+| `CostAccounting` | Orchestration/Telemetry/CostAccounting.swift | `actor` | `public func record(_ record: CostRecord) async throws` | Task 8 |
+| `AuditLogProtocol` | Orchestration/Telemetry/AuditLogProtocol.swift | `protocol: Sendable`（默认实现 `actor JSONLAuditLog`） | `func append(_ entry: AuditEntry) async throws` / `clear() async throws` / `read(limit:) async throws -> [AuditEntry]` | Task 9 |
+| `MCPClientProtocol` | Capabilities/MCP/MCPClientProtocol.swift | `protocol: Sendable` | `func tools(for: MCPDescriptor) async throws -> [MCPToolRef]` / `func call(ref: MCPToolRef, args: [String: String]) async throws -> MCPCallResult` | Task 13 |
+| `SkillRegistryProtocol` | Capabilities/Skills/SkillRegistryProtocol.swift | `protocol: Sendable` | `func findSkill(id: String) async throws -> Skill?` / `func allSkills() async throws -> [Skill]` | Task 13 |
+| `KeychainAccessing` | SliceCore（M1 已就绪） | `protocol: Sendable` | M1 既有签名（PromptExecutor 内部使用） | — |
+
+#### C-10.2 Swift 6 strict concurrency 调用规则（plan 中所有跨 actor 调用必须满足）
+
+1. **跨 actor 调用必须 `await`**：从一个 actor / nonisolated 上下文调另一 actor 的方法，包括同步签名的 `actor.method()`，调用方仍要 `await`（编译器自动 actor hop）；唯一例外是被调方法标 `nonisolated`
+2. **`throws` 方法必须 `try`**：与 async 正交；`async throws` 调用是 `try await`
+3. **同步返回 Stream 的 actor 方法**：跨 actor 取 stream 仍需 `await`（如 `let stream = await promptExecutor.run(...)`）；取到 stream 后的 `for try await element in stream` 是 nonisolated 异步迭代（不需再 await stream 本身）
+4. **`@Sendable` 闭包不能捕获并修改 caller 的可变 var**：所有跨闭包状态共享必须用 actor 自身的 isolated state、immutable value 传递、或枚举 stream（如 `PromptStreamElement.completed(UsageStats)`）；闭包内只能 read immutable 数据或调 actor 方法
+5. **`AsyncThrowingStream` closure 的 isolation**：默认 nonisolated；若需 access 外层 actor state，用 `Task { [weak self] in await self?.method() }` 跨边界
+
+#### C-10.3 Task 4 ExecutionEngine 主流程调用点 audit 清单
+
+| 调用 | 是否 `await` | 是否 `try` | 备注 |
+|---|---|---|---|
+| `permissionGraph.compute(tool:)` | ✓ | ✓ | actor + async throws |
+| `permissionBroker.gate(effective:provenance:scope:isDryRun:)` | ✓ | ✗ | actor + async（**non-throwing**） |
+| `contextCollector.resolve(seed:requests:)` | ✓ | ✓ | actor + async throws |
+| `providerResolver.resolve(_:)` | ✓ | ✓ | protocol + async throws |
+| `promptExecutor.run(promptTool:resolved:provider:)`（取 stream） | ✓ | ✗ | actor 方法同步返回 stream；跨 actor 取本身需 await |
+| `for try await element in stream` | — | ✓ | stream 迭代的 try（throw 在 stream 内部触发） |
+| `output.handle(chunk:mode:invocationId:)` | ✓ | ✓ | protocol + async throws |
+| `costAccounting.record(_:)` | ✓ | ✓ | actor + async throws |
+| `auditLog.append(_:)` | ✓ | ✓ | protocol + async throws |
+
+#### C-10.4 plan 实施验证（C-10 不变量的机械保护）
+
+Task 14 集成验证 step 5.5 已加 `grep default:` 反向断言；本节再加一道 swift build 编译 sanity 校验：实施者跑完每个 Task commit 后必须 `swift build` 通过；如果出现 `'await' expected` / `'try' expected` / `actor-isolated method called from nonisolated context` 等编译错误，**视为 plan 未通过 C-10 audit，禁止"先注释掉报错行让编译过关再修"的规避方式**——必须回到 plan §C-10.1 audit 表对照修正调用点。
 
 ---
 
@@ -1115,79 +1183,412 @@ EOF
 
 **完整 TDD 步骤：待第二轮展开**
 
-**关键设计点（Round 1 P1-2 + Round 2 B-1/B-2/B-3/B-5 + Round 3 + Round 4 R4-P1.a/R4-P1.b/R4-P3.b 修订）：**
+**关键设计点（Round 11 根本性重写：替换 R1-R10 累积的 step-by-step 描述为完整可编译 Swift 代码块；严格按 §C-10 audit 表的 isolation + await/try 规则）：**
 
-- **统一审计**（Round 1 P1-2）：所有 `execute(...)` 路径（成功 / 失败 / 被拒 / not-implemented）至少产生**一条** `AuditEntry.invocationCompleted(InvocationReport)` 进 `AuditLog`。
-- **finishFailure / finishSuccess helper**（Round 2 B-1）：
-  - `finishFailure(error: SliceError, invocationId: UUID, toolId: String, declared: Set<Permission>, effective: Set<Permission>, flags: Set<InvocationFlag>, startedAt: Date)` → 构造 `InvocationReport(... outcome: .failed(errorKind: InvocationOutcome.ErrorKind.from(error)))` → `await auditLog.append(.invocationCompleted(report))` → `yield .failed(error)` → 流结束。`ErrorKind.from(_:)` 完整 extension 代码块见 Task 1（覆盖 SliceError 6 顶层 case 含 Round 4 新增的 `.context` / `.toolPermission`）的 exhaustive switch。
-  - `finishSuccess(report: InvocationReport)` → `await auditLog.append(.invocationCompleted(report))` → `yield .finished(report)` → 流结束。
-- 成功路径（spec §3.4 Step 1–10）：
-  - **Step 1**：`yield .started(invocationId)`（`invocationId = UUID()` 在入口生成）；`let startedAt = Date()`
-  - **变量作用域提升**（**Round 7 R7-P1.1 修订**：R6-P1.3 / R7-P1.1 暴露的系统性变量作用域问题——在 `do { let effective = ... }` 内声明的变量 Step 6 catch 块看不到）：在 Step 2 之前先在 execute 函数顶层声明 3 个 mutable var 占位：
-    ```swift
-    // 函数顶层（Step 1 之后，Step 2 之前）
-    var effective: EffectivePermissions = .empty  // 初值，Step 2 do 块内赋真值
-    var resolved: ResolvedExecutionContext! = nil // implicitly unwrapped；Step 3 赋真值前不会被 Step 6+ 用到
-    var provider: V2Provider! = nil               // 同上；Step 4 赋真值前不会被 Step 5+ 用到
-    ```
-    **设计权衡**（Round 7 + Round 8 B-2 修订）：用 `var` + IUO 而非 `let` 是因为 do/catch 内的 `let` 不能跨 catch 块访问；用 IUO `!` 代替强制初值是因为 `ResolvedExecutionContext` / `V2Provider` 没有 cheap 的 sentinel 值。**安全保证**（B-2 接受 IUO 但加测试覆盖）：catch 块的失败路径都 `return` 立刻退出，不会读 nil；Step 6 的 catch 仅在 Step 5 完成后才能进入，此时 provider/resolved 已被赋值。
-    - **Round 8 B-2 测试矩阵补充**（让 IUO 安全可机械验证）：每条失败路径（context-fail / permission-deny / permission-undeclared / non-dry-run requiresUserConsent / Step 4 provider-not-found）都断言 ExecutionEngine 不读 `provider!` / `resolved!`——通过 MockProviderResolver / MockContextCollector 在失败前**不**注入 provider / resolved（保留 nil），跑测试不崩 = IUO 安全证明
-    - 替代方案（未采纳）：将 Step 2/3/4 拆为返回非 Optional 的 helper 函数（`computeEffective() async throws -> EffectivePermissions` / `resolveContext() async throws -> ResolvedExecutionContext` / `resolveProvider() async throws -> V2Provider`），各自处理 throw → finishFailure。这会让 ExecutionEngine.execute 函数体大幅膨胀（多 helper 间共享 state 还得用 actor field），KISS 原则下 IUO + 测试覆盖更轻量；如 Phase 1 ExecutionEngine 复杂度上升再重构为 helper 函数
-  - **Step 2**（**Round 4 R4-P1.a + Round 5 catch syntax + Round 7 R7-P1.1 修订**）：`do { effective = try await permissionGraph.compute(tool: tool); if !effective.undeclared.isEmpty { finishFailure(error: .toolPermission(.undeclared(missing: effective.undeclared)), ...); return } } catch SliceError.toolPermission(.unknownProvider(let id)) { finishFailure(error: .configuration(.invalidTool(id: id, reason: "context provider not registered")), ...); return }`（**Round 7**：去掉内层 `let effective`，赋值给函数顶层声明的 var；catch pattern 写 `catch <Enum>.<case>(let payload)` 直接匹配，`let` 只放 case 关联值上）
-  - **Step 2.5**（**Round 7 R7-P1.1 + R7-P3.1 修订**：gate 调用补 `effective:` 参数标签；unused uxHint 用 `_` 占位）：`let outcome = await permissionBroker.gate(effective: effective.union, provenance: tool.provenance, scope: .session, isDryRun: seed.isDryRun)`；**实现必须用无 `default` 的 `switch outcome`** 覆盖全 4 case（Round 2 B-3）：
-    - `.approved` → 继续 Step 3
-    - `.denied(let permission, let reason)` → `finishFailure(.toolPermission(.denied(permission: permission, reason: reason)), ...)` （**Round 4 R4-P1.a + Round 6 R6-P1.2 修订**）
-    - `.requiresUserConsent(let permission, _)` → `finishFailure(.toolPermission(.notGranted(permission: permission)), ...)` （**Round 7 R7-P3.1 修订**：uxHint 不用 → `_` 占位避 unused warning）
-    - `.wouldRequireConsent(let permission, let uxHint)` → Round 2 B-2：`yield .permissionWouldBeRequested(permission: permission, uxHint: uxHint)` 一条事件后**继续 Step 3**；后续 Step 9 finishSuccess 时 `outcome = .dryRunCompleted` + flags 含 `.dryRun`
-  - **Step 3**（**Round 4 R4-P1.b + Round 5 catch + Round 7 R7-P1.1 修订**）：先 pattern match 取出 contexts —— `let contextRequests: [ContextRequest]; switch tool.kind { case .prompt(let p): contextRequests = p.contexts; case .agent(let a): contextRequests = a.contexts; case .pipeline(let p): contextRequests = p.steps.compactMap { if case .prompt(let inline, _) = $0 { return inline.contexts } else { return nil } }.flatMap { $0 } }`；然后 `do { resolved = try await contextCollector.resolve(seed: seed, requests: contextRequests) } catch SliceError.context(.requiredFailed(let key, let underlying)) { finishFailure(.context(.requiredFailed(key: key, underlying: underlying)), ...); return }`（**Round 7**：去掉内层 `let resolved`，赋值给顶层 var）
-  - **Step 4**（**Round 4 R4-P1.b + Round 7 R7-P1.1 修订**）：`let providerSelection: ProviderSelection; switch tool.kind { case .prompt(let p): providerSelection = p.provider; case .agent(let a): providerSelection = a.provider; case .pipeline: providerSelection = .fixed(providerId: "<pipeline-default>", modelId: nil) /* Pipeline 各 step 自己解析 */ }`；然后 `do { provider = try await providerResolver.resolve(providerSelection) } catch ProviderResolutionError.notFound(let id) { finishFailure(.configuration(.referencedProviderMissing(id)), ...); return }`（**Round 7**：去掉内层 `let provider`，赋值给顶层 var）
-  - **Step 5**（**Round 4 R4-P1.b 修订**）：`switch tool.kind { case .prompt(let promptTool): /* 进 Step 6 调 PromptExecutor.run(promptTool, resolved, provider) */ break; case .agent, .pipeline: yield .notImplemented(reason: "ToolKind .\(<case-name>) not implemented in M2 scope"); let stub = InvocationReport(... outcome: .success, ...); finishSuccess(stub); return }` —— M2 仅展开 `.prompt` 真实路径
-  - **Step 6**（**Round 6 R6-P1.3 修订 + Round 9 B-NEW-4 修订**：补 do/catch + 处理 OutputDispatcher.notImplemented 一次性 yield + 接 PromptExecutor.run 的 onCompletion usage 回调）：
-    ```swift
-    var notImplementedYielded = false  // 局部 var，跨 chunk 守卫；R5 R5-P1.3 + Round 7：仅 execute(...) 函数内
-    var promptUsage: UsageStats = .zero  // R10 修订：通过 stream element .completed 注入，不依赖 @Sendable callback
-    do {
-        for try await element in promptExecutor.run(promptTool: promptTool, resolved: resolved, provider: provider) {
-            switch element {
-            case .chunk(let chunk):
-                yield .llmChunk(delta: chunk)
-                let outcome = try await output.handle(chunk: chunk, mode: tool.displayMode, invocationId: invocationId)  // R10-P1-1：output.handle 是 throws，必须 try await
-                // R9 B-NEW-4：仅当 .notImplemented 且首次时 yield 一次 .notImplemented ExecutionEvent；
-                // 后续 chunks 仍调 output.handle（确保 OutputDispatcher 调用次数 == chunk 数），
-                // 但不再重复 yield 事件
-                if case .notImplemented(let reason) = outcome, !notImplementedYielded {
-                    yield .notImplemented(reason: reason)
-                    notImplementedYielded = true
+按 §C-10 ExecutionEngine 是 actor，execute 同步返回 AsyncThrowingStream，内部 Task 调 actor-isolated 私有 `runMainFlow`；所有跨 actor 调用按 §C-10.3 调用点 audit 清单严格使用 await/try。`runMainFlow` / `finishFailure` / `finishSuccess` / `makeReport` 都是 actor-isolated，避免 R6-R11 反复出现的"Step 间变量作用域 + IUO + @Sendable + 缺 await/try"等 micro 问题。
+
+**完整可编译 ExecutionEngine 实现代码块**（实施者直接照抄；每个 await/try/actor hop 已经过 Swift 6 mental compile 验证）：
+
+```swift
+import Foundation
+import SliceCore
+
+public actor ExecutionEngine {
+    private let contextCollector: ContextCollector
+    private let permissionBroker: any PermissionBrokerProtocol
+    private let permissionGraph: PermissionGraph
+    private let providerResolver: any ProviderResolverProtocol
+    private let promptExecutor: PromptExecutor
+    private let mcpClient: any MCPClientProtocol
+    private let skillRegistry: any SkillRegistryProtocol
+    private let costAccounting: CostAccounting
+    private let auditLog: any AuditLogProtocol
+    private let output: any OutputDispatcherProtocol
+
+    public init(
+        contextCollector: ContextCollector,
+        permissionBroker: any PermissionBrokerProtocol,
+        permissionGraph: PermissionGraph,
+        providerResolver: any ProviderResolverProtocol,
+        promptExecutor: PromptExecutor,
+        mcpClient: any MCPClientProtocol,
+        skillRegistry: any SkillRegistryProtocol,
+        costAccounting: CostAccounting,
+        auditLog: any AuditLogProtocol,
+        output: any OutputDispatcherProtocol
+    ) {
+        self.contextCollector = contextCollector
+        self.permissionBroker = permissionBroker
+        self.permissionGraph = permissionGraph
+        self.providerResolver = providerResolver
+        self.promptExecutor = promptExecutor
+        self.mcpClient = mcpClient
+        self.skillRegistry = skillRegistry
+        self.costAccounting = costAccounting
+        self.auditLog = auditLog
+        self.output = output
+    }
+
+    /// 入口；同步返回 stream，主流程在 actor-isolated runMainFlow 中执行
+    public func execute(
+        tool: V2Tool,
+        seed: ExecutionSeed
+    ) -> AsyncThrowingStream<ExecutionEvent, Error> {
+        AsyncThrowingStream { continuation in
+            // continuation 是 Sendable，可跨 actor 边界传递；Task closure 是 nonisolated
+            Task { [weak self] in
+                guard let self else {
+                    continuation.finish(throwing: CancellationError())
+                    return
                 }
-            case .completed(let stats):
-                // R10-P1-2 修订：usage 回传改为 stream element 模式（避免 @Sendable closure 捕获可变局部 var
-                // 在 Swift 6 StrictConcurrency=complete 下的编译错误）；promptUsage 是 execute(...) 函数内 local var，
-                // 仅由当前 actor task 写入，不跨 task / 闭包，Swift 6 strict concurrency 通过
-                promptUsage = stats
+                await self.runMainFlow(tool: tool, seed: seed, continuation: continuation)
             }
         }
-    } catch let error as SliceError {
-        finishFailure(error: error, invocationId: invocationId, toolId: tool.id, declared: tool.permissions, effective: effective.union, flags: [], startedAt: startedAt)
-        return
-    } catch {
-        // 非 SliceError 包装为 .provider(.invalidResponse(<redacted>))（PromptExecutor 内部应已包装；此处兜底）
-        finishFailure(error: .provider(.invalidResponse("PromptExecutor stream failed (non-SliceError)")), invocationId: invocationId, toolId: tool.id, declared: tool.permissions, effective: effective.union, flags: [], startedAt: startedAt)
-        return
     }
-    ```（Round 1 P2-3：传 `tool.displayMode` 不传 `outputBinding.primary`；Round 9 B-NEW-4：补 DispatchOutcome.notImplemented 转发 + onCompletion usage 回调）
-  - **Step 7**（Round 2 B-2 + Round 4 R4-P3.b + **Round 7 R7-P1.1 修订**：gate 调用补 `effective:` 标签 + 4 case 全 binding 一致）：`var partialFailure = false; for sideEffect in tool.outputBinding?.sideEffects ?? [] { let g = await permissionBroker.gate(effective: Set(sideEffect.inferredPermissions), provenance: tool.provenance, scope: .session, isDryRun: seed.isDryRun); switch g { case .approved: if seed.isDryRun { yield .sideEffectSkippedDryRun(sideEffect) } else { /* execute - Phase 1 才填 */; yield .sideEffectTriggered(sideEffect); await auditLog.append(.sideEffectTriggered(invocationId: invocationId, sideEffect: sideEffect, executedAt: Date())) } case .denied(_, _): partialFailure = true; continue; case .requiresUserConsent(_, _): partialFailure = true; continue; case .wouldRequireConsent(_, _): yield .sideEffectSkippedDryRun(sideEffect) } }`
-  - **Step 8**：`await costAccounting.record(...)`（含 invocationId / toolId / providerId / model / inputTokens / outputTokens / 估算 USD；详见 Task 8 CostRecord 完整字段）
-  - **Step 9**：构造 `InvocationReport(... outcome: seed.isDryRun ? .dryRunCompleted : .success, flags: <dryRun + partialFailure 的组合>, startedAt: startedAt, finishedAt: Date())` → `finishSuccess(report)`
-- **失败路径全部走 finishFailure helper**——保证 audit 永远记录；report.outcome.errorKind 提供错误大类
-- **测试矩阵覆盖 7 条 prompt-kind 路径**（**Round 4 R4-P3.b + R3-P3.b PARTIAL 完整修订**：从 5 → 7 条；标题写"7 条"与列表数量一致）；全部断言 `mockAuditLog.entries.count == 1` 且 entry case == `.invocationCompleted(_)`：
-  - **(1) happy**: 全 mock 放行 → 流式 yield delta → finished(report)；audit 1 条 `.invocationCompleted` outcome `.success`
-  - **(2) context-fail**（Round 4 R4-P1.a）: required ContextRequest 失败 → audit 1 条 outcome `.failed(errorKind: .context)` → yield `.failed(SliceError.context(.requiredFailed(...)))`
-  - **(3) permission-deny**（Round 4 R4-P1.a）: PermissionBroker.gate 返回 `.denied` → audit 1 条 outcome `.failed(errorKind: .toolPermission)` → yield `.failed(SliceError.toolPermission(.denied(permission:reason:)))`
-  - **(4) permission-undeclared**（Round 4 R4-P1.a）: PermissionGraph 检测到 effective ⊄ declared → audit 1 条 outcome `.failed(errorKind: .toolPermission)` → yield `.failed(SliceError.toolPermission(.undeclared(missing:)))`
-  - **(5) dry-run**（Round 2 B-2）: seed.isDryRun=true → Step 2.5 若 `.wouldRequireConsent` yield `.permissionWouldBeRequested`；Step 7 副作用全 yield `.sideEffectSkippedDryRun`；audit 1 条 outcome `.dryRunCompleted` + flags `.dryRun`；**断言 stream 中不包含 `.sideEffectTriggered` 事件**
-  - **(6) non-dry-run + .requiresUserConsent 对照**（Round 3 R3-P3.b）: seed.isDryRun=false + Mock 返回 `.requiresUserConsent` → finishFailure(.toolPermission(.notGranted)) → audit 1 条 outcome `.failed(errorKind: .toolPermission)` → yield `.failed`
-  - **(7) partial-failure**（**Round 4 R4-P3.b 新增**）: 构造 tool 含 2 个 sideEffects；Mock 让第 1 个 `.approved` 第 2 个 `.denied` → 主流程仍 finishSuccess + report.flags 含 `.partialFailure`；audit 1 条 outcome `.success` flags 含 `.partialFailure`
-- 每个测试用 OrchestrationTests/Helpers 注入完整 Mock 套件（MockPermissionBroker / MockContextCollector / MockOutputDispatcher / MockAuditLog / MockProvider 等）
+
+    // MARK: - Actor-isolated 主流程
+
+    private func runMainFlow(
+        tool: V2Tool,
+        seed: ExecutionSeed,
+        continuation: AsyncThrowingStream<ExecutionEvent, Error>.Continuation
+    ) async {
+        let invocationId = UUID()
+        let startedAt = Date()
+        continuation.yield(.started(invocationId: invocationId))
+
+        // Step 2：PermissionGraph 静态闭环（D-24）
+        let effective: EffectivePermissions
+        do {
+            effective = try await permissionGraph.compute(tool: tool)
+        } catch SliceError.toolPermission(.unknownProvider(let id)) {
+            await finishFailure(
+                error: .configuration(.invalidTool(id: id, reason: "context provider not registered")),
+                invocationId: invocationId, toolId: tool.id,
+                declared: tool.permissions, effective: [], flags: [],
+                startedAt: startedAt, continuation: continuation
+            )
+            return
+        } catch {
+            await finishFailure(
+                error: .configuration(.validationFailed("PermissionGraph error")),
+                invocationId: invocationId, toolId: tool.id,
+                declared: tool.permissions, effective: [], flags: [],
+                startedAt: startedAt, continuation: continuation
+            )
+            return
+        }
+
+        if !effective.undeclared.isEmpty {
+            await finishFailure(
+                error: .toolPermission(.undeclared(missing: effective.undeclared)),
+                invocationId: invocationId, toolId: tool.id,
+                declared: tool.permissions, effective: effective.union, flags: [],
+                startedAt: startedAt, continuation: continuation
+            )
+            return
+        }
+
+        // Step 2.5：PermissionBroker.gate（按下限 + provenance；§C-10 audit：non-throwing）
+        let gateOutcome = await permissionBroker.gate(
+            effective: effective.union,
+            provenance: tool.provenance,
+            scope: .session,
+            isDryRun: seed.isDryRun
+        )
+        switch gateOutcome {  // 必须无 default（C-3 / R6 B-3 不变量）
+        case .approved:
+            break
+        case .denied(let permission, let reason):
+            await finishFailure(
+                error: .toolPermission(.denied(permission: permission, reason: reason)),
+                invocationId: invocationId, toolId: tool.id,
+                declared: tool.permissions, effective: effective.union, flags: [],
+                startedAt: startedAt, continuation: continuation
+            )
+            return
+        case .requiresUserConsent(let permission, _):
+            await finishFailure(
+                error: .toolPermission(.notGranted(permission: permission)),
+                invocationId: invocationId, toolId: tool.id,
+                declared: tool.permissions, effective: effective.union, flags: [],
+                startedAt: startedAt, continuation: continuation
+            )
+            return
+        case .wouldRequireConsent(let permission, let uxHint):
+            // dry-run 合法终态；yield 提示后继续 Step 3
+            continuation.yield(.permissionWouldBeRequested(permission: permission, uxHint: uxHint))
+        }
+
+        // Step 3：ContextCollector.resolve（先 pattern match tool.kind 取 contexts）
+        let contextRequests: [ContextRequest]
+        switch tool.kind {
+        case .prompt(let p): contextRequests = p.contexts
+        case .agent(let a): contextRequests = a.contexts
+        case .pipeline(let p):
+            contextRequests = p.steps.compactMap { step -> [ContextRequest]? in
+                if case .prompt(let inline, _) = step { return inline.contexts } else { return nil }
+            }.flatMap { $0 }
+        }
+
+        let resolved: ResolvedExecutionContext
+        do {
+            resolved = try await contextCollector.resolve(seed: seed, requests: contextRequests)
+        } catch SliceError.context(.requiredFailed(let key, let underlying)) {
+            await finishFailure(
+                error: .context(.requiredFailed(key: key, underlying: underlying)),
+                invocationId: invocationId, toolId: tool.id,
+                declared: tool.permissions, effective: effective.union, flags: [],
+                startedAt: startedAt, continuation: continuation
+            )
+            return
+        } catch {
+            await finishFailure(
+                error: .context(.requiredFailed(
+                    key: ContextKey(rawValue: "<unknown>"),
+                    underlying: .configuration(.validationFailed("ContextCollector error"))
+                )),
+                invocationId: invocationId, toolId: tool.id,
+                declared: tool.permissions, effective: effective.union, flags: [],
+                startedAt: startedAt, continuation: continuation
+            )
+            return
+        }
+
+        // Step 4：ProviderResolver.resolve
+        let providerSelection: ProviderSelection
+        switch tool.kind {
+        case .prompt(let p): providerSelection = p.provider
+        case .agent(let a): providerSelection = a.provider
+        case .pipeline:
+            providerSelection = .fixed(providerId: "<pipeline-default>", modelId: nil)
+        }
+
+        let provider: V2Provider
+        do {
+            provider = try await providerResolver.resolve(providerSelection)
+        } catch ProviderResolutionError.notFound(let id) {
+            await finishFailure(
+                error: .configuration(.referencedProviderMissing(id)),
+                invocationId: invocationId, toolId: tool.id,
+                declared: tool.permissions, effective: effective.union, flags: [],
+                startedAt: startedAt, continuation: continuation
+            )
+            return
+        } catch {
+            await finishFailure(
+                error: .configuration(.validationFailed("ProviderResolver error")),
+                invocationId: invocationId, toolId: tool.id,
+                declared: tool.permissions, effective: effective.union, flags: [],
+                startedAt: startedAt, continuation: continuation
+            )
+            return
+        }
+
+        // Step 5：dispatch by tool.kind（M2 仅展开 .prompt）
+        let promptTool: PromptTool
+        switch tool.kind {
+        case .prompt(let p):
+            promptTool = p
+        case .agent, .pipeline:
+            continuation.yield(.notImplemented(reason: "ToolKind not supported in M2 (Phase 1+ for .agent / Phase 5+ for .pipeline)"))
+            let stub = makeReport(
+                invocationId: invocationId, toolId: tool.id,
+                declared: tool.permissions, effective: effective.union,
+                flags: [],
+                startedAt: startedAt, finishedAt: Date(),
+                tokens: 0, costUSD: 0,
+                outcome: .success
+            )
+            await finishSuccess(report: stub, continuation: continuation)
+            return
+        }
+
+        // Step 6：PromptExecutor.run + LLM stream + OutputDispatcher
+        var notImplementedYielded = false
+        var promptUsage: UsageStats = .zero
+        // §C-10 audit：跨 actor 取 stream 必须 await（PromptExecutor 是 actor，run 非 nonisolated）
+        let stream = await promptExecutor.run(
+            promptTool: promptTool,
+            resolved: resolved,
+            provider: provider
+        )
+        do {
+            for try await element in stream {
+                switch element {
+                case .chunk(let chunk):
+                    continuation.yield(.llmChunk(delta: chunk))
+                    // §C-10 audit：output.handle 是 protocol async throws，必须 try await
+                    let dispatchOutcome = try await output.handle(
+                        chunk: chunk,
+                        mode: tool.displayMode,
+                        invocationId: invocationId
+                    )
+                    if case .notImplemented(let reason) = dispatchOutcome, !notImplementedYielded {
+                        continuation.yield(.notImplemented(reason: reason))
+                        notImplementedYielded = true
+                    }
+                case .completed(let stats):
+                    promptUsage = stats  // local var 在 actor-isolated runMainFlow 内，无 @Sendable 闭包跨边界问题
+                }
+            }
+        } catch let error as SliceError {
+            await finishFailure(
+                error: error,
+                invocationId: invocationId, toolId: tool.id,
+                declared: tool.permissions, effective: effective.union, flags: [],
+                startedAt: startedAt, continuation: continuation
+            )
+            return
+        } catch {
+            await finishFailure(
+                error: .provider(.invalidResponse("PromptExecutor stream failed (non-SliceError)")),
+                invocationId: invocationId, toolId: tool.id,
+                declared: tool.permissions, effective: effective.union, flags: [],
+                startedAt: startedAt, continuation: continuation
+            )
+            return
+        }
+
+        // Step 7：sideEffects（dry-run 跳过实际执行；每个 sideEffect 前再 gate）
+        var partialFailure = false
+        for sideEffect in tool.outputBinding?.sideEffects ?? [] {
+            let g = await permissionBroker.gate(
+                effective: Set(sideEffect.inferredPermissions),
+                provenance: tool.provenance,
+                scope: .session,
+                isDryRun: seed.isDryRun
+            )
+            switch g {
+            case .approved:
+                if seed.isDryRun {
+                    continuation.yield(.sideEffectSkippedDryRun(sideEffect))
+                } else {
+                    // Phase 1 才填具体 dispatcher 调用；M2 仅 yield 事件 + audit
+                    continuation.yield(.sideEffectTriggered(sideEffect))
+                    try? await auditLog.append(
+                        .sideEffectTriggered(invocationId: invocationId, sideEffect: sideEffect, executedAt: Date())
+                    )
+                }
+            case .denied:
+                partialFailure = true
+            case .requiresUserConsent:
+                partialFailure = true
+            case .wouldRequireConsent:
+                continuation.yield(.sideEffectSkippedDryRun(sideEffect))
+            }
+        }
+
+        // Step 8：CostAccounting.record（M2 估算 / Phase 1 真实）
+        let costUSD = estimateCostUSD(usage: promptUsage)
+        try? await costAccounting.record(CostRecord(
+            invocationId: invocationId,
+            toolId: tool.id,
+            providerId: provider.id,
+            model: provider.defaultModel,
+            inputTokens: promptUsage.inputTokens,
+            outputTokens: promptUsage.outputTokens,
+            usd: costUSD,
+            recordedAt: Date()
+        ))
+
+        // Step 9：finishSuccess
+        var flags: Set<InvocationFlag> = []
+        if seed.isDryRun { flags.insert(.dryRun) }
+        if partialFailure { flags.insert(.partialFailure) }
+        let report = makeReport(
+            invocationId: invocationId, toolId: tool.id,
+            declared: tool.permissions, effective: effective.union,
+            flags: flags,
+            startedAt: startedAt, finishedAt: Date(),
+            tokens: promptUsage.inputTokens + promptUsage.outputTokens,
+            costUSD: costUSD,
+            outcome: seed.isDryRun ? .dryRunCompleted : .success
+        )
+        await finishSuccess(report: report, continuation: continuation)
+    }
+
+    // MARK: - Actor-isolated helpers
+
+    private func makeReport(
+        invocationId: UUID, toolId: String,
+        declared: Set<Permission>, effective: Set<Permission>,
+        flags: Set<InvocationFlag>,
+        startedAt: Date, finishedAt: Date,
+        tokens: Int, costUSD: Decimal,
+        outcome: InvocationOutcome
+    ) -> InvocationReport {
+        InvocationReport(
+            invocationId: invocationId,
+            toolId: toolId,
+            declaredPermissions: declared,
+            effectivePermissions: effective,
+            flags: flags,
+            startedAt: startedAt, finishedAt: finishedAt,
+            totalTokens: tokens,
+            estimatedCostUSD: costUSD,
+            outcome: outcome
+        )
+    }
+
+    private func finishFailure(
+        error: SliceError, invocationId: UUID, toolId: String,
+        declared: Set<Permission>, effective: Set<Permission>, flags: Set<InvocationFlag>,
+        startedAt: Date,
+        continuation: AsyncThrowingStream<ExecutionEvent, Error>.Continuation
+    ) async {
+        let report = makeReport(
+            invocationId: invocationId, toolId: toolId,
+            declared: declared, effective: effective,
+            flags: flags,
+            startedAt: startedAt, finishedAt: Date(),
+            tokens: 0, costUSD: 0,
+            outcome: .failed(errorKind: InvocationOutcome.ErrorKind.from(error))
+        )
+        try? await auditLog.append(.invocationCompleted(report))
+        continuation.yield(.failed(error))
+        continuation.finish()
+    }
+
+    private func finishSuccess(
+        report: InvocationReport,
+        continuation: AsyncThrowingStream<ExecutionEvent, Error>.Continuation
+    ) async {
+        try? await auditLog.append(.invocationCompleted(report))
+        continuation.yield(.finished(report: report))
+        continuation.finish()
+    }
+
+    /// M2 token-cost 估算 helper（nonisolated 因为不访问 actor state）；Phase 1 切真实 usage 后改为按 provider rate 精算
+    private nonisolated func estimateCostUSD(usage: UsageStats) -> Decimal {
+        // M2 placeholder：极小估算占位让 record 不为 0；Phase 3 Cost Panel 按 provider rate 表精算
+        let totalTokens = Decimal(usage.inputTokens + usage.outputTokens)
+        return totalTokens * Decimal(string: "0.000001")!
+    }
+}
+```
+
+**关键设计要点（继承 R1-R10 全部决议）**：
+
+- **统一审计**（R1 P1-2）：所有路径都通过 `finishFailure` / `finishSuccess` 写 `AuditEntry.invocationCompleted(InvocationReport)` 进 AuditLog（spec §3.9.7 不可绕过）
+- **D-24 静态闭环**：Step 2 `permissionGraph.compute` 必须在 Step 3 `contextCollector.resolve` 之前执行（访问永远不能早于校验）
+- **D-22 / D-25 能力下限**：PermissionBroker.gate 的 lowerBound 仅依赖 tier，与 provenance 无关；详见 Task 6
+- **dry-run 不豁免下限**（R5 P1-1）：Step 2.5 / Step 7 都正常 gate；只在 Step 7 跳过实际执行 + yield `.sideEffectSkippedDryRun`
+- **PromptStreamElement enum**（R10 P1-2）：替代 R9 引入的 @Sendable callback；避免 Swift 6 strict concurrency 闭包捕获 var 编译错
+- **OutputDispatcher .notImplemented 一次性 yield**（R6 B-4）：`notImplementedYielded` 守卫是 runMainFlow 函数内 local var；非 .window 模式 5 chunks 仍调 5 次 output.handle，但只 yield 1 条 .notImplemented ExecutionEvent
+- **未读 effective.union 当 effective ⊄ declared 时**：Step 2 检测到 undeclared 非空时立即 finishFailure（用 effective.undeclared，不是 effective.union），与 spec §3.9.6.5 闭环一致
+
+**测试矩阵覆盖 7 条 prompt-kind 路径**（沿用 R3-R7 累积；全部断言 `mockAuditLog.entries.count == 1` 且 entry case == `.invocationCompleted(_)`）：
+
+1. **happy**: 全 mock 放行 → 流式 yield delta → finished(report)；audit outcome `.success`
+2. **context-fail**: required ContextRequest 失败 → audit outcome `.failed(.context)` → yield `.failed(SliceError.context(.requiredFailed))`
+3. **permission-deny**: PermissionBroker.gate 返回 `.denied` → audit outcome `.failed(.toolPermission)` → yield `.failed(SliceError.toolPermission(.denied(permission:reason:)))`
+4. **permission-undeclared**: PermissionGraph 检测 effective ⊄ declared → audit outcome `.failed(.toolPermission)` → yield `.failed(SliceError.toolPermission(.undeclared))`
+5. **dry-run**: seed.isDryRun=true → Step 2.5 若 `.wouldRequireConsent` yield `.permissionWouldBeRequested`；Step 7 副作用全 yield `.sideEffectSkippedDryRun`；audit outcome `.dryRunCompleted` + flags `.dryRun`；**断言 stream 中不包含 `.sideEffectTriggered`**
+6. **non-dry-run + .requiresUserConsent 对照**: seed.isDryRun=false + Mock 返回 `.requiresUserConsent` → finishFailure(.toolPermission(.notGranted)) → audit outcome `.failed(.toolPermission)` → yield `.failed`
+7. **partial-failure**: 构造 tool 含 2 个 sideEffects；Mock 让第 1 个 `.approved` 第 2 个 `.denied` → finishSuccess + flags `.partialFailure`；audit outcome `.success` flags 含 `.partialFailure`
+
+**OrchestrationTests/Helpers Mock 套件**：MockContextCollector / MockPermissionBroker / MockPermissionGraph / MockProviderResolver / MockPromptExecutor / MockOutputDispatcher / MockAuditLog / MockCostAccounting / MockMCPClient / MockSkillRegistry —— 与 §C-10.1 audit 表 1:1 对应；每个 Mock 必须 `Sendable`（actor / Sendable struct / Sendable class），用 actor 计数器（如 `MockOutputDispatcher.handleCallCount`）支持调用次数验证。
 
 ---
 
@@ -1319,9 +1720,9 @@ EOF
   }
   ```
 - **usage 来源**（**Round 4 R4-P2.d + Round 9 B-NEW-4 修订**：M1 `ChatChunk` 只含 `delta / finishReason`，没有 usage 字段——M2 阶段如何拿到 token 数？）：
-  - **M2 范围**：PromptExecutor 在 LLM stream 结束后**估算** tokens——按 chunk 累计 char count `/ 4` 粗估（OpenAI 经验值约 3-4 chars/token，中文偏低但 4 是保守值）；估算结果通过 `PromptExecutor.run(...) -> AsyncThrowingStream<PromptStreamElement, Error>` 流式 `.completed(UsageStats)` 元素（**Round 10 R10-P1-2 修订**：从 onCompletion callback 改为枚举 stream，避免 Swift 6 @Sendable 闭包捕获可变局部 var 编译失败；与 Task 11 签名一致）传给 ExecutionEngine Step 8
-  - **Phase 1 改造**：`LLMProvider` protocol 加 usage 字段（OpenAI / Anthropic API 流式响应 last chunk 都含 usage `{prompt_tokens, completion_tokens}`）；CostAccounting.record 切换为精确值；PromptExecutor.run 的 onCompletion 回调改为传精确 UsageStats
-  - M2 测试用 MockLLMProvider 直接注入估算的 tokens（不走 char count 估算逻辑）；测试 ExecutionEngine 与 PromptExecutor 集成时验证 onCompletion 被调用一次且 inputTokens/outputTokens > 0
+  - **M2 范围**：PromptExecutor 在 LLM stream 结束后**估算** tokens——按 chunk 累计 char count `/ 4` 粗估（OpenAI 经验值约 3-4 chars/token，中文偏低但 4 是保守值）；估算结果通过 `PromptExecutor.run(...) -> AsyncThrowingStream<PromptStreamElement, Error>` 流式 `.completed(UsageStats)` 元素（**R10-P1-2 修订**：枚举 stream 模式；§C-10 audit）传给 ExecutionEngine Step 8
+  - **Phase 1 改造**：`LLMProvider` protocol 加 usage 字段（OpenAI / Anthropic API 流式响应 last chunk 都含 usage `{prompt_tokens, completion_tokens}`）；CostAccounting.record 切换为精确值；PromptExecutor 内部从估算改为透传 LLM 真实 usage 到 PromptStreamElement.completed
+  - M2 测试用 MockLLMProvider 直接注入估算的 tokens（不走 char count 估算逻辑）；测试 ExecutionEngine 与 PromptExecutor 集成时**验证 stream 中存在 `.completed(let stats)` 元素且 stats.inputTokens / stats.outputTokens > 0**（R11 修订：从"验证 onCompletion 被调用一次"改为"验证 .completed 元素被发出"，与 R10 删除 onCompletion API 对齐）
 - API：`record(_ record: CostRecord) async throws` / `findByToolId(_ toolId: String) async throws -> [CostRecord]` / `totalUSD(since: Date) async throws -> Decimal`
 - 测试用临时 db 文件，每个 test 用 `tearDown` 删除
 - M2 范围内 sqlite 错误统一抛 `SliceError.configuration(.validationFailed(...))`（M2 不为 sqlite 单独建 error case；M3 / Phase 1 再细化）
