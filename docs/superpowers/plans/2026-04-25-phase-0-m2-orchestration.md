@@ -253,6 +253,22 @@ SliceAIKit/Tests/CapabilitiesTests/
 
 **预期**：Round 9 verdict = APPROVED ⭐⭐ 或 CONDITIONAL_APPROVE ⭐ → 进入 Task 2-13 详细 TDD 展开。如果 Round 9 仍 REWORK_REQUIRED，构成"连续三轮 Codex 承诺 APPROVED 但未兑现"——按"breaking the loop"承诺触发 stop & sync。
 
+#### Round 9（2026-04-25，Round 8 修订后）
+
+**Verdict**: REWORK_REQUIRED（仅 1 P1 + 2 P2，**所有 P1 都是 R8 修订自引入**）；Codex 明确说"R10 应可 APPROVED"如果 B-NEW-1 / B-NEW-2 / B-NEW-4 都修。
+
+**P1 趋势**：R5(5) → R6(4) → R7(3) → R8(1) → R9(1) — 收敛态，但 R9 P1 是 R8 修订自引入。
+
+| Finding | 问题 | 修复落地 |
+|---|---|---|
+| **R9-B-NEW-1 P1** SliceError.developerContext 委托模式编译失败 | R8 修订把 `.selection(let e): return e.developerContext` 等改为委托模式，但 M1 SelectionError / ProviderError / PermissionError 子 enum 都**没有** `developerContext` computed 属性（M1 SliceError.swift:24-58 是顶层 nested switch 直接处理），实施者照抄会编译失败 | 改为"追加分支模式"：保留 M1 既有 nested switch 结构，**只追加** 3 处分支——(a) .configuration 嵌套 switch 末尾加 .invalidTool case；(b) switch self 顶层加 .context(let e) / .toolPermission(let e) 两个新顶层 case 分支；删除 R8 加的 ConfigurationError.developerContext computed 属性（M1 不用此委托模式） |
+| **R9-B-NEW-2 P2** ContextKey.rawValue 脱敏 | M1 ContextKey 是 RawRepresentable + 用户可自定义任意 rawValue（ContextKey.swift:9-15）；plan 把 rawValue 嵌入 developerContext（"context.requiredFailed(\(key.rawValue),...)") 违反 spec §3.9.5"任意 String payload 一律 redact" | ContextKey.rawValue 也按 String payload 脱敏：`.requiredFailed: return "context.requiredFailed(<redacted>)"` / `.timeout: return "context.timeout(<redacted>)"`（统一改 redacted，不再保留 key.rawValue） |
+| **R9-B-NEW-4 P2** Task 4/8/11 API 形态不一致 | (a) Task 4 Step 6 忽略 `output.handle` 的 `DispatchOutcome` 返回值，与 Task 10 "非 .window 模式只 yield 一次 .notImplemented" 测试要求不一致；(b) Task 8 说 PromptExecutor 用 onCompletion callback 传 usage，但 Task 11 PromptExecutor.run 签名仍是 `AsyncThrowingStream<String, Error>` 单返回 | (a) Task 4 Step 6 在 do 块内加 DispatchOutcome 处理（`if case .notImplemented(let reason) = outcome, !notImplementedYielded { yield .notImplemented(reason: reason); notImplementedYielded = true }`）；(b) Task 11 PromptExecutor.run 签名加 `onCompletion: @escaping @Sendable (UsageStats) -> Void = { _ in }` 入参 + 新增 UsageStats struct 定义；Task 8 用 onCompletion 回调对齐 |
+
+**未做修订**：无。Round 9 全部 3 条 finding 接受 Codex 修复方案直接落地。**关键判断**：R9-B-NEW-1 是"R8 修订自引入新阻断"（不是老 P1 反复），符合 Codex Round 9 评审报告原话"修复只需调整 SliceError.developerContext 的写法，范围极小，R10 应可 APPROVED"。
+
+**预期**：Round 10 verdict = APPROVED ⭐⭐——这是 plan 9 轮迭代后的真实收敛点。如 R10 仍 REWORK_REQUIRED 且引入新 P1，构成"R8/R9 连续两轮自引入 P1"模式 → 触发 stop & sync 让用户判断是否 plan 进入"完美主义 vs 实施"的取舍点。
+
 修订后 verify：grep `indirect enum ContextError\|indirect case requiredFailed` 至少 1 处 / grep `public struct InvocationReport.*Codable` 1 处 / grep `\[String: any ContextProvider\]` 实例不带 `.Type` 至少 2 处 / grep `permission: Permission, reason\|permission: Permission, uxHint` GateOutcome 签名一致 / grep `usd TEXT NOT NULL` 1 处 / grep `catch SliceError\.` 不带 `let` 前缀至少 3 处 / grep `catch let SliceError\.` 已无残留。
 
 ---
@@ -380,28 +396,39 @@ public enum SliceError: Error, Sendable, Equatable {
         }
     }
 
-    public var developerContext: String {
-        switch self {
-        case .selection(let e):    return e.developerContext // 既有（M1 SliceError.swift:25-30 已实现各 case）
-        case .provider(let e):     return e.developerContext // 既有
-        case .configuration(let e): return e.developerContext // 既有（含 R7 新增 invalidTool 分支——见 ConfigurationError.developerContext 下方）
-        case .permission(let e):   return e.developerContext // 既有
-        // Round 4 新增分支（按 spec §3.9.5 脱敏：携带任意 String payload 的 case 一律 <redacted>）
+    // **R9 修订重要说明（B-NEW-1 P1 修复）**：M1 SliceError.developerContext 是顶层 nested switch（line 24-58），
+    // **不**委托给子 enum 的 .developerContext 属性（M1 SelectionError / ProviderError / PermissionError 没有此 computed property）。
+    // R8 修订错把 plan 写成 `return e.developerContext` 委托模式 → 编译失败（M1 子 enum 无该属性）。
+    // **R9 修订方向**：保留 M1 既有 nested switch 结构，**只追加** 3 处分支（不重写 M1 既有行）：
+    //   (1) .configuration 嵌套 switch 末尾追加 .invalidTool case
+    //   (2) switch self 顶层追加 .context(let e) / .toolPermission(let e) 两个新顶层 case 分支
+    // **严禁** 修改 M1 既有 .selection / .provider / .configuration（既有 5 case）/ .permission 嵌套 switch 中任何分支字符串
+    //   —— 这违反 §C-1 zero-touch（既有 case 行为不变）
+
+    // 在 M1 SliceError.swift:43-52 既有 .configuration 嵌套 switch 末尾追加 1 行：
+    //   case .invalidTool: return "configuration.invalidTool(<redacted>)"
+
+    // 在 M1 SliceError.swift:23-58 既有 developerContext 顶层 switch 末尾追加 2 个 case 分支：
+    public var developerContext_R9_Append: String {  // 注：实际是在 M1 既有 developerContext 内追加，此处仅展示新增片段
+        // ... M1 既有 case .selection / .provider / .configuration / .permission 不动 ...
+        // 新增分支（R4 / R8 / R9 B-NEW-2 修订；按 spec §3.9.5 任意 String/ContextKey.rawValue payload 一律 <redacted>）：
+        return ""  // placeholder
+        /* 实际新增分支：
         case .context(let e):
             switch e {
-            case .requiredFailed(let key, _): return "context.requiredFailed(\(key.rawValue),<redacted>)"
-            case .providerNotFound: return "context.providerNotFound(<redacted>)"  // Round 8 B-3：String payload 一律 redacted
-            case .timeout(let key): return "context.timeout(\(key.rawValue))"     // ContextKey.rawValue 是固定 well-known 字符串集合，不视为用户 payload
+            case .requiredFailed: return "context.requiredFailed(<redacted>)"   // R9 B-NEW-2：ContextKey.rawValue 也 redact
+            case .providerNotFound: return "context.providerNotFound(<redacted>)"
+            case .timeout: return "context.timeout(<redacted>)"
             }
         case .toolPermission(let e):
             switch e {
             case .undeclared(let missing): return "toolPermission.undeclared(count=\(missing.count))"
             case .denied: return "toolPermission.denied(<redacted>)"
             case .notGranted: return "toolPermission.notGranted"
-            case .unknownProvider: return "toolPermission.unknownProvider(<redacted>)"  // Round 8 B-3：String payload 一律 redacted
+            case .unknownProvider: return "toolPermission.unknownProvider(<redacted>)"
             case .sandboxViolation: return "toolPermission.sandboxViolation(<redacted>)"
             }
-        }
+        */
     }
 }
 
@@ -422,19 +449,12 @@ public enum ConfigurationError: Error, Sendable, Equatable {
         }
     }
 
-    // Round 8 B-3 新增：M1 ConfigurationError 没有 developerContext computed 属性（M1 SliceError.swift 仅在 SliceError 顶层定义 developerContext）。
-    // R4 新增 .invalidTool case 后，SliceError.developerContext 中 .configuration(let e) 走 e.developerContext 路径，因此 ConfigurationError 也需要 developerContext。
-    // 这是对 M1 既有 ConfigurationError 的纯增（加 computed 属性，不改既有 case），符合 §C-1 zero-touch 放宽边界。
-    public var developerContext: String {
-        switch self {
-        case .fileNotFound: return "configuration.fileNotFound"
-        case .schemaVersionTooNew(let v): return "configuration.schemaVersionTooNew(\(v))"
-        case .invalidJSON: return "configuration.invalidJSON(<redacted>)"
-        case .referencedProviderMissing: return "configuration.referencedProviderMissing(<redacted>)"  // Round 8 B-3：String payload redacted
-        case .validationFailed: return "configuration.validationFailed(<redacted>)"
-        case .invalidTool: return "configuration.invalidTool(<redacted>)"  // Round 8 B-3：id+reason 都是 String payload，一律 redacted
-        }
-    }
+    // **R9 修订（B-NEW-1 P1 修复）**：删除 R8 自行新增的 ConfigurationError.developerContext computed 属性。
+    // 原因：M1 SliceError.developerContext 是顶层 nested switch，**不委托** 给 ConfigurationError.developerContext。
+    // R8 修订时新增此属性是基于"e.developerContext 委托模式"的误判；M1 既有 case 的 developerContext 字符串
+    // 由 SliceError 顶层 nested switch 直接处理（M1 SliceError.swift:43-52）。
+    // R9 落地方向：M1 ConfigurationError zero-touch（不加任何 computed 属性）；只在 SliceError.developerContext
+    // 既有 .configuration 嵌套 switch 末尾追加 1 行：`case .invalidTool: return "configuration.invalidTool(<redacted>)"`
 }
 ```
 
@@ -1106,12 +1126,26 @@ EOF
   - **Step 3**（**Round 4 R4-P1.b + Round 5 catch + Round 7 R7-P1.1 修订**）：先 pattern match 取出 contexts —— `let contextRequests: [ContextRequest]; switch tool.kind { case .prompt(let p): contextRequests = p.contexts; case .agent(let a): contextRequests = a.contexts; case .pipeline(let p): contextRequests = p.steps.compactMap { if case .prompt(let inline, _) = $0 { return inline.contexts } else { return nil } }.flatMap { $0 } }`；然后 `do { resolved = try await contextCollector.resolve(seed: seed, requests: contextRequests) } catch SliceError.context(.requiredFailed(let key, let underlying)) { finishFailure(.context(.requiredFailed(key: key, underlying: underlying)), ...); return }`（**Round 7**：去掉内层 `let resolved`，赋值给顶层 var）
   - **Step 4**（**Round 4 R4-P1.b + Round 7 R7-P1.1 修订**）：`let providerSelection: ProviderSelection; switch tool.kind { case .prompt(let p): providerSelection = p.provider; case .agent(let a): providerSelection = a.provider; case .pipeline: providerSelection = .fixed(providerId: "<pipeline-default>", modelId: nil) /* Pipeline 各 step 自己解析 */ }`；然后 `do { provider = try await providerResolver.resolve(providerSelection) } catch ProviderResolutionError.notFound(let id) { finishFailure(.configuration(.referencedProviderMissing(id)), ...); return }`（**Round 7**：去掉内层 `let provider`，赋值给顶层 var）
   - **Step 5**（**Round 4 R4-P1.b 修订**）：`switch tool.kind { case .prompt(let promptTool): /* 进 Step 6 调 PromptExecutor.run(promptTool, resolved, provider) */ break; case .agent, .pipeline: yield .notImplemented(reason: "ToolKind .\(<case-name>) not implemented in M2 scope"); let stub = InvocationReport(... outcome: .success, ...); finishSuccess(stub); return }` —— M2 仅展开 `.prompt` 真实路径
-  - **Step 6**（**Round 6 R6-P1.3 修订**：补 do/catch，否则 LLM stream 抛错会绕过 finishFailure / AuditLog 写入，违反 spec §3.9.7）：
+  - **Step 6**（**Round 6 R6-P1.3 修订 + Round 9 B-NEW-4 修订**：补 do/catch + 处理 OutputDispatcher.notImplemented 一次性 yield + 接 PromptExecutor.run 的 onCompletion usage 回调）：
     ```swift
+    var notImplementedYielded = false  // 局部 var，跨 chunk 守卫；R5 R5-P1.3 + Round 7：仅 execute(...) 函数内
+    var promptUsage: UsageStats = .zero  // R9 B-NEW-4：接 PromptExecutor onCompletion 回调
     do {
-        for try await chunk in promptExecutor.run(promptTool: promptTool, resolved: resolved, provider: provider) {
+        for try await chunk in promptExecutor.run(
+            promptTool: promptTool,
+            resolved: resolved,
+            provider: provider,
+            onCompletion: { stats in promptUsage = stats }  // R9 B-NEW-4：流结束后 callback 注入 usage
+        ) {
             yield .llmChunk(delta: chunk)
-            await output.handle(chunk: chunk, mode: tool.displayMode, invocationId: invocationId)
+            let outcome = await output.handle(chunk: chunk, mode: tool.displayMode, invocationId: invocationId)
+            // R9 B-NEW-4：仅当 .notImplemented 且首次时 yield 一次 .notImplemented ExecutionEvent；
+            // 后续 chunks 仍调 output.handle（确保 OutputDispatcher 调用次数 == chunk 数 — Task 10 测试矩阵），
+            // 但不再重复 yield 事件（R6 R6-P1 测试矩阵约束）
+            if case .notImplemented(let reason) = outcome, !notImplementedYielded {
+                yield .notImplemented(reason: reason)
+                notImplementedYielded = true
+            }
         }
     } catch let error as SliceError {
         finishFailure(error: error, invocationId: invocationId, toolId: tool.id, declared: tool.permissions, effective: effective.union, flags: [], startedAt: startedAt)
@@ -1121,7 +1155,7 @@ EOF
         finishFailure(error: .provider(.invalidResponse("PromptExecutor stream failed (non-SliceError)")), invocationId: invocationId, toolId: tool.id, declared: tool.permissions, effective: effective.union, flags: [], startedAt: startedAt)
         return
     }
-    ```（Round 1 P2-3：传 `tool.displayMode` 不传 `outputBinding.primary`）
+    ```（Round 1 P2-3：传 `tool.displayMode` 不传 `outputBinding.primary`；Round 9 B-NEW-4：补 DispatchOutcome.notImplemented 转发 + onCompletion usage 回调）
   - **Step 7**（Round 2 B-2 + Round 4 R4-P3.b + **Round 7 R7-P1.1 修订**：gate 调用补 `effective:` 标签 + 4 case 全 binding 一致）：`var partialFailure = false; for sideEffect in tool.outputBinding?.sideEffects ?? [] { let g = await permissionBroker.gate(effective: Set(sideEffect.inferredPermissions), provenance: tool.provenance, scope: .session, isDryRun: seed.isDryRun); switch g { case .approved: if seed.isDryRun { yield .sideEffectSkippedDryRun(sideEffect) } else { /* execute - Phase 1 才填 */; yield .sideEffectTriggered(sideEffect); await auditLog.append(.sideEffectTriggered(invocationId: invocationId, sideEffect: sideEffect, executedAt: Date())) } case .denied(_, _): partialFailure = true; continue; case .requiresUserConsent(_, _): partialFailure = true; continue; case .wouldRequireConsent(_, _): yield .sideEffectSkippedDryRun(sideEffect) } }`
   - **Step 8**：`await costAccounting.record(...)`（含 invocationId / toolId / providerId / model / inputTokens / outputTokens / 估算 USD；详见 Task 8 CostRecord 完整字段）
   - **Step 9**：构造 `InvocationReport(... outcome: seed.isDryRun ? .dryRunCompleted : .success, flags: <dryRun + partialFailure 的组合>, startedAt: startedAt, finishedAt: Date())` → `finishSuccess(report)`
@@ -1265,10 +1299,10 @@ EOF
       public let recordedAt: Date
   }
   ```
-- **usage 来源**（**Round 4 R4-P2.d 修订**：M1 `ChatChunk` 只含 `delta / finishReason`，没有 usage 字段——M2 阶段如何拿到 token 数？）：
-  - **M2 范围**：PromptExecutor 在 LLM stream 结束后**估算** tokens——按 chunk 累计 char count `/ 4` 粗估（OpenAI 经验值约 3-4 chars/token，中文偏低但 4 是保守值）；估算结果通过新增的 `PromptExecutor.run(...)` 返回值（除流式 chunk 外，还提供"流结束后的 usage 估算 callback"）传给 ExecutionEngine Step 8
-  - **Phase 1 改造**：`LLMProvider` protocol 加 usage 字段（OpenAI / Anthropic API 流式响应 last chunk 都含 usage `{prompt_tokens, completion_tokens}`）；CostAccounting.record 切换为精确值
-  - M2 测试用 MockLLMProvider 直接注入估算的 tokens（不走 char count 估算逻辑）
+- **usage 来源**（**Round 4 R4-P2.d + Round 9 B-NEW-4 修订**：M1 `ChatChunk` 只含 `delta / finishReason`，没有 usage 字段——M2 阶段如何拿到 token 数？）：
+  - **M2 范围**：PromptExecutor 在 LLM stream 结束后**估算** tokens——按 chunk 累计 char count `/ 4` 粗估（OpenAI 经验值约 3-4 chars/token，中文偏低但 4 是保守值）；估算结果通过 `PromptExecutor.run(... onCompletion:)` 回调（**Round 9 B-NEW-4 一致化**：与 Task 11 签名 `onCompletion: @escaping @Sendable (UsageStats) -> Void` 对齐）传给 ExecutionEngine Step 8
+  - **Phase 1 改造**：`LLMProvider` protocol 加 usage 字段（OpenAI / Anthropic API 流式响应 last chunk 都含 usage `{prompt_tokens, completion_tokens}`）；CostAccounting.record 切换为精确值；PromptExecutor.run 的 onCompletion 回调改为传精确 UsageStats
+  - M2 测试用 MockLLMProvider 直接注入估算的 tokens（不走 char count 估算逻辑）；测试 ExecutionEngine 与 PromptExecutor 集成时验证 onCompletion 被调用一次且 inputTokens/outputTokens > 0
 - API：`record(_ record: CostRecord) async throws` / `findByToolId(_ toolId: String) async throws -> [CostRecord]` / `totalUSD(since: Date) async throws -> Decimal`
 - 测试用临时 db 文件，每个 test 用 `tearDown` 删除
 - M2 范围内 sqlite 错误统一抛 `SliceError.configuration(.validationFailed(...))`（M2 不为 sqlite 单独建 error case；M3 / Phase 1 再细化）
@@ -1347,7 +1381,16 @@ EOF
 **关键设计点（Round 4 R4-P2.e 修订：V2Provider 适配 LLMProviderFactory 的 v1 限制）：**
 
 - `PromptExecutor` 是 `actor`；接受 `keychain: any KeychainAccessing` / `llmProviderFactory: LLMProviderFactory`（**Round 4 R4-P2.e 修订**：从"接受 llmProvider"改为"接受 factory"，因为 LLMProvider 实例是按 provider 配置创建的，PromptExecutor 内部按 V2Provider 字段创建对应的 v1 Provider 视图后调 factory）
-- `run(promptTool: PromptTool, resolved: ResolvedExecutionContext, provider: V2Provider) -> AsyncThrowingStream<String, Error>`（**注意**：直接接 `PromptTool` 而非 `V2Tool`——ExecutionEngine Step 5 已经 pattern match 取出 PromptTool；不需要 PromptExecutor 再做 assertion）
+- `run(promptTool: PromptTool, resolved: ResolvedExecutionContext, provider: V2Provider, onCompletion: @escaping @Sendable (UsageStats) -> Void = { _ in }) -> AsyncThrowingStream<String, Error>`（**注意**：直接接 `PromptTool` 而非 `V2Tool`；**Round 9 B-NEW-4 修订**：加 `onCompletion: (UsageStats) -> Void` 回调——PromptExecutor 在 LLM stream 结束后调用，把估算的 input/output tokens 传给 ExecutionEngine Step 8 的 CostAccounting.record；与 Task 8 R4-P2.d "M2 估算 token / Phase 1 真实 usage" 设计对齐）
+- **`UsageStats` struct**（**Round 9 B-NEW-4 新增**，定义在 PromptExecutor.swift 同文件）：
+  ```swift
+  public struct UsageStats: Sendable, Equatable {
+      public let inputTokens: Int
+      public let outputTokens: Int
+      public static let zero = UsageStats(inputTokens: 0, outputTokens: 0)
+  }
+  ```
+  M2 阶段 PromptExecutor 内部按 chunk 累计 char count `/ 4` 估算（spec §4.4.2 经验值）；Phase 1 接真实 LLMProvider usage 字段后切换
 - **V2Provider → v1 Provider 适配（Round 4 R4-P2.e + Round 5 R5-P2.1 关键修订）**：M1 `LLMProviderFactory` 只接 v1 `Provider` 类型（M1 SliceCore zero-touch 范围内不动）；PromptExecutor 内部用 V2Provider 字段构造一个临时 v1 Provider 视图：
   ```swift
   // PromptExecutor 内部 helper（不暴露 public）
