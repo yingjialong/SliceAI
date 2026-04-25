@@ -236,6 +236,23 @@ SliceAIKit/Tests/CapabilitiesTests/
 
 **预期**：Round 8 verdict ≥ CONDITIONAL_APPROVE（按 Codex Round 7 明确信号"修复后可直接进入 Round 8 验证"）；P1 趋势收敛，下一轮应该收尾。
 
+#### Round 8（2026-04-25，Round 7 修订后）
+
+**Verdict**: REWORK_REQUIRED（仅 1 P1 + 2 P2 + 1 P3）；Codex 明确说"Round 9 即可 APPROVED"如果 B-1/B-2/B-3 都修。
+
+**P1 趋势**：R5(5) → R6(4) → R7(3) → **R8(1)** — **收敛点临近**。
+
+| Finding | 问题 | 修复落地 |
+|---|---|---|
+| **R8-B-1** EffectivePermissions.empty 未定义 | Round 7 var effective: EffectivePermissions = .empty 引用了 .empty，但 Task 7 EffectivePermissions struct 没加该静态字段；plan 实施按文档照抄会编译失败 | Task 7 关键设计点新增 `public static let empty = EffectivePermissions(declared: [], fromContexts: [], fromSideEffects: [], fromMCP: [], fromBuiltins: [])`——R7 修订自引入的 partial fix 由本轮闭合 |
+| **R8-B-2** IUO nil 安全依赖人工推理 | `var resolved: ResolvedExecutionContext! = nil` / `var provider: V2Provider! = nil` 是 Swift IUO，运行时读 nil 会崩；R7 plan 描述说"catch 都 return 不会读 nil"是人工推理，编译器不验证 | 接受 IUO 设计（KISS 原则下重构为 helper 函数会让 execute 函数体大幅膨胀），但**补充测试矩阵**：5 条失败路径都断言 ExecutionEngine 不读 provider!/resolved!（Mock 在失败前不注入，nil 保留；测试不崩 = IUO 安全的机械验证）；同时记录"如 Phase 1 ExecutionEngine 复杂度上升再重构为 helper 函数"作为技术债 |
+| **R8-B-3** SliceCore developerContext 脱敏不完整 | `providerNotFound(\(id))` / `unknownProvider(\(id))` 嵌入 String id，违反 spec §3.9.5"任意 String payload 一律 <redacted>"；ConfigurationError.invalidTool 缺 developerContext | (a) line 376 `providerNotFound(<redacted>)` / line 384 `unknownProvider(<redacted>)` 改 redact；(b) 给 M1 ConfigurationError 加 `developerContext` computed 属性（纯增，不改既有 case）覆盖 5 既有 case + invalidTool；(c) SliceError.developerContext 中 `.selection(let e)` / `.provider(let e)` / `.configuration(let e)` / `.permission(let e)` 改用 `e.developerContext`（M1 各子 enum 已有此属性）而非占位 `...` |
+| **R8-B-4** 附录 AuditLog.append 形态不一致 | 附录 spec §3.4 流程对照表 line 1649 仍写 `AuditLog.append(report)`，与 Task 4/9 统一为 enum case 不一致 | 附录改为 `AuditLog.append(.invocationCompleted(report))` |
+
+**未做修订**：无。Round 8 全部 4 条 finding（1 P1 + 2 P2 + 1 P3）接受 Codex 修复方案直接落地。**Codex Round 9 APPROVED 承诺：B-1/B-2/B-3 全部修订 → Round 9 应直接 APPROVED**（Codex Round 8 评审报告原话："B-1 的修复方向极清晰...Round 9 即可 APPROVED"）。
+
+**预期**：Round 9 verdict = APPROVED ⭐⭐ 或 CONDITIONAL_APPROVE ⭐ → 进入 Task 2-13 详细 TDD 展开。如果 Round 9 仍 REWORK_REQUIRED，构成"连续三轮 Codex 承诺 APPROVED 但未兑现"——按"breaking the loop"承诺触发 stop & sync。
+
 修订后 verify：grep `indirect enum ContextError\|indirect case requiredFailed` 至少 1 处 / grep `public struct InvocationReport.*Codable` 1 处 / grep `\[String: any ContextProvider\]` 实例不带 `.Type` 至少 2 处 / grep `permission: Permission, reason\|permission: Permission, uxHint` GateOutcome 签名一致 / grep `usd TEXT NOT NULL` 1 处 / grep `catch SliceError\.` 不带 `let` 前缀至少 3 处 / grep `catch let SliceError\.` 已无残留。
 
 ---
@@ -365,23 +382,23 @@ public enum SliceError: Error, Sendable, Equatable {
 
     public var developerContext: String {
         switch self {
-        case .selection(let e):    /* 既有 */ ...
-        case .provider(let e):     /* 既有 */ ...
-        case .configuration(let e): /* 既有，含 R7 新增 invalidTool 分支 */ ...
-        case .permission(let e):   /* 既有 */ ...
-        // Round 4 新增分支（按 spec §3.9.5 脱敏：携带 String payload 的 case 一律 <redacted>）
+        case .selection(let e):    return e.developerContext // 既有（M1 SliceError.swift:25-30 已实现各 case）
+        case .provider(let e):     return e.developerContext // 既有
+        case .configuration(let e): return e.developerContext // 既有（含 R7 新增 invalidTool 分支——见 ConfigurationError.developerContext 下方）
+        case .permission(let e):   return e.developerContext // 既有
+        // Round 4 新增分支（按 spec §3.9.5 脱敏：携带任意 String payload 的 case 一律 <redacted>）
         case .context(let e):
             switch e {
             case .requiredFailed(let key, _): return "context.requiredFailed(\(key.rawValue),<redacted>)"
-            case .providerNotFound(let id): return "context.providerNotFound(\(id))"
-            case .timeout(let key): return "context.timeout(\(key.rawValue))"
+            case .providerNotFound: return "context.providerNotFound(<redacted>)"  // Round 8 B-3：String payload 一律 redacted
+            case .timeout(let key): return "context.timeout(\(key.rawValue))"     // ContextKey.rawValue 是固定 well-known 字符串集合，不视为用户 payload
             }
         case .toolPermission(let e):
             switch e {
             case .undeclared(let missing): return "toolPermission.undeclared(count=\(missing.count))"
-            case .denied(_, _): return "toolPermission.denied(<redacted>)"
+            case .denied: return "toolPermission.denied(<redacted>)"
             case .notGranted: return "toolPermission.notGranted"
-            case .unknownProvider(let id): return "toolPermission.unknownProvider(\(id))"
+            case .unknownProvider: return "toolPermission.unknownProvider(<redacted>)"  // Round 8 B-3：String payload 一律 redacted
             case .sandboxViolation: return "toolPermission.sandboxViolation(<redacted>)"
             }
         }
@@ -399,9 +416,23 @@ public enum ConfigurationError: Error, Sendable, Equatable {
 
     public var userMessage: String {
         switch self {
-        // ... 既有 5 case ...
+        // ... 既有 5 case userMessage 不动 ...
         case .invalidTool(let id, let reason):
             return "工具 \"\(id)\" 配置错误：\(reason)"
+        }
+    }
+
+    // Round 8 B-3 新增：M1 ConfigurationError 没有 developerContext computed 属性（M1 SliceError.swift 仅在 SliceError 顶层定义 developerContext）。
+    // R4 新增 .invalidTool case 后，SliceError.developerContext 中 .configuration(let e) 走 e.developerContext 路径，因此 ConfigurationError 也需要 developerContext。
+    // 这是对 M1 既有 ConfigurationError 的纯增（加 computed 属性，不改既有 case），符合 §C-1 zero-touch 放宽边界。
+    public var developerContext: String {
+        switch self {
+        case .fileNotFound: return "configuration.fileNotFound"
+        case .schemaVersionTooNew(let v): return "configuration.schemaVersionTooNew(\(v))"
+        case .invalidJSON: return "configuration.invalidJSON(<redacted>)"
+        case .referencedProviderMissing: return "configuration.referencedProviderMissing(<redacted>)"  // Round 8 B-3：String payload redacted
+        case .validationFailed: return "configuration.validationFailed(<redacted>)"
+        case .invalidTool: return "configuration.invalidTool(<redacted>)"  // Round 8 B-3：id+reason 都是 String payload，一律 redacted
         }
     }
 }
@@ -1063,7 +1094,9 @@ EOF
     var resolved: ResolvedExecutionContext! = nil // implicitly unwrapped；Step 3 赋真值前不会被 Step 6+ 用到
     var provider: V2Provider! = nil               // 同上；Step 4 赋真值前不会被 Step 5+ 用到
     ```
-    **设计权衡**：用 `var` + IUO 而非 `let` 是因为 do/catch 内的 `let` 不能跨 catch 块访问；用 IUO `!` 代替强制初值是因为 `ResolvedExecutionContext` / `V2Provider` 没有 cheap 的 sentinel 值。catch 块的失败路径都 `return` 立刻退出，不会读 nil 的变量；Step 6 的 catch 仅在 Step 5 完成后才能进入，此时 provider/resolved 已被赋值。
+    **设计权衡**（Round 7 + Round 8 B-2 修订）：用 `var` + IUO 而非 `let` 是因为 do/catch 内的 `let` 不能跨 catch 块访问；用 IUO `!` 代替强制初值是因为 `ResolvedExecutionContext` / `V2Provider` 没有 cheap 的 sentinel 值。**安全保证**（B-2 接受 IUO 但加测试覆盖）：catch 块的失败路径都 `return` 立刻退出，不会读 nil；Step 6 的 catch 仅在 Step 5 完成后才能进入，此时 provider/resolved 已被赋值。
+    - **Round 8 B-2 测试矩阵补充**（让 IUO 安全可机械验证）：每条失败路径（context-fail / permission-deny / permission-undeclared / non-dry-run requiresUserConsent / Step 4 provider-not-found）都断言 ExecutionEngine 不读 `provider!` / `resolved!`——通过 MockProviderResolver / MockContextCollector 在失败前**不**注入 provider / resolved（保留 nil），跑测试不崩 = IUO 安全证明
+    - 替代方案（未采纳）：将 Step 2/3/4 拆为返回非 Optional 的 helper 函数（`computeEffective() async throws -> EffectivePermissions` / `resolveContext() async throws -> ResolvedExecutionContext` / `resolveProvider() async throws -> V2Provider`），各自处理 throw → finishFailure。这会让 ExecutionEngine.execute 函数体大幅膨胀（多 helper 间共享 state 还得用 actor field），KISS 原则下 IUO + 测试覆盖更轻量；如 Phase 1 ExecutionEngine 复杂度上升再重构为 helper 函数
   - **Step 2**（**Round 4 R4-P1.a + Round 5 catch syntax + Round 7 R7-P1.1 修订**）：`do { effective = try await permissionGraph.compute(tool: tool); if !effective.undeclared.isEmpty { finishFailure(error: .toolPermission(.undeclared(missing: effective.undeclared)), ...); return } } catch SliceError.toolPermission(.unknownProvider(let id)) { finishFailure(error: .configuration(.invalidTool(id: id, reason: "context provider not registered")), ...); return }`（**Round 7**：去掉内层 `let effective`，赋值给函数顶层声明的 var；catch pattern 写 `catch <Enum>.<case>(let payload)` 直接匹配，`let` 只放 case 关联值上）
   - **Step 2.5**（**Round 7 R7-P1.1 + R7-P3.1 修订**：gate 调用补 `effective:` 参数标签；unused uxHint 用 `_` 占位）：`let outcome = await permissionBroker.gate(effective: effective.union, provenance: tool.provenance, scope: .session, isDryRun: seed.isDryRun)`；**实现必须用无 `default` 的 `switch outcome`** 覆盖全 4 case（Round 2 B-3）：
     - `.approved` → 继续 Step 3
@@ -1181,7 +1214,7 @@ EOF
 
 **关键设计点（Round 1 P2-2 修订：注入 ContextProviderRegistry + 补 pipeline 测试 + unknownProvider 错误）：**
 
-- 完全照抄 spec §3.9.6.5 的 `EffectivePermissions` struct（fromContexts / fromSideEffects / fromMCP / fromBuiltins / declared / union / undeclared computed）
+- 完全照抄 spec §3.9.6.5 的 `EffectivePermissions` struct（fromContexts / fromSideEffects / fromMCP / fromBuiltins / declared / union / undeclared computed）+ **Round 8 B-1 修订**：加 `public static let empty = EffectivePermissions(declared: [], fromContexts: [], fromSideEffects: [], fromMCP: [], fromBuiltins: [])` 静态字段——Task 4 顶部 `var effective: EffectivePermissions = .empty` 默认值用此 sentinel；R7 var 提升时引用了 `.empty` 但漏在 Task 7 加定义，本轮闭合
 - `PermissionGraph(providerRegistry: ContextProviderRegistry)` 构造期注入注册表 **（Round 1 P2-2 新增 + Round 4 R4-P2.a + Round 5 R5-P1.3 修订）**——`ContextProviderRegistry` 是 M2 新建的 `[String: any ContextProvider]` 实例封装（见 Task 5；**Round 5 R5-P1.3**：存实例不存 metatype，PermissionGraph 通过 `type(of: registry.providers[id]!).inferredPermissions(for: args)` 间接拿到静态方法）；**严禁** PermissionGraph 内部硬编码 provider 名字字符串
 - `compute(tool: V2Tool) async throws -> EffectivePermissions`（actor 上的 async 方法但**不做 I/O**）：
   - 对每个 `ContextRequest` 通过 registry 按 `request.provider` 字符串查 provider type（Round 3 P1：M1 字段名 `provider`，SliceCore/Context.swift:11 verified；**Round 4 R4-P2.a**：registry 是 ContextProviderRegistry —— Task 5 在 ContextCollector.swift 同文件新建，与 ContextCollector 共享）；找不到 → `throw SliceError.toolPermission(.unknownProvider(id: request.provider))`（**Round 4 R4-P1.a 修订**：用 SliceCore 新增的 `SliceError.toolPermission(ToolPermissionError)` 顶层 case；ToolPermissionError 完整 enum 定义见 Files 段顶部 `Create SliceCore/ToolPermissionError.swift`——取代 Round 3 的 PermissionDecisionError 概念）
@@ -1646,7 +1679,7 @@ EOF
 | 6 | LLM stream → OutputDispatcher | Task 4 + Task 10 + Task 11 | OutputDispatcher 仅 .window 真实分发 |
 | 7 | sideEffects 触发（每个前再 gate） | Task 4 + Task 6 + Task 10 | 副作用前调 PermissionBroker.gate 走 §3.9.2 下限 |
 | 8 | CostAccounting.record | Task 4 + Task 8 | 入参 = invocationId / toolId / providerId / model / usage / usd |
-| 9 | AuditLog.append(report) | Task 4 + Task 9 | report 含 declared/effective/diff，进 jsonl |
+| 9 | AuditLog.append(.invocationCompleted(report)) | Task 4 + Task 9 | Round 2 B-6.3：用 enum case 而非 raw report；report 含 declared/effective/diff，进 jsonl |
 | 10 | yield .finished(report) | Task 4 | 流结束 |
 
 ---
