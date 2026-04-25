@@ -120,6 +120,24 @@ SliceAIKit/Tests/CapabilitiesTests/
 
 **未做修订**：无。Codex 8 条 finding 全部接受落地（评审报告全文见 commit message 引用 + 对话记录）。
 
+#### Round 2（2026-04-25，Round 1 修订后）
+
+**Verdict**: REWORK_REQUIRED → Round 1 全 8 finding 验证 ✅；新发现 6 条 finding（3 P1 + 3 P2）全部接受并落地（本次提交，**不接受任何反驳**）。
+
+| Finding | 问题 | 修复落地 |
+|---|---|---|
+| **B-1** finishFailure 字段不闭合 | Round 1 修订自己引入的 bug：finishFailure 签名提到 `errorKind` / `startedAt`，但 Task 1 InvocationReport struct 不含 `errorKind` 字段；helper 签名也没有 `startedAt` 入参 | Task 1 InvocationReport 加 `outcome: InvocationOutcome` 字段（含 `.success` / `.failed(errorKind:)` / `.dryRunCompleted`）+ 新增 `InvocationOutcome` enum；Task 4 finishFailure 签名 `finishFailure(error:invocationId:toolId:declared:effective:flags:startedAt:)`；finishSuccess 同步补 outcome 入参 |
+| **B-2** wouldRequireConsent 状态机 Task 4 / Task 6 矛盾 | Task 6 说"caller 跳过执行继续主流程"；Task 4 Step 2.5 说"转 `.notImplemented` 事件"——两处描述自相矛盾 | Task 1 ExecutionEvent 新增 2 case：`.permissionWouldBeRequested(permission:uxHint:)`（Step 2.5 dry-run 时 yield 单条事件继续主流程）+ `.sideEffectSkippedDryRun(SideEffect)`（Step 7 dry-run 时 yield 替代实际执行）；Task 4 Step 2.5 / Step 7 / Task 6 描述统一为 "continue main flow，但 yield 上述 2 case 标记 dry-run skip" |
+| **B-3** GateOutcome 4 态未要求 exhaustive switch | 新增 `.wouldRequireConsent` 后，4 态 GateOutcome 若实现用 `default` 处理，未来加 case 会漏 | Task 4 关键设计点新增 "实现必须用无 `default` 的 `switch outcome` 覆盖全 4 case；Task 14 集成验证 step 增加 grep `default:` 在 PermissionBroker.swift / ExecutionEngine.swift 的反向断言（grep 返回非零=合格）" |
+| **B-4** OutputDispatcher 每 chunk 调用语义未锁定 | 非 `.window` 模式可能产生与 chunk 数量等比的 `.notImplemented` 调用，污染流；测试未约束 | Task 10 关键设计点：`.window` 测试断言 3 chunks → `InMemoryWindowSink.received.count == 3` + 顺序 `["a", "b", "c"]`；非 `.window` 模式 ExecutionEngine **只在第一个 chunk 时 yield 一次 `.notImplemented` ExecutionEvent**（用 `var notImplementedYielded = false` 守卫），后续 chunks dispatch 仍调用但不再 yield 重复事件 |
+| **B-5** PermissionGraph.compute 改 async throws 后调用漏 try | Task 4 Step 2 / Task 7 章节都写 `await compute(...)`，缺 `try`，直接编译错误 | Task 4 Step 2 改 `try await permissionGraph.compute(...)` + 加 `do { ... } catch let e as PermissionGraph.Error where case .unknownProvider = e { finishFailure(.configuration(.invalidTool(...))) }`；Task 7 关键设计点同步注明 caller 必须 `try await` |
+| **B-6.1** Task 2 `.fixed(providerId:)` 漏 modelId 入参 | M1 落地 `case fixed(providerId: String, modelId: String?)`（`SliceAIKit/Sources/SliceCore/ProviderSelection.swift:9` verified）；plan 写 `.fixed(providerId:)` 漏 modelId | Task 2 关键设计点：`.fixed(providerId:, modelId:)` 形态；`.resolve(_)` 解析时优先 modelId，若 nil 回落 `provider.defaultModel`（V2Provider 字段，M1 已就绪） |
+| **B-6.2** Task 5 ContextCollector failures 类型不对齐 | M1 `ResolvedExecutionContext.failures: [ContextKey: SliceError]`（`SliceAIKit/Sources/SliceCore/ResolvedExecutionContext.swift:24` verified）；plan 写 `[String: Error]` | Task 5 关键设计点：`failures: [ContextKey: SliceError]`（与 M1 类型对齐）；`ContextCollectorError.requiredFailed(key: ContextKey, underlying: SliceError)`（参数类型同步）；非 SliceError 的底层错误由 collector 包装为 SliceError 后再写入 |
+| **B-6.3** AuditLog.append 接口与 Task 4 调用不对齐 | Task 4 调 `auditLog.append(report)`（report = InvocationReport）；Task 9 定义 `append(_ entry: AuditEntry)`；类型不匹配 | Task 9 关键设计点：`AuditEntry` 是 enum，含 `.invocationCompleted(InvocationReport)` / `.sideEffectTriggered(invocationId:UUID, sideEffect:SideEffect, executedAt:Date)` / `.logCleared(at:Date)` 三 case；Task 4 改用 `auditLog.append(.invocationCompleted(report))`；finishFailure 内部同样用 `.invocationCompleted(report)` 写入（success / failure 都走 invocationCompleted，区分由 `report.outcome`） |
+| **B-6.4** Task 12 PathSandbox `standardizedFileURL` 不 resolve symlink | spec §3.9.3:989 措辞 "URL(fileURLWithPath:).standardizedFileURL 消除 .. / symlink" 与 Foundation API 实际行为不符（standardizedFileURL 只消除 `..` 不 resolve symlink） | Task 12 关键设计点：`PathSandbox.normalize(_:role:)` 实现链改为 `URL(fileURLWithPath:).resolvingSymlinksInPath().standardizedFileURL`（先 resolve symlink，再 standardize）；plan 注：spec §3.9.3 措辞错误本 plan 按 Foundation API 真实语义实现，spec 修订留下一轮 spec 评审；测试矩阵补 symlink 攻击：在 `~/Documents` 下 `ln -s` 指向 `~/Library/Keychains` → normalize 应返回 throw `.escapesWhitelist` |
+
+**未做修订**：无。Codex 6 条 finding 全部接受落地。Round 2 修订后跑了 verify pass：grep `await compute(` 无残留无 `try` 调用 / grep `auditLog.append(report)` 已替换为 `auditLog.append(.invocationCompleted(report))` / grep `[String: Error]` 已无 / grep `.fixed(providerId:)` 已含 modelId 形态。
+
 ---
 
 ## 关键架构约束（M2 不变量，所有 Task 必须满足）
@@ -429,6 +447,15 @@ public enum ExecutionEvent: Sendable {
 
     /// M2 范围 placeholder：还未实现的 PresentationMode / ToolKind 分支返回此事件
     case notImplemented(reason: String)
+
+    /// **Round 2 B-2 修订**：dry-run 路径下 PermissionBroker.gate 返回 `.wouldRequireConsent` 时 yield；
+    /// caller 收到此事件后跳过实际执行但**继续主流程**；用于 Playground UI 显示
+    /// "如果实际执行会需要 X 权限"。**严禁** 与 `.approved` 混淆（Round 1 P1-1 修订防回归）
+    case permissionWouldBeRequested(permission: Permission, uxHint: String)
+
+    /// **Round 2 B-2 修订**：Step 7 dry-run 时替代 `.sideEffectTriggered` 的事件，
+    /// 标记该 sideEffect 仅 gate 通过但**未实际执行**；不写 AuditLog（Task 9 audit 仅在真正执行时写）
+    case sideEffectSkippedDryRun(SideEffect)
 }
 ```
 
@@ -520,6 +547,10 @@ public struct InvocationReport: Sendable, Equatable {
     public let totalTokens: Int
     public let estimatedCostUSD: Decimal
 
+    /// **Round 2 B-1 修订**：执行结果（success / failed(errorKind:) / dryRunCompleted 三态）
+    /// 让 AuditLog 查询能按 errorKind 过滤；finishFailure / finishSuccess helper 通过此字段区分
+    public let outcome: InvocationOutcome
+
     public init(
         invocationId: UUID,
         toolId: String,
@@ -529,7 +560,8 @@ public struct InvocationReport: Sendable, Equatable {
         startedAt: Date,
         finishedAt: Date,
         totalTokens: Int,
-        estimatedCostUSD: Decimal
+        estimatedCostUSD: Decimal,
+        outcome: InvocationOutcome
     ) {
         self.invocationId = invocationId
         self.toolId = toolId
@@ -540,6 +572,7 @@ public struct InvocationReport: Sendable, Equatable {
         self.finishedAt = finishedAt
         self.totalTokens = totalTokens
         self.estimatedCostUSD = estimatedCostUSD
+        self.outcome = outcome
     }
 }
 
@@ -550,6 +583,26 @@ public enum InvocationFlag: String, Sendable, Codable, Equatable {
     case sandboxViolation
 }
 
+/// **Round 2 B-1 修订**：InvocationReport 的 outcome 字段类型；
+/// 区分成功 / 失败 / dry-run 完成三种终态。
+///
+/// `failed` case 携带 `errorKind: ErrorKind`——SliceError 四大类的简化映射，
+/// 让 AuditLog 按错误类型聚合查询。**不**直接携带 SliceError 因为 SliceError 关联值
+/// 多含敏感字符串、Codable / 脱敏复杂度高，errorKind 抽象层兼顾审计与隐私。
+public enum InvocationOutcome: Sendable, Codable, Equatable {
+    case success
+    case failed(errorKind: ErrorKind)
+    case dryRunCompleted
+
+    /// 错误大类（与 SliceError 四大类对齐：selection / provider / configuration / permission）
+    public enum ErrorKind: String, Sendable, Codable, Equatable {
+        case selection
+        case provider
+        case configuration
+        case permission
+    }
+}
+
 #if DEBUG
 extension InvocationReport {
     /// 单测 / Playground 用——固定 stub 值
@@ -558,7 +611,8 @@ extension InvocationReport {
         toolId: String = "test.tool",
         declared: Set<Permission> = [],
         effective: Set<Permission> = [],
-        flags: Set<InvocationFlag> = []
+        flags: Set<InvocationFlag> = [],
+        outcome: InvocationOutcome = .success
     ) -> InvocationReport {
         InvocationReport(
             invocationId: invocationId,
@@ -569,7 +623,8 @@ extension InvocationReport {
             startedAt: Date(timeIntervalSince1970: 0),
             finishedAt: Date(timeIntervalSince1970: 1),
             totalTokens: 0,
-            estimatedCostUSD: 0
+            estimatedCostUSD: 0,
+            outcome: outcome
         )
     }
 }
@@ -676,7 +731,7 @@ EOF
 **关键设计点（先记录，避免后期偏离）：**
 - `ProviderResolver` 是 protocol；默认实现 `DefaultProviderResolver` 接受 `() async throws -> V2Configuration` 闭包（不直接持有 V2ConfigurationStore，便于测试注入）
 - `resolve(_ selection: ProviderSelection) async throws -> V2Provider` 签名
-- `.fixed(providerId:)` → 在 `current().providers` 找；找不到 throw `ProviderResolutionError.notFound(providerId)`
+- `.fixed(providerId:, modelId:)` **（Round 2 B-6.1 修订：补 modelId 入参；M1 落地 `case fixed(providerId: String, modelId: String?)` SliceCore/ProviderSelection.swift:9 verified）** → 在 `current().providers` 按 providerId 找 V2Provider；找不到 throw `ProviderResolutionError.notFound(providerId)`；返回时若 selection 的 `modelId == nil`，回落 `provider.defaultModel`（V2Provider 字段，M1 已就绪）；ProviderResolver 不强制 modelId 必须在 `provider.modelIds` 列表内（v2 spec 允许用户跳出预设模型，由 PromptExecutor 调 LLM 时若 modelId 不被 provider 支持再报错）
 - `.capability(requires:)` → throw `ProviderResolutionError.notImplemented(.capabilityRouting)` (Phase 1)
 - `.cascade(rules:)` → throw `ProviderResolutionError.notImplemented(.cascadeRouting)` (Phase 5)
 - `MockProvider` Helpers 提供 `MockProvider.openAIStub` / `.anthropicStub` 便于 Engine 测试注入
@@ -717,27 +772,34 @@ EOF
 
 **完整 TDD 步骤：待第二轮展开**
 
-**关键设计点（Round 1 P1-2 修订：失败路径必须写 AuditLog；spec §3.9.7 不可绕过）：**
+**关键设计点（Round 1 P1-2 修订 + Round 2 B-1 / B-2 / B-3 / B-5 修订）：**
 
-- **统一审计**：所有 `execute(...)` 路径（成功 / 失败 / 被拒 / not-implemented）至少产生**一条** `InvocationReport` 进 `AuditLog`。引入私有 helper `finishFailure(error:invocationId:toolId:declared:effective:flags:)`：构造 InvocationReport → `await auditLog.append(...)` → 才 `yield .failed(error)` 并结束流。`finishSuccess(report:)` 同理。
+- **统一审计**（Round 1 P1-2）：所有 `execute(...)` 路径（成功 / 失败 / 被拒 / not-implemented）至少产生**一条** `AuditEntry.invocationCompleted(InvocationReport)` 进 `AuditLog`（**Round 2 B-6.3 修订**：用 enum case 而非 raw report）。
+- **finishFailure / finishSuccess helper**（**Round 2 B-1 修订**完整签名）：
+  - `finishFailure(error: SliceError, invocationId: UUID, toolId: String, declared: Set<Permission>, effective: Set<Permission>, flags: Set<InvocationFlag>, startedAt: Date)`（**B-1 新增 startedAt 入参**——失败路径需要计算耗时）→ 构造 `InvocationReport(... outcome: .failed(errorKind: .map(error)))` → `await auditLog.append(.invocationCompleted(report))` → `yield .failed(error)` → 流结束
+  - `finishSuccess(report: InvocationReport)` → `await auditLog.append(.invocationCompleted(report))` → `yield .finished(report)` → 流结束（report 由 caller 构造时 outcome = .success 或 .dryRunCompleted）
 - 成功路径（spec §3.4 Step 1–10）：
-  - Step 1：`yield .started(invocationId)`（invocationId = `UUID()` 在入口生成）
-  - Step 2：`let effective = await permissionGraph.compute(tool:)` → 如 `effective.undeclared` 非空 → **finishFailure**(`.permission(.undeclared(missing:))`)
-  - Step 2.5：`let outcome = await permissionBroker.gate(effective.union, provenance: tool.provenance, scope: .session, isDryRun: seed.isDryRun)` → `.denied(reason:)` → **finishFailure**(`.permission(.denied(reason:))`)；`.requiresUserConsent` → **finishFailure**(`.permission(.notGranted)`)（M2 测试中 MockPermissionBroker 直接 .approved，无 UI）；`.wouldRequireConsent`（dry-run 路径）→ 转换为 `.notImplemented` 事件流但不 finishFailure（因为 dry-run 是合法状态）
-  - Step 3：`let resolved = try await contextCollector.resolve(seed:requests: tool.kind.contexts)` → 必填失败 throw → catch → **finishFailure**(`.context(.required(key:underlying:))`)
-  - Step 4：`let provider = try await providerResolver.resolve(tool.kind.provider)` → 失败 → **finishFailure**(`.provider(.notFound(id:))`)
-  - Step 5：`switch tool.kind { case .prompt: ...; case .agent / .pipeline: yield .notImplemented(...) ; finishSuccess(stub) }`（M2 仅展开 .prompt 真实路径）
-  - Step 6：`for try await chunk in promptExecutor.run(tool, resolved, provider) { yield .llmChunk(delta: chunk); await output.handle(chunk: chunk, mode: tool.displayMode, invocationId:) }`
-  - Step 7：`for sideEffect in tool.outputBinding?.sideEffects ?? [] { let g = await permissionBroker.gate(sideEffect.inferredPermissions, ...) ; if seed.isDryRun { yield .sideEffectTriggered(sideEffect)（标记 dry-run skipped） } else { execute }`（**dry-run 仍 gate 但不实际执行**——P1-1 修订要求；执行细节 Phase 1 才填）
+  - Step 1：`yield .started(invocationId)`（`invocationId = UUID()` 在入口生成）；同时 `let startedAt = Date()`（后续 finishFailure / finishSuccess 都用此值）
+  - Step 2：`do { let effective = try await permissionGraph.compute(tool: tool) } catch let e as PermissionGraph.Error { ... }`（**Round 2 B-5 修订**：`try await`；catch `.unknownProvider` → `finishFailure(error: .configuration(.invalidTool(...)))`）→ 如 `effective.undeclared` 非空 → `finishFailure(.permission(.undeclared(missing:)))`
+  - Step 2.5：`let outcome = await permissionBroker.gate(effective.union, provenance: tool.provenance, scope: .session, isDryRun: seed.isDryRun)`；**实现必须用无 `default` 的 `switch outcome`** 覆盖全 4 case（**Round 2 B-3 修订**——确保未来加 case 时编译器报错而非静默漏处理）：
+    - `.approved` → 继续 Step 3
+    - `.denied(reason:)` → `finishFailure(.permission(.denied(reason:)))`
+    - `.requiresUserConsent(uxHint:)` → `finishFailure(.permission(.notGranted))`（M2 测试中 MockPermissionBroker 直接 `.approved` / `.wouldRequireConsent`，无真实 UI 触发）
+    - `.wouldRequireConsent(uxHint:)` → **Round 2 B-2 修订**：`yield .permissionWouldBeRequested(permission: ..., uxHint: ...)` 一条事件后**继续 Step 3**（dry-run 是合法终态，不 finishFailure）；后续 Step 9 finishSuccess 时 `outcome = .dryRunCompleted` + flags 含 `.dryRun`
+  - Step 3：`let resolved = try await contextCollector.resolve(seed: seed, requests: tool.kind.contexts)` → 必填失败 throw → catch → `finishFailure(.context(.required(key:underlying:)))`
+  - Step 4：`let provider = try await providerResolver.resolve(tool.kind.provider)` → 失败 → `finishFailure(.provider(.notFound(id:)))`
+  - Step 5：`switch tool.kind { case .prompt: ...; case .agent, .pipeline: yield .notImplemented(...) ; finishSuccess(stub with outcome: .success) }`（M2 仅展开 `.prompt` 真实路径；M2.5 / M2.7 的 PromptExecutor 在 Step 6 调用）
+  - Step 6：`for try await chunk in promptExecutor.run(tool, resolved, provider) { yield .llmChunk(delta: chunk); await output.handle(chunk: chunk, mode: tool.displayMode, invocationId: invocationId) }`（**Round 1 P2-3 修订**：传 `tool.displayMode` 不传 `tool.outputBinding?.primary`）
+  - Step 7（**Round 2 B-2 修订**）：`for sideEffect in tool.outputBinding?.sideEffects ?? [] { let g = await permissionBroker.gate(Set(sideEffect.inferredPermissions), provenance: tool.provenance, scope: .session, isDryRun: seed.isDryRun); switch g { case .approved: if seed.isDryRun { yield .sideEffectSkippedDryRun(sideEffect) } else { /* execute - Phase 1 才填 */; yield .sideEffectTriggered(sideEffect); await auditLog.append(.sideEffectTriggered(invocationId:, sideEffect:, executedAt: Date())) } case .denied: continue（拒绝某副作用不影响其他副作用，记 partialFailure flag）; case .requiresUserConsent: continue（M2 不弹 UI）; case .wouldRequireConsent: yield .sideEffectSkippedDryRun(sideEffect)（dry-run 时此态等价于 .approved + skip 执行，不再额外 yield permissionWouldBeRequested）}`
   - Step 8：`await costAccounting.record(...)`
-  - Step 9：构造 InvocationReport → **finishSuccess**(report) → 内部 `await auditLog.append(report)` → `yield .finished(report)`
-- **失败路径全部走 finishFailure helper**——保证 audit 永远记录；errorKind 包含 declared/effective/diff/flags 四项关键审计字段
-- 测试矩阵覆盖 5 条 prompt-kind 路径，**全部断言 `mockAuditLog.entries.count == 1`**：
-  - **happy**: 全 mock 放行 → 流式 yield delta → finished(report)；audit 1 条 `.finished`
-  - **context-fail**: required ContextRequest 失败 → audit 1 条 `.failed(.context.required)` → yield `.failed`
-  - **permission-deny**: PermissionBroker.gate 拒绝 → audit 1 条 `.failed(.permission.denied)` → yield `.failed`
-  - **permission-undeclared**: PermissionGraph 检测到 effective ⊄ declared → audit 1 条 `.failed(.permission.undeclared)` → yield `.failed`（**Round 1 P1-2 新增**）
-  - **dry-run**: seed.isDryRun=true → 仍走 LLM；副作用走 gate **但不实际执行**；report.flags 含 `.dryRun`；audit 1 条 `.finished`（with dryRun flag）（**Round 1 P1-1 修订**：明确 gate 仍跑、仅执行 skip）
+  - Step 9：构造 `InvocationReport(... outcome: seed.isDryRun ? .dryRunCompleted : .success, flags: ..., startedAt: startedAt, finishedAt: Date())` → `finishSuccess(report)`
+- **失败路径全部走 finishFailure helper**——保证 audit 永远记录；report.outcome.errorKind 提供错误大类便于查询（**Round 2 B-1 修订**）
+- 测试矩阵覆盖 5 条 prompt-kind 路径，**全部断言 `mockAuditLog.entries.count == 1` 且 entry case == `.invocationCompleted(_)`**（**Round 2 B-6.3 修订**）：
+  - **happy**: 全 mock 放行 → 流式 yield delta → finished(report)；audit 1 条 `.invocationCompleted` with outcome `.success`
+  - **context-fail**: required ContextRequest 失败 → audit 1 条 `.invocationCompleted` with outcome `.failed(.context)` → yield `.failed`
+  - **permission-deny**: PermissionBroker.gate 拒绝 → audit 1 条 `.invocationCompleted` with outcome `.failed(.permission)` → yield `.failed`
+  - **permission-undeclared**: PermissionGraph 检测到 effective ⊄ declared → audit 1 条 `.invocationCompleted` with outcome `.failed(.permission)` → yield `.failed`
+  - **dry-run（Round 2 B-2 修订）**: seed.isDryRun=true → Step 2.5 若 .wouldRequireConsent yield `.permissionWouldBeRequested`；Step 7 副作用全 yield `.sideEffectSkippedDryRun`；audit 1 条 `.invocationCompleted` with outcome `.dryRunCompleted` + flags `.dryRun`；额外断言 stream 中**不**包含 `.sideEffectTriggered` 事件（dry-run 时只能 skipped）
 - 每个测试用 OrchestrationTests/Helpers 注入完整 Mock 套件（MockPermissionBroker / MockContextCollector / MockOutputDispatcher / MockAuditLog / MockProvider 等）
 
 ---
@@ -758,9 +820,10 @@ EOF
 - `ContextCollector(providers: [String: any ContextProvider])` 按 `ContextRequest.providerId` 路由
 - `resolve(seed: ExecutionSeed, requests: [ContextRequest]) async throws -> ResolvedExecutionContext`
 - 每个 request 有独立的 `timeout: Duration`（默认 5s，由 request 自己声明）
-- 必填 `Requiredness.required` 失败 → throw `ContextCollectorError.requiredFailed(key:underlying:)`
-- 可选 `Requiredness.optional` 失败 → 进 `ResolvedExecutionContext.failures: [String: Error]`，主流程继续
-- 测试矩阵：5 个 mock provider 并发跑、其中 1 个 required 失败 vs 1 个 optional 失败、timeout 触发
+- 必填 `Requiredness.required` 失败 → throw `ContextCollectorError.requiredFailed(key: ContextKey, underlying: SliceError)`（**Round 2 B-6.2 修订**：参数类型 `ContextKey` / `SliceError` 与 M1 落地的 `ResolvedExecutionContext.failures` 类型完全对齐——SliceCore/ResolvedExecutionContext.swift:24 verified）
+- 可选 `Requiredness.optional` 失败 → 进 `ResolvedExecutionContext.failures: [ContextKey: SliceError]`（**Round 2 B-6.2 修订**：从 `[String: Error]` 改为 M1 实际类型），主流程继续
+- 非 SliceError 的底层错误（URLError / IO / Foundation 错误）由 ContextCollector 在 catch 里包装为 `SliceError.context(...)` 后再写入 failures（保持类型边界干净，调用方无需判别 underlying error 类型）
+- 测试矩阵：5 个 mock provider 并发跑、其中 1 个 required 失败 vs 1 个 optional 失败、timeout 触发；optional 失败用例显式断言 `failures[key]` 是 `SliceError` 而非裸 `Error`（编译期就由 `[ContextKey: SliceError]` 类型保证，但仍在测试里 `XCTAssertNotNil(failures[key])` + 模式匹配检查 case）
 - ContextProvider 默认实现已在 SliceCore (M1)；此处只编 Collector
 
 ---
@@ -832,7 +895,7 @@ EOF
   - **registry 缺 provider id**（tool.contexts 引用 "nonexistent.foo"，registry 没注册）→ throw `PermissionGraph.Error.unknownProvider(id: "nonexistent.foo")`（P2-2 新增）
   - 全部声明覆盖（prompt / agent / pipeline 各跑一次） → undeclared 空
   - empty tool（无 contexts / sideEffects / mcp / builtin） → effective.union 空集
-- ExecutionEngine 在 Step 2 调 `await permissionGraph.compute(tool: tool)`；如 `effective.undeclared` 非空 → 走 `finishFailure(.permission(.undeclared(missing: ...)))`（与 Task 4 P1-2 修订对齐），**不进 Step 3**；如 throw `unknownProvider` → 走 `finishFailure(.configuration(.invalidTool(...)))`
+- ExecutionEngine 在 Step 2 调 `try await permissionGraph.compute(tool: tool)` **（Round 2 B-5 修订：`try await` 不可缺，否则 async throws 编译错误）**；如 `effective.undeclared` 非空 → 走 `finishFailure(.permission(.undeclared(missing: ...)))`（与 Task 4 P1-2 修订对齐），**不进 Step 3**；如 throw `unknownProvider` → 走 `finishFailure(.configuration(.invalidTool(...)))`（caller 必须在 `do { try await compute } catch let e as PermissionGraph.Error` 块里 case 匹配 `.unknownProvider`）
 
 ---
 
@@ -868,16 +931,23 @@ EOF
 
 **完整 TDD 步骤：待第二轮展开**
 
-**关键设计点：**
-- `AuditLogProtocol`：`append(_ entry: AuditEntry) async throws` / `clear() async throws`（清空写 `.logCleared` 事件作为新文件第一条）/ `read(limit: Int) async throws -> [AuditEntry]`
-- `AuditEntry`：含 `invocationId` / `toolId` / `eventType: AuditEventType`（started / finished / failed / sideEffect / logCleared）/ `payload: [String: AuditValue]`
+**关键设计点（Round 2 B-6.3 修订：AuditEntry 改为 enum 与 Task 4 接口对齐）：**
+
+- `AuditLogProtocol`：`append(_ entry: AuditEntry) async throws` / `clear() async throws`（清空写 `.logCleared(at:)` 作为新文件第一条）/ `read(limit: Int) async throws -> [AuditEntry]`
+- **`AuditEntry` 是 enum（Round 2 B-6.3 修订）**，三 case 与 Task 4 调用对齐：
+  - `case invocationCompleted(InvocationReport)` —— 成功 / 失败 / dry-run 完成都用此 case；区分由 `report.outcome`（`.success` / `.failed(errorKind:)` / `.dryRunCompleted`）；Task 4 finishFailure / finishSuccess 都通过此 case 写入；这是绝大多数 audit 写入的 case
+  - `case sideEffectTriggered(invocationId: UUID, sideEffect: SideEffect, executedAt: Date)` —— 每个**实际执行**的副作用单独 1 条 entry（dry-run 时 ExecutionEngine yield `ExecutionEvent.sideEffectSkippedDryRun` 但**不**写 audit；Round 2 B-2 修订对齐）
+  - `case logCleared(at: Date)` —— `clear()` 调用时新文件第一条
+- `AuditEntry: Codable` 用单键 discriminator 模板（与 SliceCore 的 ToolKind / Permission 等同款手写 Codable，避免 `_0` 泄漏；模板参考 M1 plan §"Canonical JSON Schema"）
 - `Redaction.scrub(_ s: String) -> String`：API key / token / cookie / authorization 等正则匹配 → `<redacted>`；超过 200 字符截断
-- selection 原文不入 jsonl：append 前由 entry 构造方设定 `payload["selection_sha256"]` + `payload["selection_length"]`（生产者责任）；jsonl 写入层不再重复 hash
+- **scrub 在 `append(_:)` 入口统一调用**（C-8 + Round 2 B-6.3）：先按 entry case 模式匹配遍历所有 String payload（如 InvocationReport.toolId / SideEffect 关联值里的 String 字段）做 scrub；不依赖生产者主动调用——避免遗漏
+- selection 原文**永不**入 jsonl：InvocationReport struct 不带 selectionText 字段（schema 层就不允许）；只通过 `ExecutionSeed.selection` 在内存里持有，audit 层接触不到
 - 测试矩阵：
-  - 1000 条 append + read（FIFO/LIFO 验证）
-  - 触发 `Redaction.scrub`：API key 字段被 redact
-  - clear() 清空文件后第一条是 `logCleared` 事件
-  - selection 原文未泄漏（grep 测试 fixture 中"超过 200 字符的中文 paragraph"不出现在落盘文件中）
+  - 1000 条 `.invocationCompleted` 顺序 append + read（FIFO 验证：read 顺序 == append 顺序）
+  - **AuditEntry 三 case 全 round-trip（Round 2 B-6.3 新增）**：构造 `.invocationCompleted(.stub(outcome: .success))` / `.invocationCompleted(.stub(outcome: .failed(errorKind: .permission)))` / `.invocationCompleted(.stub(outcome: .dryRunCompleted))` / `.sideEffectTriggered(invocationId: UUID(), sideEffect: .copyToClipboard, executedAt: Date())` / `.logCleared(at: Date())`，全部 encode → write → read → decode 等价（含 ISO8601 Date 编解码）
+  - 触发 `Redaction.scrub`：构造 entry 含 `toolId = "tool-Bearer-sk-1234567890abcdef"` 类似的 mock API key string → 落盘文件 `XCTAssertFalse(fileContent.contains("sk-1234567890abcdef"))`
+  - `clear()` 清空文件后第一条是 `.logCleared(at:)` 事件
+  - **schema 防泄漏 sanity check**：构造 `InvocationReport.stub(toolId: "test")` 后 append → 通过 `Mirror(reflecting: report).children` 反射断言无 `selectionText` / `selection_text` / `original_text` 等字段名，作为 schema 层防回归
 
 ---
 
@@ -900,7 +970,11 @@ EOF
 - `.window` 分支：把 chunk 投递到 `WindowSinkProtocol`（M2 测试用 `InMemoryWindowSink` 收集，生产路径 M3 才接入 ResultPanel）
 - `.bubble` / `.replace` / `.file` / `.silent` / `.structured` 一律返回 `.notImplemented(reason: "...")`，让 ExecutionEngine 把这条事件转发为 `.notImplemented` ExecutionEvent
 - **OutputBinding.sideEffects 处理路径**：仍由 ExecutionEngine Step 7 直接读 `tool.outputBinding?.sideEffects`，与 `tool.displayMode` **完全解耦**——sideEffect 与 displayMode 是正交维度，不依赖 outputBinding.primary 这个冗余字段
-- 测试矩阵补一条断言：构造 V2Tool 让 `displayMode != outputBinding.primary`（理论上 V2Tool decoder 会拒绝，但单测可绕过 decoder 直接构造）→ OutputDispatcher 仍按 displayMode 派发，验证不会读 outputBinding.primary
+- 测试矩阵：
+  - **`.window` 模式 chunk 顺序与计数（Round 2 B-4 修订）**：driver 推 3 个 chunk `["a", "b", "c"]` → 断言 `InMemoryWindowSink.received == ["a", "b", "c"]`（数量 3 + 顺序一致；用 Array == 而非 Set 比较）
+  - **非 .window 模式只 yield 一次 .notImplemented ExecutionEvent（Round 2 B-4 修订）**：ExecutionEngine 内部用 `var notImplementedYielded = false` 守卫；driver 推 5 chunks 给 `.bubble` 模式 → OutputDispatcher 被调用 5 次（每次都返回 `.notImplemented`），但 ExecutionEvent stream 只含 1 条 `.notImplemented`；断言 `events.filter { if case .notImplemented = $0 { true } else { false } }.count == 1`
+  - **OutputDispatcher 调用次数验证（Round 2 B-4 修订）**：MockOutputDispatcher 用 actor 计数 `var handleCallCount = 0`；上面"非 .window 5 chunks"用例同时断言 `await mockOutput.handleCallCount == 5`（验证非 .window 模式仍逐 chunk 调用，只是不重复 yield 事件）
+  - 构造 V2Tool 让 `displayMode != outputBinding.primary`（理论上 V2Tool decoder 会拒绝，但单测可绕过 decoder 直接构造）→ OutputDispatcher 仍按 displayMode 派发，验证不会读 outputBinding.primary
 
 ---
 
@@ -937,15 +1011,17 @@ EOF
 
 **完整 TDD 步骤：待第二轮展开**
 
-**关键设计点：**
-- `PathSandbox.normalize(_ raw: String, role: AccessRole) throws -> URL`：先 `URL(fileURLWithPath:).standardizedFileURL`，再判断
+**关键设计点（Round 2 B-6.4 修订：Foundation API 真实语义对齐）：**
+
+- `PathSandbox.normalize(_ raw: String, role: AccessRole) throws -> URL`：实现链 `URL(fileURLWithPath: raw).resolvingSymlinksInPath().standardizedFileURL`（**Round 2 B-6.4 修订**：spec §3.9.3:989 措辞 "URL(fileURLWithPath:).standardizedFileURL 消除 .. / symlink" 与 Foundation API 实际行为不符——`standardizedFileURL` **只**消除 `..` 与重复 `/`，**不** resolve symlink；必须先 `resolvingSymlinksInPath()` 后 `standardizedFileURL`，顺序不可换。spec 修订留下一轮 spec 评审）
 - 默认白名单：`~/Documents` `~/Desktop` `~/Downloads` `~/Library/Application Support/SliceAI/**`
 - 硬禁止前缀（永远拒绝，无视用户配置）：`~/Library/Keychains/**` `~/.ssh/**` `~/Library/Cookies/**` `/etc/**` `/var/db/**` `/Library/Keychains/**`
 - 用户附加白名单 = `[String]`，构造时注入；M2 仅静态默认值（用户配置加白名单是 Phase 1 Settings UX）
 - `AccessRole` enum：`.read` / `.write`（write 只允许 `~/Library/Application Support/SliceAI/**` + 用户附加）
-- 测试矩阵：
+- 测试矩阵（**Round 2 B-6.4 补 symlink 攻击用例**）：
   - `..` traversal: `~/Documents/../Library/Keychains/foo` → throw `.escapesWhitelist`
-  - symlink resolved before check
+  - **symlink 攻击（Round 2 B-6.4 新增）**：测试用 `FileManager.default.createSymbolicLink(at:withDestinationURL:)` 在临时白名单目录（如 `~/Documents/test-sandbox-\(UUID()).link`）下建一个指向硬禁止前缀（如 `~/Library/Keychains`）的 symlink → `normalize(...)` 应 throw `.escapesWhitelist`（因为 `resolvingSymlinksInPath()` 会展开 symlink 后变成硬禁止前缀，被 prefix 检查拦下）；测试 tearDown 删除 symlink
+  - **symlink resolved 顺序 sanity（Round 2 B-6.4 新增）**：构造一个 symlink 指向白名单内合法路径 → `normalize(...)` 应返回展开后的真实路径而非 symlink 路径本身（验证 resolvingSymlinksInPath 真生效）
   - 硬禁止前缀直接拒绝（即便加进 user allowlist 也拒绝）
 
 ---
