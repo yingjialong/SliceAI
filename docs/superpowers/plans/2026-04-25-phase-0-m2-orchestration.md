@@ -308,6 +308,31 @@ SliceAIKit/Tests/CapabilitiesTests/
 
 **预期**：Round 12（如果还需）只验证完整代码块的逐行 Swift 6 编译合规；P1 应趋零或仅文档体例级 P3。
 
+#### Round 12（2026-04-26，Round 11 根本性重写后）
+
+**Verdict**: REWORK_REQUIRED（4 P1，全是 R11 重写时**没做 plan-wide audit 的遗漏**）→ 用户"从根本上修复"指示在 R11 落实不彻底——R11 写完整代码块时只看了 plan 内描述，没回头 verify M1 实际类型 / Task 3 与 Task 4 依赖列表一致性 / 各 protocol 完整定义；本轮做 plan-wide audit。
+
+| Finding | 问题 | 修复落地 |
+|---|---|---|
+| **R12-P1.1** tool.permissions 类型冲突 | M1 V2Tool.permissions 是 `[Permission]` 数组（`SliceCore/V2Tool.swift:28` verified），但 finishFailure / makeReport 入参 `declared: Set<Permission>`；plan Task 4 完整代码块 10+ 处直接传 `tool.permissions` 类型不匹配 | Task 4 完整代码块所有 `declared: tool.permissions` 改为 `declared: Set(tool.permissions)`（用 replace_all 批量改 10+ 处） |
+| **R12-P1.2** ExecutionEngine init 8 vs 10 依赖冲突 | Task 3 关键设计点写"init 接受 8 个依赖"，但 Task 4 完整代码块 init 加了 `permissionGraph` + `promptExecutor` 共 10 个；Task 3 / Task 4 内部不一致 | Task 3 关键设计点改为"init 接受 10 个依赖"（含 permissionGraph + promptExecutor）；与 Task 4 + §C-10.1 audit 表一致 |
+| **R12-P1.3** ProviderResolutionError 仅引用未定义 | Task 2 引用 `.notFound(let id)` / `.notImplemented(.capabilityRouting)` 等 case，但未给完整 `enum ProviderResolutionError { ... }` Swift 代码块；实施者照抄会编译失败 | Task 2 关键设计点新增完整 enum 定义代码块（`case notFound(providerId: String)` / `case notImplemented(NotImplementedReason)` + `enum NotImplementedReason`） |
+| **R12-P1.4** ExecutionEngine 缺 import Capabilities | Task 4 完整代码块顶部仅 `import Foundation` / `import SliceCore`，但代码引用 `MCPClientProtocol` / `SkillRegistryProtocol`（在 Capabilities module）→ 编译失败 | Task 4 顶部加 `import Capabilities`；同时 §C-10.1 audit 表的 PermissionBrokerProtocol.gate 签名（line 416）与 Task 6 line 1637 throws 不一致——本轮统一为 `async -> GateOutcome`（non-throwing；与 R5-P1.5 + GateOutcome 4 态表达决策的设计一致） |
+
+**额外 plan-wide audit 修订**（防御性扫描发现）：
+- **§C-10.1 audit 表补 3 行**：ContextProviderRegistry（Codex 评审说漏列）/ ProviderResolutionError / MCPClientError——这些类型 plan 多处引用但未在 audit 表中列出，本轮补齐
+- **Task 6 PermissionBrokerProtocol.gate**：从 `async throws` → `async`（与 §C-10.1 + R5-P1.5 / R7-P1.1 修订一致；GateOutcome 已经用 4 态表达拒绝，不需要再 throw）
+- **Task 2 ProviderResolutionError.notFound 关联值**：从 `.notFound(providerId)` 改为 `.notFound(providerId: providerId)`（命名参数；与 enum 定义一致）
+
+**未做修订**：无。Round 12 全部 4 P1 + 3 plan-wide audit 修订接受落地。
+
+**关键自检承诺**（避免 R13 又 R12 自引入）：本轮修订完毕跑 plan-wide grep 验证：
+- grep `declared: tool.permissions` 不带 `Set(...)` → 0
+- grep `init 接受 8 个依赖` → 仅历史表残留
+- grep `ProviderResolutionError\.\(notFound\|notImplemented\)` 在 Task 2 / Task 4 一致使用
+- grep `import Capabilities` 在 Task 4 ExecutionEngine 代码块顶部存在
+- grep `gate.*async throws` → 仅历史表残留（line 1637 已改）
+
 修订后 verify：grep `indirect enum ContextError\|indirect case requiredFailed` 至少 1 处 / grep `public struct InvocationReport.*Codable` 1 处 / grep `\[String: any ContextProvider\]` 实例不带 `.Type` 至少 2 处 / grep `permission: Permission, reason\|permission: Permission, uxHint` GateOutcome 签名一致 / grep `usd TEXT NOT NULL` 1 处 / grep `catch SliceError\.` 不带 `let` 前缀至少 3 处 / grep `catch let SliceError\.` 已无残留。
 
 ---
@@ -423,6 +448,9 @@ Settings → Privacy 的 "记录选区原文" opt-in 由 Phase 2 实现，M2 阶
 | `MCPClientProtocol` | Capabilities/MCP/MCPClientProtocol.swift | `protocol: Sendable` | `func tools(for: MCPDescriptor) async throws -> [MCPToolRef]` / `func call(ref: MCPToolRef, args: [String: String]) async throws -> MCPCallResult` | Task 13 |
 | `SkillRegistryProtocol` | Capabilities/Skills/SkillRegistryProtocol.swift | `protocol: Sendable` | `func findSkill(id: String) async throws -> Skill?` / `func allSkills() async throws -> [Skill]` | Task 13 |
 | `KeychainAccessing` | SliceCore（M1 已就绪） | `protocol: Sendable` | M1 既有签名（PromptExecutor 内部使用） | — |
+| `ContextProviderRegistry` | Orchestration/Context/ContextCollector.swift（同文件 struct） | `Sendable struct` | `public struct ContextProviderRegistry: Sendable { let providers: [String: any ContextProvider] }`（**Round 12 修订**：之前从 §C-10.1 漏列；ContextCollector 与 PermissionGraph 共享同一 registry 实例） | Task 5（创建）/ Task 7（消费） |
+| `ProviderResolutionError` | Orchestration/Engine/ProviderResolutionError.swift | `enum: Error, Sendable, Equatable` | `case notFound(providerId: String)` / `case notImplemented(NotImplementedReason)`；`enum NotImplementedReason: String { case capabilityRouting; case cascadeRouting }` | Task 2 |
+| `MCPClientError` | Capabilities/MCP/MCPClientProtocol.swift（同文件） | `enum: Error, Sendable, Equatable` | `case toolNotFound(ref: MCPToolRef)` / `case transportFailed(reason: String)` / `case decodingFailed(reason: String)` | Task 13 |
 
 #### C-10.2 Swift 6 strict concurrency 调用规则（plan 中所有跨 actor 调用必须满足）
 
@@ -1140,9 +1168,27 @@ EOF
 **关键设计点（先记录，避免后期偏离）：**
 - `ProviderResolver` 是 protocol；默认实现 `DefaultProviderResolver` 接受 `() async throws -> V2Configuration` 闭包（不直接持有 V2ConfigurationStore，便于测试注入）
 - `resolve(_ selection: ProviderSelection) async throws -> V2Provider` 签名
-- `.fixed(providerId:, modelId:)` **（Round 2 B-6.1 修订：补 modelId 入参；M1 落地 `case fixed(providerId: String, modelId: String?)` SliceCore/ProviderSelection.swift:9 verified）** → 在 `current().providers` 按 providerId 找 V2Provider；找不到 throw `ProviderResolutionError.notFound(providerId)`；返回时若 selection 的 `modelId == nil`，回落 `provider.defaultModel`（V2Provider 字段，M1 已就绪）；ProviderResolver 不强制 modelId 必须在 `provider.modelIds` 列表内（v2 spec 允许用户跳出预设模型，由 PromptExecutor 调 LLM 时若 modelId 不被 provider 支持再报错）
+- `.fixed(providerId:, modelId:)` **（Round 2 B-6.1 修订：补 modelId 入参；M1 落地 `case fixed(providerId: String, modelId: String?)` SliceCore/ProviderSelection.swift:9 verified）** → 在 `current().providers` 按 providerId 找 V2Provider；找不到 throw `ProviderResolutionError.notFound(providerId: providerId)`；返回时若 selection 的 `modelId == nil`，回落 `provider.defaultModel`（V2Provider 字段，M1 已就绪）；ProviderResolver 不强制 modelId 必须在 `provider.modelIds` 列表内（v2 spec 允许用户跳出预设模型，由 PromptExecutor 调 LLM 时若 modelId 不被 provider 支持再报错）
 - `.capability(requires:)` → throw `ProviderResolutionError.notImplemented(.capabilityRouting)` (Phase 1)
 - `.cascade(rules:)` → throw `ProviderResolutionError.notImplemented(.cascadeRouting)` (Phase 5)
+- **`ProviderResolutionError` 完整定义**（**Round 12 R12-P1.3 修订**：之前仅 case 引用未给完整 enum 代码块；放在 `Orchestration/Engine/ProviderResolutionError.swift`）：
+  ```swift
+  import Foundation
+
+  /// ProviderResolver 解析 ProviderSelection 失败时抛出
+  public enum ProviderResolutionError: Error, Sendable, Equatable {
+      /// .fixed 形态找不到对应 V2Provider id（与 SliceError.configuration(.referencedProviderMissing) 语义平行；
+      /// ExecutionEngine 在 Step 4 catch 此错误后 wrap 为 SliceError.configuration(.referencedProviderMissing(id))）
+      case notFound(providerId: String)
+      /// .capability / .cascade 形态在 M2 范围未实现
+      case notImplemented(NotImplementedReason)
+
+      public enum NotImplementedReason: String, Sendable, Codable {
+          case capabilityRouting   // Phase 1 实现
+          case cascadeRouting      // Phase 5 实现
+      }
+  }
+  ```
 - `MockProvider` Helpers 提供 `MockProvider.openAIStub` / `.anthropicStub` 便于 Engine 测试注入
 
 ---
@@ -1165,7 +1211,7 @@ EOF
 
 **关键设计点：**
 - `ExecutionEngine` 是 `actor`（满足 spec §3.4 + Swift 6 strict concurrency）
-- init 接受 **8 个依赖**（与 spec §3.4 完全对齐）：`contextCollector` / `permissionBroker` / `providerResolver` / `mcpClient` / `skillRegistry` / `costAccounting` / `auditLog` / `output` —— M2 阶段全部接受 protocol，便于测试注入 Mock
+- init 接受 **10 个依赖**（**Round 12 R12-P1.2 修订**：之前 R1-P3.1 修订写"8 个"，但 R11 完整代码块 init 加了 `permissionGraph` + `promptExecutor` 共 10 个——`contextCollector` / `permissionBroker` / `permissionGraph` / `providerResolver` / `promptExecutor` / `mcpClient` / `skillRegistry` / `costAccounting` / `auditLog` / `output`，全部按 §C-10.1 audit 表的 isolation 类型；M2 阶段除 PermissionGraph / PromptExecutor / CostAccounting / ContextCollector 是 actor 外，其他都是 protocol，便于测试注入 Mock
 - `execute(tool:seed:)` 返回 `AsyncThrowingStream<ExecutionEvent, Error>`；本 Task 内部只 yield `.started` + `.notImplemented` + `.finished(stub)` 三件事，让 ExecutionEngineTests 能验证流框架
 - 主流程的 Step 2 / Step 2.5 / Step 3 / Step 4 / Step 5 在 Task 4 / 6 / 7 才接入
 
@@ -1192,6 +1238,7 @@ EOF
 ```swift
 import Foundation
 import SliceCore
+import Capabilities  // Round 12 R12-P1.4 修订：MCPClientProtocol / SkillRegistryProtocol / MCPCallResult / MCPClientError 在 Capabilities module
 
 public actor ExecutionEngine {
     private let contextCollector: ContextCollector
@@ -1265,7 +1312,7 @@ public actor ExecutionEngine {
             await finishFailure(
                 error: .configuration(.invalidTool(id: id, reason: "context provider not registered")),
                 invocationId: invocationId, toolId: tool.id,
-                declared: tool.permissions, effective: [], flags: [],
+                declared: Set(tool.permissions), effective: [], flags: [],
                 startedAt: startedAt, continuation: continuation
             )
             return
@@ -1273,7 +1320,7 @@ public actor ExecutionEngine {
             await finishFailure(
                 error: .configuration(.validationFailed("PermissionGraph error")),
                 invocationId: invocationId, toolId: tool.id,
-                declared: tool.permissions, effective: [], flags: [],
+                declared: Set(tool.permissions), effective: [], flags: [],
                 startedAt: startedAt, continuation: continuation
             )
             return
@@ -1283,7 +1330,7 @@ public actor ExecutionEngine {
             await finishFailure(
                 error: .toolPermission(.undeclared(missing: effective.undeclared)),
                 invocationId: invocationId, toolId: tool.id,
-                declared: tool.permissions, effective: effective.union, flags: [],
+                declared: Set(tool.permissions), effective: effective.union, flags: [],
                 startedAt: startedAt, continuation: continuation
             )
             return
@@ -1303,7 +1350,7 @@ public actor ExecutionEngine {
             await finishFailure(
                 error: .toolPermission(.denied(permission: permission, reason: reason)),
                 invocationId: invocationId, toolId: tool.id,
-                declared: tool.permissions, effective: effective.union, flags: [],
+                declared: Set(tool.permissions), effective: effective.union, flags: [],
                 startedAt: startedAt, continuation: continuation
             )
             return
@@ -1311,7 +1358,7 @@ public actor ExecutionEngine {
             await finishFailure(
                 error: .toolPermission(.notGranted(permission: permission)),
                 invocationId: invocationId, toolId: tool.id,
-                declared: tool.permissions, effective: effective.union, flags: [],
+                declared: Set(tool.permissions), effective: effective.union, flags: [],
                 startedAt: startedAt, continuation: continuation
             )
             return
@@ -1338,7 +1385,7 @@ public actor ExecutionEngine {
             await finishFailure(
                 error: .context(.requiredFailed(key: key, underlying: underlying)),
                 invocationId: invocationId, toolId: tool.id,
-                declared: tool.permissions, effective: effective.union, flags: [],
+                declared: Set(tool.permissions), effective: effective.union, flags: [],
                 startedAt: startedAt, continuation: continuation
             )
             return
@@ -1349,7 +1396,7 @@ public actor ExecutionEngine {
                     underlying: .configuration(.validationFailed("ContextCollector error"))
                 )),
                 invocationId: invocationId, toolId: tool.id,
-                declared: tool.permissions, effective: effective.union, flags: [],
+                declared: Set(tool.permissions), effective: effective.union, flags: [],
                 startedAt: startedAt, continuation: continuation
             )
             return
@@ -1371,7 +1418,7 @@ public actor ExecutionEngine {
             await finishFailure(
                 error: .configuration(.referencedProviderMissing(id)),
                 invocationId: invocationId, toolId: tool.id,
-                declared: tool.permissions, effective: effective.union, flags: [],
+                declared: Set(tool.permissions), effective: effective.union, flags: [],
                 startedAt: startedAt, continuation: continuation
             )
             return
@@ -1379,7 +1426,7 @@ public actor ExecutionEngine {
             await finishFailure(
                 error: .configuration(.validationFailed("ProviderResolver error")),
                 invocationId: invocationId, toolId: tool.id,
-                declared: tool.permissions, effective: effective.union, flags: [],
+                declared: Set(tool.permissions), effective: effective.union, flags: [],
                 startedAt: startedAt, continuation: continuation
             )
             return
@@ -1394,7 +1441,7 @@ public actor ExecutionEngine {
             continuation.yield(.notImplemented(reason: "ToolKind not supported in M2 (Phase 1+ for .agent / Phase 5+ for .pipeline)"))
             let stub = makeReport(
                 invocationId: invocationId, toolId: tool.id,
-                declared: tool.permissions, effective: effective.union,
+                declared: Set(tool.permissions), effective: effective.union,
                 flags: [],
                 startedAt: startedAt, finishedAt: Date(),
                 tokens: 0, costUSD: 0,
@@ -1436,7 +1483,7 @@ public actor ExecutionEngine {
             await finishFailure(
                 error: error,
                 invocationId: invocationId, toolId: tool.id,
-                declared: tool.permissions, effective: effective.union, flags: [],
+                declared: Set(tool.permissions), effective: effective.union, flags: [],
                 startedAt: startedAt, continuation: continuation
             )
             return
@@ -1444,7 +1491,7 @@ public actor ExecutionEngine {
             await finishFailure(
                 error: .provider(.invalidResponse("PromptExecutor stream failed (non-SliceError)")),
                 invocationId: invocationId, toolId: tool.id,
-                declared: tool.permissions, effective: effective.union, flags: [],
+                declared: Set(tool.permissions), effective: effective.union, flags: [],
                 startedAt: startedAt, continuation: continuation
             )
             return
@@ -1498,7 +1545,7 @@ public actor ExecutionEngine {
         if partialFailure { flags.insert(.partialFailure) }
         let report = makeReport(
             invocationId: invocationId, toolId: tool.id,
-            declared: tool.permissions, effective: effective.union,
+            declared: Set(tool.permissions), effective: effective.union,
             flags: flags,
             startedAt: startedAt, finishedAt: Date(),
             tokens: promptUsage.inputTokens + promptUsage.outputTokens,
@@ -1634,7 +1681,7 @@ public actor ExecutionEngine {
 
 **关键设计点（Round 1 P1-1 + P2-1 修订）：**
 
-- `PermissionBrokerProtocol.gate(effective: Set<Permission>, provenance: Provenance, scope: GrantScope, isDryRun: Bool) async throws -> GateOutcome`
+- `PermissionBrokerProtocol.gate(effective: Set<Permission>, provenance: Provenance, scope: GrantScope, isDryRun: Bool) async -> GateOutcome` （**Round 12 R12-P1.4 修订**：non-throwing，与 §C-10.1 audit 表一致；用 GateOutcome 4 态表达决策结果而非抛错；调用方只 `await`，不需 `try`）
 - `GateOutcome` 现为 **4 态**（**Round 5 R5-P1.5 修订**：`.denied` / `.requiresUserConsent` / `.wouldRequireConsent` 三态都补上 `permission: Permission` 关联值——之前消费端用 `.denied(let permission, let reason)` / `.wouldRequireConsent(let permission, let uxHint)` 但定义端缺 permission 参数，签名不一致）：
   - `.approved`：通过（已有 grant 或 tier 不需要确认）
   - `.denied(permission: Permission, reason: String)`：拒绝某具体 permission（**R5-P1.5 补 permission 参数**）；用户曾经显式拒绝过 / 黑名单等
