@@ -333,6 +333,26 @@ SliceAIKit/Tests/CapabilitiesTests/
 - grep `import Capabilities` 在 Task 4 ExecutionEngine 代码块顶部存在
 - grep `gate.*async throws` → 仅历史表残留（line 1637 已改）
 
+#### Round 13（2026-04-26，Round 12 修订后）
+
+**Verdict**: REWORK_REQUIRED（1 R12 漏修 + 3 新 P1）→ Codex 给出**关键现实主义判断**："建议本轮直接点修、不再做 full-pass audit。修完后立即进入实施，用 `swift build` 在每个 Task 完成后做真实编译验证——这比继续迭代 plan 文档更高效。"
+
+| Finding | 问题 | 修复落地 |
+|---|---|---|
+| **R12 漏修** catch unlabeled | catch `ProviderResolutionError.notFound(let id)` 没用命名参数 providerId | line 1417 改为 `catch ProviderResolutionError.notFound(let providerId)` |
+| **R13-P1-NEW-1** Package.swift Capabilities 依赖缺失 | R11 加 `import Capabilities` 但 Package.swift Modify 描述未给 `Orchestration` target 加 `Capabilities` 依赖；SPM target 隔离下编译失败 | Task 1 Package.swift Modify 描述：`Orchestration` target deps 加 `Capabilities`；OrchestrationTests testTarget deps 同样加 |
+| **R13-P1-NEW-2** ProviderResolver vs ProviderResolverProtocol 命名 | §C-10.1 / Task 4 用 `ProviderResolverProtocol`，Task 2 字面写 `ProviderResolver`；ExecutionEngine 引用未定义类型 | Task 2 关键设计点改为 `ProviderResolverProtocol`，`DefaultProviderResolver: ProviderResolverProtocol` |
+| **R13-P1-NEW-3** Task 11 try promptExecutor.run 多余 | run 是 actor non-throwing 同步返回 stream；`try promptExecutor.run(...)` 编译错（"no calls to throwing functions occur within 'try' expression"） | Task 11 line 1903 改为 `await promptExecutor.run(...)` 取 stream + 注释说明 throws 在 `for try await element in stream` 处捕获 |
+
+**Codex 工程现实主义建议**（原文摘录）：
+> "这三个 P1 都是**一行或几行精准修改**（不是大段重写），建议本轮直接点修、不再做 full-pass audit。**修完后立即进入实施**，用 `swift build` 在每个 Task 完成后做真实编译验证——这比继续迭代 plan 文档更高效。"
+
+**用户与 Codex 一致信号**：
+- 用户 R11 反馈："plan 里面应该把问题都暴露出来并且有解决方案"
+- Codex R10/R11/R12/R13 累积建议：plan 文档评审已边际收益递减；实施期 swift build 是更高效验证
+
+**未做修订**：无。Round 13 全部 4 项接受落地。**plan 评审至此应停止——下一步是 sync 用户进入 Task 2-13 实施期**（Codex 自身建议 + 13 轮迭代后剩余问题在实施期 swift build 立即暴露）。
+
 修订后 verify：grep `indirect enum ContextError\|indirect case requiredFailed` 至少 1 处 / grep `public struct InvocationReport.*Codable` 1 处 / grep `\[String: any ContextProvider\]` 实例不带 `.Type` 至少 2 处 / grep `permission: Permission, reason\|permission: Permission, uxHint` GateOutcome 签名一致 / grep `usd TEXT NOT NULL` 1 处 / grep `catch SliceError\.` 不带 `let` 前缀至少 3 处 / grep `catch let SliceError\.` 已无残留。
 
 ---
@@ -631,7 +651,7 @@ public enum ToolPermissionError: Error, Sendable, Equatable {
 
 | 类型 | 路径 | 责任 | Task |
 |---|---|---|---|
-| Modify | `SliceAIKit/Package.swift` | 移除 placeholder testTarget 行（如有），新增 OrchestrationTests / CapabilitiesTests 真正的 testTarget 依赖 | Task 1 |
+| Modify | `SliceAIKit/Package.swift` | 移除 placeholder testTarget 行（如有），新增 OrchestrationTests / CapabilitiesTests 真正的 testTarget 依赖；**Round 13 P1-NEW-1 修订**：给 `Orchestration` library target 加 `Capabilities` 依赖（`.target(name: "Orchestration", dependencies: ["SliceCore", "Capabilities"])`），让 ExecutionEngine `import Capabilities` 在 SPM target 隔离下能编译；同时 OrchestrationTests testTarget 也加 `Capabilities` 依赖（Mock 类型需要） | Task 1 |
 | **Modify** | `SliceAIKit/Sources/SliceCore/SliceError.swift` | **Round 4 修订（C-1 放宽）+ Round 5 R5-P1.1 + Round 7 R7-P2.1 完整化**：纯增 case 表达 v2 ExecutionEngine 失败语义。具体追加：(a) `SliceError.context(ContextError)` 顶层 case + `SliceError.toolPermission(ToolPermissionError)` 顶层 case；(b) `ConfigurationError.invalidTool(id: String, reason: String)` case；(c) **既有 SliceError.userMessage / developerContext exhaustive switch 补 .context / .toolPermission 两 case 分支**。**完整 Swift 代码块见下方 §"SliceCore 纯增完整 Swift 代码块（R7-P2.1）"**。**严禁** 修改既有 4 顶层 case + 13 子 case 的任何字段 / 名字 / 顺序；只追加 case + 在既有 switch 加分支 | Task 4（实施）|
 | **Create** | `SliceAIKit/Sources/SliceCore/ContextError.swift` | **Round 4 新增 + Round 5 R5-P1.1 修订**：`public indirect enum ContextError: Error, Sendable, Equatable { case requiredFailed(key: ContextKey, underlying: SliceError); case providerNotFound(id: String); case timeout(key: ContextKey) }` —— v2 上下文采集失败语义；**关键字 `indirect`**（**Round 5 R5-P1.1**）：因为 SliceError → ContextError → SliceError 是直接递归（非 case 间接递归），必须在 enum 声明加 `indirect` 才能编译。Equatable / Sendable 自动合成对 indirect enum 仍可用。`underlying: SliceError` 也可改用 `indirect case requiredFailed(...)` 单 case indirect（更精细），但整体 indirect 更简单——M2 选择整体 indirect | Task 5（同 ContextCollector 一并落地） |
 | **Create** | `SliceAIKit/Sources/SliceCore/ToolPermissionError.swift` | **Round 4 新增**：`public enum ToolPermissionError: Error, Sendable, Equatable { case undeclared(missing: Set<Permission>); case denied(permission: Permission, reason: String); case notGranted(permission: Permission); case unknownProvider(id: String); case sandboxViolation(path: String) }` —— v2 工具权限决策错误，与 SliceCore.PermissionError（系统权限）独立共存 | Task 7（同 PermissionGraph 一并落地）；**取代 Round 3 的 PermissionDecisionError**（不再独立创建，因为 SliceError.toolPermission 是更 clean 的封装路径）|
@@ -1166,7 +1186,7 @@ EOF
 **完整 TDD 步骤：待第二轮展开**
 
 **关键设计点（先记录，避免后期偏离）：**
-- `ProviderResolver` 是 protocol；默认实现 `DefaultProviderResolver` 接受 `() async throws -> V2Configuration` 闭包（不直接持有 V2ConfigurationStore，便于测试注入）
+- **`ProviderResolverProtocol` 是 protocol**（**Round 13 P1-NEW-2 修订**：协议命名加 Protocol 后缀，与 §C-10.1 audit 表 `ProviderResolverProtocol` + ExecutionEngine 代码块 `any ProviderResolverProtocol` 对齐；早期写 `ProviderResolver` 是 R11 §C-10 引入新名时未同步 Task 2）；默认实现 `DefaultProviderResolver: ProviderResolverProtocol` 接受 `() async throws -> V2Configuration` 闭包（不直接持有 V2ConfigurationStore，便于测试注入）
 - `resolve(_ selection: ProviderSelection) async throws -> V2Provider` 签名
 - `.fixed(providerId:, modelId:)` **（Round 2 B-6.1 修订：补 modelId 入参；M1 落地 `case fixed(providerId: String, modelId: String?)` SliceCore/ProviderSelection.swift:9 verified）** → 在 `current().providers` 按 providerId 找 V2Provider；找不到 throw `ProviderResolutionError.notFound(providerId: providerId)`；返回时若 selection 的 `modelId == nil`，回落 `provider.defaultModel`（V2Provider 字段，M1 已就绪）；ProviderResolver 不强制 modelId 必须在 `provider.modelIds` 列表内（v2 spec 允许用户跳出预设模型，由 PromptExecutor 调 LLM 时若 modelId 不被 provider 支持再报错）
 - `.capability(requires:)` → throw `ProviderResolutionError.notImplemented(.capabilityRouting)` (Phase 1)
@@ -1414,7 +1434,7 @@ public actor ExecutionEngine {
         let provider: V2Provider
         do {
             provider = try await providerResolver.resolve(providerSelection)
-        } catch ProviderResolutionError.notFound(let id) {
+        } catch ProviderResolutionError.notFound(let providerId) {  // R13 R12 漏修：用命名参数 providerId 与 enum 定义对齐
             await finishFailure(
                 error: .configuration(.referencedProviderMissing(id)),
                 invocationId: invocationId, toolId: tool.id,
@@ -1900,7 +1920,7 @@ public actor ExecutionEngine {
       )
   }
   ```
-- ExecutionEngine Step 5 调 `try promptExecutor.run(...)` 时 catch `SliceError.configuration(.validationFailed)` → 走 finishFailure 路径（与 Task 4 失败路径处理一致）
+- ExecutionEngine Step 6 调 `await promptExecutor.run(...)` 取 stream（**Round 13 P1-NEW-3 修订**：`promptExecutor.run` 是 actor non-throwing 同步返回 stream 的方法——跨 actor 取 stream 仅需 `await`，**不需 `try`**；throws 在 `for try await element in stream` 处捕获）；如果 PromptExecutor 内部 `toV1Provider` throw 了 SliceError.configuration(.validationFailed)，会在 stream 第一次 `next()` 时抛出，被 Task 4 Step 6 的 `for try await` + outer catch 走 finishFailure 路径（与 Task 4 失败路径处理一致）
 - **不**修改 LLMProviderFactory（zero-touch）；M3 删 ToolExecutor 时一并把 LLMProviderFactory 升级为接 V2Provider，删除此适配 helper
 - 接受 `tool.kind == .prompt` 形态；其他 kind 在 ExecutionEngine Step 5 已经 dispatch 走 .notImplemented 路径，PromptExecutor.run 不需要防御
 - 渲染 prompt 时使用 `PromptTool.systemPrompt` / `userPrompt` / `variables` / `contexts`（resolved.contexts），**不**走 v1 Tool 扁平字段
