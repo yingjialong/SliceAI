@@ -269,6 +269,24 @@ SliceAIKit/Tests/CapabilitiesTests/
 
 **预期**：Round 10 verdict = APPROVED ⭐⭐——这是 plan 9 轮迭代后的真实收敛点。如 R10 仍 REWORK_REQUIRED 且引入新 P1，构成"R8/R9 连续两轮自引入 P1"模式 → 触发 stop & sync 让用户判断是否 plan 进入"完美主义 vs 实施"的取舍点。
 
+#### Round 10（2026-04-25，Round 9 修订后）
+
+**Verdict**: REWORK_REQUIRED（2 P1 + 1 P2，**全部 R9 修订自引入 + 范围极小**）；**Codex 明确说"这不是完美主义循环，修复范围非常小"+"不建议接受现状（直接修编译错误成本更低）"**——给出非常清晰的"真正最后一公里"信号。
+
+| Finding | 问题 | 修复落地 |
+|---|---|---|
+| **R10-P1-1** OutputDispatcherProtocol.handle 调用缺 try | R9 修订加 DispatchOutcome 处理时漏写 try——M2 plan Task 10 定义 `handle(...) async throws -> DispatchOutcome`（throws 方法必须 try await），调用写 `await output.handle(...)` 编译失败 | Step 6 改为 `let outcome = try await output.handle(...)`；沿用现有 catch 块（catch 已经覆盖 SliceError + 非 SliceError） |
+| **R10-P1-2** @Sendable onCompletion 捕获可变局部变量 | R9 修订加 `onCompletion: @escaping @Sendable (UsageStats) -> Void` 回调写入 `var promptUsage`，但 Swift 6 StrictConcurrency=complete 不允许 @Sendable 闭包捕获并修改 caller 的可变局部 var | PromptExecutor.run 流元素改为 `PromptStreamElement` 枚举（`.chunk(String)` / `.completed(UsageStats)`）；ExecutionEngine 通过 switch element 顶层消费 → promptUsage 是 actor 内 local var 写入，无跨 task 边界，Swift 6 通过 |
+| **R10-P2-1** SliceCore 代码块 placeholder 误导 | R9 修订写 `developerContext_R9_Append` 伪属性 + `return ""` placeholder + `/* 实际新增分支 */` 注释包裹真代码——实施者可能误以为是真新建属性 | 改为 patch-style 实施者操作指引：明确说"在 M1 SliceError.swift:23-58 既有 developerContext switch 末尾插入 2 个 case 分支"，删除伪属性名与 placeholder return |
+
+**未做修订**：无。Round 10 全部 3 条 finding 接受 Codex 修复方案直接落地。
+
+**关键评估（按 Codex Round 10 报告原话）**：
+- "这不是完美主义循环。R10-P1-1 和 R10-P1-2 是机械性编译阻断，不是风格争论"
+- "推荐路径：不再开大轮评审，原地小修 R10-P1-1/P1-2（估计 20 行以内改动），顺手清理 R10-P2-1 placeholder，然后进入 Task 2-13 实施"
+
+**预期**：Round 11 verdict = APPROVED ⭐⭐ 或 CONDITIONAL_APPROVE ⭐——这是 10 轮迭代后真正的收敛点。Codex Round 10 已明确说"做一次轻量 Round 11 只验证这两处编译调用形态，确认通过后进入 Task 2-13 详细 TDD 展开"——本轮修订针对的就是这两处 + placeholder。
+
 修订后 verify：grep `indirect enum ContextError\|indirect case requiredFailed` 至少 1 处 / grep `public struct InvocationReport.*Codable` 1 处 / grep `\[String: any ContextProvider\]` 实例不带 `.Type` 至少 2 处 / grep `permission: Permission, reason\|permission: Permission, uxHint` GateOutcome 签名一致 / grep `usd TEXT NOT NULL` 1 处 / grep `catch SliceError\.` 不带 `let` 前缀至少 3 处 / grep `catch let SliceError\.` 已无残留。
 
 ---
@@ -408,28 +426,26 @@ public enum SliceError: Error, Sendable, Equatable {
     // 在 M1 SliceError.swift:43-52 既有 .configuration 嵌套 switch 末尾追加 1 行：
     //   case .invalidTool: return "configuration.invalidTool(<redacted>)"
 
-    // 在 M1 SliceError.swift:23-58 既有 developerContext 顶层 switch 末尾追加 2 个 case 分支：
-    public var developerContext_R9_Append: String {  // 注：实际是在 M1 既有 developerContext 内追加，此处仅展示新增片段
-        // ... M1 既有 case .selection / .provider / .configuration / .permission 不动 ...
-        // 新增分支（R4 / R8 / R9 B-NEW-2 修订；按 spec §3.9.5 任意 String/ContextKey.rawValue payload 一律 <redacted>）：
-        return ""  // placeholder
-        /* 实际新增分支：
-        case .context(let e):
-            switch e {
-            case .requiredFailed: return "context.requiredFailed(<redacted>)"   // R9 B-NEW-2：ContextKey.rawValue 也 redact
-            case .providerNotFound: return "context.providerNotFound(<redacted>)"
-            case .timeout: return "context.timeout(<redacted>)"
-            }
-        case .toolPermission(let e):
-            switch e {
-            case .undeclared(let missing): return "toolPermission.undeclared(count=\(missing.count))"
-            case .denied: return "toolPermission.denied(<redacted>)"
-            case .notGranted: return "toolPermission.notGranted"
-            case .unknownProvider: return "toolPermission.unknownProvider(<redacted>)"
-            case .sandboxViolation: return "toolPermission.sandboxViolation(<redacted>)"
-            }
-        */
-    }
+    // **R10 R10-P2-1 修订**：删除 R9 引入的 placeholder 伪属性 `developerContext_R9_Append`（误导实施者）。
+    // 实施者操作指引（patch-style，不是新建属性）：
+    //
+    //   在 M1 SliceError.swift:23-58 既有 `public var developerContext: String { switch self { ... } }`
+    //   的 switch self 末尾（`}` 之前）插入下面 2 个 case 分支（保持 4 既有 case 不动）：
+    //
+    //   case .context(let e):
+    //       switch e {
+    //       case .requiredFailed: return "context.requiredFailed(<redacted>)"   // R9 B-NEW-2：ContextKey.rawValue 也 redact
+    //       case .providerNotFound: return "context.providerNotFound(<redacted>)"
+    //       case .timeout: return "context.timeout(<redacted>)"
+    //       }
+    //   case .toolPermission(let e):
+    //       switch e {
+    //       case .undeclared(let missing): return "toolPermission.undeclared(count=\(missing.count))"
+    //       case .denied: return "toolPermission.denied(<redacted>)"
+    //       case .notGranted: return "toolPermission.notGranted"
+    //       case .unknownProvider: return "toolPermission.unknownProvider(<redacted>)"
+    //       case .sandboxViolation: return "toolPermission.sandboxViolation(<redacted>)"
+    //       }
 }
 
 // ConfigurationError 既有 enum 追加 case + 既有 switch 补分支
@@ -1129,22 +1145,25 @@ EOF
   - **Step 6**（**Round 6 R6-P1.3 修订 + Round 9 B-NEW-4 修订**：补 do/catch + 处理 OutputDispatcher.notImplemented 一次性 yield + 接 PromptExecutor.run 的 onCompletion usage 回调）：
     ```swift
     var notImplementedYielded = false  // 局部 var，跨 chunk 守卫；R5 R5-P1.3 + Round 7：仅 execute(...) 函数内
-    var promptUsage: UsageStats = .zero  // R9 B-NEW-4：接 PromptExecutor onCompletion 回调
+    var promptUsage: UsageStats = .zero  // R10 修订：通过 stream element .completed 注入，不依赖 @Sendable callback
     do {
-        for try await chunk in promptExecutor.run(
-            promptTool: promptTool,
-            resolved: resolved,
-            provider: provider,
-            onCompletion: { stats in promptUsage = stats }  // R9 B-NEW-4：流结束后 callback 注入 usage
-        ) {
-            yield .llmChunk(delta: chunk)
-            let outcome = await output.handle(chunk: chunk, mode: tool.displayMode, invocationId: invocationId)
-            // R9 B-NEW-4：仅当 .notImplemented 且首次时 yield 一次 .notImplemented ExecutionEvent；
-            // 后续 chunks 仍调 output.handle（确保 OutputDispatcher 调用次数 == chunk 数 — Task 10 测试矩阵），
-            // 但不再重复 yield 事件（R6 R6-P1 测试矩阵约束）
-            if case .notImplemented(let reason) = outcome, !notImplementedYielded {
-                yield .notImplemented(reason: reason)
-                notImplementedYielded = true
+        for try await element in promptExecutor.run(promptTool: promptTool, resolved: resolved, provider: provider) {
+            switch element {
+            case .chunk(let chunk):
+                yield .llmChunk(delta: chunk)
+                let outcome = try await output.handle(chunk: chunk, mode: tool.displayMode, invocationId: invocationId)  // R10-P1-1：output.handle 是 throws，必须 try await
+                // R9 B-NEW-4：仅当 .notImplemented 且首次时 yield 一次 .notImplemented ExecutionEvent；
+                // 后续 chunks 仍调 output.handle（确保 OutputDispatcher 调用次数 == chunk 数），
+                // 但不再重复 yield 事件
+                if case .notImplemented(let reason) = outcome, !notImplementedYielded {
+                    yield .notImplemented(reason: reason)
+                    notImplementedYielded = true
+                }
+            case .completed(let stats):
+                // R10-P1-2 修订：usage 回传改为 stream element 模式（避免 @Sendable closure 捕获可变局部 var
+                // 在 Swift 6 StrictConcurrency=complete 下的编译错误）；promptUsage 是 execute(...) 函数内 local var，
+                // 仅由当前 actor task 写入，不跨 task / 闭包，Swift 6 strict concurrency 通过
+                promptUsage = stats
             }
         }
     } catch let error as SliceError {
@@ -1300,7 +1319,7 @@ EOF
   }
   ```
 - **usage 来源**（**Round 4 R4-P2.d + Round 9 B-NEW-4 修订**：M1 `ChatChunk` 只含 `delta / finishReason`，没有 usage 字段——M2 阶段如何拿到 token 数？）：
-  - **M2 范围**：PromptExecutor 在 LLM stream 结束后**估算** tokens——按 chunk 累计 char count `/ 4` 粗估（OpenAI 经验值约 3-4 chars/token，中文偏低但 4 是保守值）；估算结果通过 `PromptExecutor.run(... onCompletion:)` 回调（**Round 9 B-NEW-4 一致化**：与 Task 11 签名 `onCompletion: @escaping @Sendable (UsageStats) -> Void` 对齐）传给 ExecutionEngine Step 8
+  - **M2 范围**：PromptExecutor 在 LLM stream 结束后**估算** tokens——按 chunk 累计 char count `/ 4` 粗估（OpenAI 经验值约 3-4 chars/token，中文偏低但 4 是保守值）；估算结果通过 `PromptExecutor.run(...) -> AsyncThrowingStream<PromptStreamElement, Error>` 流式 `.completed(UsageStats)` 元素（**Round 10 R10-P1-2 修订**：从 onCompletion callback 改为枚举 stream，避免 Swift 6 @Sendable 闭包捕获可变局部 var 编译失败；与 Task 11 签名一致）传给 ExecutionEngine Step 8
   - **Phase 1 改造**：`LLMProvider` protocol 加 usage 字段（OpenAI / Anthropic API 流式响应 last chunk 都含 usage `{prompt_tokens, completion_tokens}`）；CostAccounting.record 切换为精确值；PromptExecutor.run 的 onCompletion 回调改为传精确 UsageStats
   - M2 测试用 MockLLMProvider 直接注入估算的 tokens（不走 char count 估算逻辑）；测试 ExecutionEngine 与 PromptExecutor 集成时验证 onCompletion 被调用一次且 inputTokens/outputTokens > 0
 - API：`record(_ record: CostRecord) async throws` / `findByToolId(_ toolId: String) async throws -> [CostRecord]` / `totalUSD(since: Date) async throws -> Decimal`
@@ -1381,7 +1400,22 @@ EOF
 **关键设计点（Round 4 R4-P2.e 修订：V2Provider 适配 LLMProviderFactory 的 v1 限制）：**
 
 - `PromptExecutor` 是 `actor`；接受 `keychain: any KeychainAccessing` / `llmProviderFactory: LLMProviderFactory`（**Round 4 R4-P2.e 修订**：从"接受 llmProvider"改为"接受 factory"，因为 LLMProvider 实例是按 provider 配置创建的，PromptExecutor 内部按 V2Provider 字段创建对应的 v1 Provider 视图后调 factory）
-- `run(promptTool: PromptTool, resolved: ResolvedExecutionContext, provider: V2Provider, onCompletion: @escaping @Sendable (UsageStats) -> Void = { _ in }) -> AsyncThrowingStream<String, Error>`（**注意**：直接接 `PromptTool` 而非 `V2Tool`；**Round 9 B-NEW-4 修订**：加 `onCompletion: (UsageStats) -> Void` 回调——PromptExecutor 在 LLM stream 结束后调用，把估算的 input/output tokens 传给 ExecutionEngine Step 8 的 CostAccounting.record；与 Task 8 R4-P2.d "M2 估算 token / Phase 1 真实 usage" 设计对齐）
+- `run(promptTool: PromptTool, resolved: ResolvedExecutionContext, provider: V2Provider) -> AsyncThrowingStream<PromptStreamElement, Error>`（**注意**：直接接 `PromptTool` 而非 `V2Tool`；**Round 9 B-NEW-4 + Round 10 R10-P1-2 修订**：流元素改为 `PromptStreamElement` 枚举，避免 `@Sendable` 闭包捕获可变局部变量在 Swift 6 strict concurrency 下编译失败；ExecutionEngine 通过 `case .completed(let stats)` 消费 usage，`promptUsage` 是 actor 内 local var 不需 @Sendable）
+- **`PromptStreamElement` enum**（**Round 10 R10-P1-2 新增**，定义在 PromptExecutor.swift 同文件）：
+  ```swift
+  /// PromptExecutor.run 流式输出元素
+  ///
+  /// **设计权衡（R10）**：早期方案用 `onCompletion: @escaping @Sendable (UsageStats) -> Void`
+  /// 回调，但 Swift 6 StrictConcurrency=complete 下，@Sendable 闭包不能捕获并修改 caller 的
+  /// 可变局部变量（execute 函数顶层的 `var promptUsage`）。改用枚举 stream + 顶层 `for try await`
+  /// 顺序消费 → caller 直接读 local var 写入 promptUsage，无跨 task 边界，Swift 6 通过。
+  public enum PromptStreamElement: Sendable {
+      /// LLM 流式输出片段
+      case chunk(String)
+      /// LLM stream 结束时一次性发出，携带最终 usage 估算（M2 估算 / Phase 1 真实）
+      case completed(UsageStats)
+  }
+  ```
 - **`UsageStats` struct**（**Round 9 B-NEW-4 新增**，定义在 PromptExecutor.swift 同文件）：
   ```swift
   public struct UsageStats: Sendable, Equatable {
