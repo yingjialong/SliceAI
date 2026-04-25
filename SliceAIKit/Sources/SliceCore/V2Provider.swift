@@ -1,0 +1,130 @@
+import Foundation
+
+/// v2 LLM 供应商配置（独立新类型；现有 `Provider` 保持 v1 形状不变）
+///
+/// 相对 v1 `Provider` 的变化：
+/// - 新增 `kind: ProviderKind`：声明协议族
+/// - 新增 `capabilities: [ProviderCapability]`：声明支持的高级能力（Set 语义 + 稳定顺序；见评审 P2-3）
+/// - `baseURL: URL?`：`.anthropic` / `.gemini` 协议族可 nil
+///
+/// **评审修正（Codex 第六轮 P2-3）**：初版 `capabilities: Set<ProviderCapability>` 在 JSON 序列化中
+/// 顺序不稳定（`JSONEncoder.outputFormatting = [.sortedKeys]` 只排字典 key，不排数组元素）。
+/// 本版改为 `[ProviderCapability]`：`init` 中自动去重（保留首次出现顺序）并按 rawValue 排序，
+/// 保证 round-trip 稳定；Set 语义由 init 保证，调用方读到的数组已有序无重复。
+///
+/// M3 rename pass：删除 Provider.swift，把本文件重命名为 Provider.swift、类型改名为 Provider。
+public struct V2Provider: Identifiable, Sendable, Codable, Equatable {
+    public let id: String
+    public var kind: ProviderKind
+    public var name: String
+    public var baseURL: URL?
+    public var apiKeyRef: String
+    public var defaultModel: String
+    /// Provider 支持的高级能力；去重后按 rawValue 字母序排列
+    ///
+    /// **调用方契约**：仅通过 `init(...)` / decode 写入；**不要**直接 mutate（例如
+    /// `provider.capabilities.append(.toolCalling)` 会破坏去重 + 排序不变量，后续
+    /// JSON round-trip 会打破稳定顺序承诺）。要增删，重新构造 V2Provider。
+    public var capabilities: [ProviderCapability]  // **[…] 而非 Set<…>**（P2-3）
+
+    /// 构造 V2Provider
+    /// - Note: `capabilities` 传入 Set 或 Array 都可；内部去重 + 按 rawValue 排序，保证 JSON 稳定
+    public init(
+        id: String,
+        kind: ProviderKind,
+        name: String,
+        baseURL: URL?,
+        apiKeyRef: String,
+        defaultModel: String,
+        capabilities: some Sequence<ProviderCapability>
+    ) {
+        self.id = id
+        self.kind = kind
+        self.name = name
+        self.baseURL = baseURL
+        self.apiKeyRef = apiKeyRef
+        self.defaultModel = defaultModel
+        // 去重 + 按 rawValue 排序，保证 JSON 稳定（评审 P2-3）
+        self.capabilities = Array(Set(capabilities)).sorted { $0.rawValue < $1.rawValue }
+    }
+
+    /// 校验 V2Provider 的类型不变量
+    ///
+    /// **与 decoder 校验的关系**：decoder 对 JSON 输入做同样的检查（`init(from:)`），
+    /// 但 public `init(id:...)` 非 throws、允许代码侧构造暂时不合规的对象（测试 fixture /
+    /// 默认值 / migrator 输出）。`validate()` 是写入边界的守护——
+    /// `V2ConfigurationStore.save()` 在落盘前对所有 provider 调用一次，阻止非法对象写盘。
+    ///
+    /// 当前校验项（与 decoder 对齐）：
+    /// 1. `kind ∈ {.openAICompatible, .ollama}` 时 `baseURL` 必须非 nil
+    ///    （两个协议族都是"用户填 endpoint"的设计；anthropic / gemini 的官方 SDK endpoint 固定，允许 nil）
+    ///
+    /// - Throws: `SliceError.configuration(.validationFailed(msg))`，msg 包含 provider id、协议族名与违规字段
+    public func validate() throws {
+        // openAICompatible / ollama 必须有 baseURL
+        if (kind == .openAICompatible || kind == .ollama) && baseURL == nil {
+            throw SliceError.configuration(.validationFailed(
+                "Provider '\(id)': kind=\(kind.rawValue) requires non-nil baseURL"
+            ))
+        }
+    }
+
+    /// apiKeyRef 前缀，与 v1 保持一致
+    public static let keychainRefPrefix = "keychain:"
+
+    /// 解析 Keychain account；非 `keychain:` 前缀返回 nil
+    public var keychainAccount: String? {
+        guard apiKeyRef.hasPrefix(Self.keychainRefPrefix) else { return nil }
+        return String(apiKeyRef.dropFirst(Self.keychainRefPrefix.count))
+    }
+
+    // MARK: - Codable（手写 init；保证解码路径也做 capabilities 去重+排序 + baseURL 必填校验）
+    //
+    // 评审修正（Codex 第七轮 P2）：仅在 init(id:…:capabilities:) 里做归一化不够——
+    // 用户手改 `config-v2.json`（如 `"capabilities":["toolCalling","promptCaching","toolCalling"]`）
+    // 直接走自动合成的 decoder 会保留重复/乱序，违反"JSON 数组顺序稳定 + Set 语义"承诺。
+    // 本版手写 `init(from:)` 在解码时跑同样的规范化，并加 baseURL 必填校验（P2a）。
+    //
+    // **encode 不手写**：序列化侧不需要对称手写，原因——
+    // (a) self.capabilities 已由 init / decoder 统一归一化为有序无重，encode 直接走自动合成即可；
+    // (b) baseURL 必填约束只影响"读入侧"——能通过 init/decode 构造的 V2Provider 已经合法，
+    //     encode 出去的 JSON 永远满足约束，无需再校验一次。
+
+    private enum CodingKeys: String, CodingKey {
+        case id, kind, name, baseURL, apiKeyRef, defaultModel, capabilities
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decode(String.self, forKey: .id)
+        self.kind = try c.decode(ProviderKind.self, forKey: .kind)
+        self.name = try c.decode(String.self, forKey: .name)
+        self.baseURL = try c.decodeIfPresent(URL.self, forKey: .baseURL)
+        // P2a 修复：openAICompatible / ollama 必须有 baseURL（用户填 endpoint 的协议族）。
+        // 在 fail fast 路径上拒绝 nil，避免把无效 Provider 推到运行时才发现 endpoint 缺失。
+        // anthropic / gemini 官方 SDK endpoint 固定，允许 nil。
+        if (self.kind == .openAICompatible || self.kind == .ollama) && self.baseURL == nil {
+            throw DecodingError.dataCorrupted(.init(
+                codingPath: c.codingPath,
+                debugDescription: "V2Provider.kind=\(self.kind.rawValue) requires non-nil baseURL"
+            ))
+        }
+        self.apiKeyRef = try c.decode(String.self, forKey: .apiKeyRef)
+        self.defaultModel = try c.decode(String.self, forKey: .defaultModel)
+        // 解码后同样做归一化，保证"外部 JSON 手改后 round-trip 结果稳定"
+        let raw = try c.decode([ProviderCapability].self, forKey: .capabilities)
+        self.capabilities = Array(Set(raw)).sorted { $0.rawValue < $1.rawValue }
+    }
+}
+
+/// Provider 协议族
+public enum ProviderKind: String, Sendable, Codable, CaseIterable {
+    /// OpenAI Chat Completions 兼容（OpenAI / DeepSeek / Moonshot / OpenRouter / 自建中转）
+    case openAICompatible
+    /// Anthropic Messages API
+    case anthropic
+    /// Google Gemini API
+    case gemini
+    /// 本地 Ollama
+    case ollama
+}

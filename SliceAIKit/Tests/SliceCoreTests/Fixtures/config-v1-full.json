@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "appearance": "dark",
+  "providers": [
+    {
+      "id": "openai-official",
+      "name": "OpenAI",
+      "baseURL": "https://api.openai.com/v1",
+      "apiKeyRef": "keychain:openai-official",
+      "defaultModel": "gpt-5"
+    },
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "baseURL": "https://api.deepseek.com/v1",
+      "apiKeyRef": "keychain:deepseek",
+      "defaultModel": "deepseek-chat"
+    }
+  ],
+  "tools": [
+    {
+      "id": "translate",
+      "name": "Translate",
+      "icon": "🌐",
+      "description": "Translate",
+      "systemPrompt": "sys",
+      "userPrompt": "u",
+      "providerId": "openai-official",
+      "modelId": null,
+      "temperature": 0.3,
+      "displayMode": "window",
+      "variables": {"language": "zh"},
+      "labelStyle": "iconAndName"
+    },
+    {
+      "id": "polish",
+      "name": "Polish",
+      "icon": "📝",
+      "description": "Polish text",
+      "systemPrompt": null,
+      "userPrompt": "Polish: {{selection}}",
+      "providerId": "deepseek",
+      "modelId": "deepseek-reasoner",
+      "temperature": null,
+      "displayMode": "window",
+      "variables": {}
+    }
+  ],
+  "hotkeys": {"toggleCommandPalette": "option+shift+space"},
+  "triggers": {
+    "floatingToolbarEnabled": true,
+    "commandPaletteEnabled": true,
+    "minimumSelectionLength": 3,
+    "triggerDelayMs": 200,
+    "floatingToolbarMaxTools": 8,
+    "floatingToolbarSize": "regular",
+    "floatingToolbarAutoDismissSeconds": 0
+  },
+  "telemetry": {"enabled": true},
+  "appBlocklist": ["com.1password.1password", "com.bitwarden.desktop"]
+}

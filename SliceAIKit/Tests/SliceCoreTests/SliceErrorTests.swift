@@ -125,6 +125,20 @@ final class SliceErrorTests: XCTestCase {
         )
     }
 
+    /// 覆盖 ConfigurationError.validationFailed 的 developerContext + userMessage（第八轮 P2 修复）
+    ///
+    /// 不变量：
+    /// - developerContext 必须脱敏（String payload 一律 <redacted>，防止字段名 / provider id 进日志聚合）
+    /// - userMessage 必须把调用方生成的校验消息原样带回，便于用户定位
+    /// 注意：调用方（V2Provider.validate / V2Tool.validate）负责保证 msg 不含用户自由文本
+    func test_configuration_validationFailed_developerContext_isRedacted() {
+        let err = SliceError.configuration(.validationFailed("openai: nope"))
+        // 日志侧脱敏：payload 替换为 <redacted>
+        XCTAssertEqual(err.developerContext, "configuration.validationFailed(<redacted>)")
+        // 用户侧保留消息：前缀"配置校验失败："+ 原 msg
+        XCTAssertEqual(err.userMessage, "配置校验失败：openai: nope")
+    }
+
     /// 覆盖 Selection / Configuration / Provider 中剩余 developerContext 分支
     /// 目的：确保所有 case 的 developerContext 都有确定的字符串格式，可用于日志断言
     func test_developerContext_remainingCases() {

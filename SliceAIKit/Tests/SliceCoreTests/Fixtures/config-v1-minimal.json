@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "providers": [
+    {
+      "id": "openai-official",
+      "name": "OpenAI",
+      "baseURL": "https://api.openai.com/v1",
+      "apiKeyRef": "keychain:openai-official",
+      "defaultModel": "gpt-5"
+    }
+  ],
+  "tools": [
+    {
+      "id": "translate",
+      "name": "Translate",
+      "icon": "🌐",
+      "description": "Translate selection",
+      "systemPrompt": "You are a translator.",
+      "userPrompt": "Translate to {{language}}:\n\n{{selection}}",
+      "providerId": "openai-official",
+      "modelId": null,
+      "temperature": 0.3,
+      "displayMode": "window",
+      "variables": {"language": "Simplified Chinese"}
+    }
+  ],
+  "hotkeys": {"toggleCommandPalette": "option+space"},
+  "triggers": {
+    "floatingToolbarEnabled": true,
+    "commandPaletteEnabled": true,
+    "minimumSelectionLength": 1,
+    "triggerDelayMs": 150
+  },
+  "telemetry": {"enabled": false},
+  "appBlocklist": ["com.apple.keychainaccess"]
+}

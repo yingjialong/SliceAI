@@ -1,10 +1,8 @@
 // swift-tools-version:6.0
-// SliceAIKit - SliceAI 核心功能包，7 个 target 承载领域层、LLM 调用、划词捕获、快捷键、窗口、权限、设置界面
+// SliceAIKit - SliceAI 核心功能包，10 个 target 承载领域层、LLM、划词、快捷键、窗口、权限、设置、编排、能力、UI tokens
 import PackageDescription
 
 let swiftSettings: [SwiftSetting] = [
-    // 启用 Swift 6 严格并发检查，所有类型强制 Sendable
-    // 注：InferSendableFromCaptures 在 Swift 6 已默认启用，无需显式声明
     .enableUpcomingFeature("ExistentialAny"),
     .enableExperimentalFeature("StrictConcurrency=complete"),
 ]
@@ -21,9 +19,19 @@ let package = Package(
         .library(name: "Permissions", targets: ["Permissions"]),
         .library(name: "SettingsUI", targets: ["SettingsUI"]),
         .library(name: "DesignSystem", targets: ["DesignSystem"]),
+        .library(name: "Orchestration", targets: ["Orchestration"]),
+        .library(name: "Capabilities", targets: ["Capabilities"]),
     ],
     targets: [
         .target(name: "SliceCore", swiftSettings: swiftSettings),
+        .target(name: "Capabilities",
+                dependencies: ["SliceCore"],
+                exclude: ["README.md"],
+                swiftSettings: swiftSettings),
+        .target(name: "Orchestration",
+                dependencies: ["SliceCore"],
+                exclude: ["README.md"],
+                swiftSettings: swiftSettings),
         .target(name: "LLMProviders", dependencies: ["SliceCore"], swiftSettings: swiftSettings),
         .target(name: "SelectionCapture", dependencies: ["SliceCore"], swiftSettings: swiftSettings),
         .target(name: "HotkeyManager", dependencies: ["SliceCore"], swiftSettings: swiftSettings),
@@ -37,7 +45,12 @@ let package = Package(
         .target(name: "SettingsUI",
                 dependencies: ["SliceCore", "LLMProviders", "HotkeyManager", "DesignSystem", "Permissions"],
                 swiftSettings: swiftSettings),
-        .testTarget(name: "SliceCoreTests", dependencies: ["SliceCore"], swiftSettings: swiftSettings),
+        .testTarget(name: "SliceCoreTests",
+                    dependencies: ["SliceCore"],
+                    resources: [.copy("Fixtures")],
+                    swiftSettings: swiftSettings),
+        .testTarget(name: "OrchestrationTests", dependencies: ["Orchestration", "SliceCore"], swiftSettings: swiftSettings),
+        .testTarget(name: "CapabilitiesTests", dependencies: ["Capabilities", "SliceCore"], swiftSettings: swiftSettings),
         .testTarget(name: "LLMProvidersTests",
                     dependencies: ["LLMProviders", "SliceCore"],
                     resources: [.copy("Fixtures")],
