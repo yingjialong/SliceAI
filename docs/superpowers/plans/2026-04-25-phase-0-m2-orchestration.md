@@ -28,7 +28,7 @@ SliceAIKit/Sources/Orchestration/                      （M1 已建空 target，
   │   ├─ PermissionGrantStore.swift                     Task 6
   │   ├─ EffectivePermissions.swift                     Task 7
   │   ├─ PermissionGraph.swift                          Task 7
-  │   └─ PermissionError.swift                          Task 6 / 7
+  │   └─ PermissionDecisionError.swift                  Task 6 / 7
   ├─ Telemetry/                                         （成本 + 审计）
   │   ├─ CostAccounting.swift                           Task 8
   │   ├─ CostRecord.swift                               Task 8
@@ -138,6 +138,28 @@ SliceAIKit/Tests/CapabilitiesTests/
 
 **未做修订**：无。Codex 6 条 finding 全部接受落地。Round 2 修订后跑了 verify pass：grep `await compute(` 无残留无 `try` 调用 / grep `auditLog.append(report)` 已替换为 `auditLog.append(.invocationCompleted(report))` / grep `[String: Error]` 已无 / grep `.fixed(providerId:)` 已含 modelId 形态。
 
+#### Round 3（2026-04-25，Round 2 修订后）
+
+**Verdict**: REWORK_REQUIRED → Round 2 全部 9 子 finding 落地（B-3 部分落地：Task 14 缺 grep `default:` 反向断言）；新发现 1 P1 + 4 P2 + 2 P3 = 7 条 finding 全部接受并落地（本次提交）。
+
+| Finding | 问题 | 修复落地 |
+|---|---|---|
+| **R3-P1** ContextRequest.providerId 与 M1 源码不一致 | M1 `SliceCore/Context.swift:11` 字段是 `provider: String`（非 `providerId`）；plan Task 5 line 820 + Task 7 line 882 / 895 都写 `request.providerId` → 直接编译错误 | 全部修正为 `request.provider`；Task 5 / Task 7 修订段加 verified 标注 |
+| **R3-P2.a** PermissionGraph.Error 定义位置不明 | plan 多处用 `PermissionGraph.Error.unknownProvider(id:)` 但未明示是 nested enum 还是 SliceCore PermissionError 的 case；Codex 建议改用统一 `PermissionError` | **接受 finding 但 push back Codex 建议的命名**——sanity check 发现 M1 `SliceError.swift:141` 已定义 `public enum PermissionError`（系统权限错误如 `accessibilityDenied / inputMonitoringDenied`），与 v2 工具权限决策错误语义不同；同名跨模块会让代码读者混淆。最终落地：新建独立 `PermissionDecisionError` enum（Task 6 Create + Task 7 Modify 追加 .unknownProvider）；废弃 `PermissionGraph.Error` 嵌套；**废弃 Codex 建议的 PermissionError 命名** |
+| **R3-P2.b** ErrorKind.map(_:) 未定义 | `finishFailure` 调用 `ErrorKind.map(error)` 但 plan 未说明定义位置 / 签名 | 改名为 `ErrorKind.from(_:)` 静态 helper；明确签名 `static func from(_ error: SliceError) -> ErrorKind`；定义放在 `Orchestration/Events/InvocationReport.swift` 中 `extension InvocationOutcome.ErrorKind`；按 SliceError 4 顶层 case 映射 |
+| **R3-P2.c** notImplementedYielded 生命周期歧义 | Task 10 写 "ExecutionEngine 内部用 var notImplementedYielded 守卫" 未明确是 actor field 还是 local var；做成 actor field 会跨 invocation 污染 | Task 10 关键设计点明确 "**必须是 execute(tool:seed:) 函数内 local var**"；测试矩阵补一条"同一 engine 实例连续 execute 两次，每次都独立产出 1 条 .notImplemented" 的跨 invocation 隔离断言 |
+| **R3-P2.d** MCPCallResult 类型未定义 | Task 13 protocol 引用 `MCPCallResult` 但 M1 SliceCore 没定义（grep verified），plan 也没给结构 | Task 13 关键设计点新增 `MCPCallResult` struct 定义（content: [String] / isError: Bool / meta: [String: String]?，放在 Capabilities/MCP/MCPClientProtocol.swift 同文件）+ 测试覆盖 round-trip |
+| **R3-P3.a** Task 4 catch pattern 缺正确语法示例 | 旧 plan / Codex 原话写 `catch let e as PermissionGraph.Error where case .unknownProvider = e` —— Swift catch 子句不支持 `where case` 联用 | Task 4 Step 2 / Task 7 关键设计点统一改为 `catch PermissionDecisionError.unknownProvider(let id) { ... }`（Swift catch pattern 直接匹配 case 关联值的标准写法；`PermissionDecisionError` 独立命名见 R3-P2.a 行的 push back 说明）；plan 显式写"严禁 where case 联用" |
+| **R3-P3.b** dry-run vs 非 dry-run 测试缺对照 | dry-run 路径已覆盖，但未单独测试非 dry-run + `.requiresUserConsent` → finishFailure 的对照路径，caller 可能误把 `.permissionWouldBeRequested` 当作 `.failed` 信号 | Task 4 测试矩阵从 5 条扩展到 6 条：新增 "non-dry-run + .requiresUserConsent → finishFailure(.permission(.notGranted))" 路径，断言 audit 1 条 `.invocationCompleted` outcome `.failed(.permission)` + yield `.failed`；与 dry-run 形成显式对照 |
+| **R3-补**：Round 2 B-3 部分落地补全 | Round 2 落地 Task 4 关键设计点的 "无 default switch outcome" 约束，但承诺的 Task 14 grep `default:` 反向断言未真正写出 | Task 14 新增 Step 5.5：`grep -c "^[[:space:]]*default:" PermissionBroker.swift / ExecutionEngine.swift / InvocationReport.swift` 三处期望 0；非零则失败 |
+
+**未做修订 / Push back（Round 3 receiving-code-review skill 应用）**：
+
+- **R3-P2.a 命名建议被 push back**：Codex 建议改用统一 `PermissionError`，但 sanity check 发现 M1 `SliceError.swift:141` 已定义 `public enum PermissionError`（含 `accessibilityDenied / inputMonitoringDenied`，系统权限错误命名空间），与 v2 工具权限决策错误（`undeclared / denied / sandboxViolation / unknownProvider`）**语义完全不同**；同名跨模块会让代码读者混淆。改用独立 `PermissionDecisionError` 解决。**接受 finding（命名歧义需 fix），push back 修复方案的命名选择**——这是依据 M1 源码事实的判断，不是盲信评审建议（receiving-code-review skill：technical rigor not performative agreement）
+- 其他 7 条 finding 全部接受 Codex 修复方案直接落地
+
+修订后 verify：grep `request.providerId` 无残留（仅历史表）/ grep `PermissionGraph.Error` 仅在 Round 1+2 历史表残留 / grep `PermissionError\.\(unknownProvider\|undeclared\|sandboxViolation\)` 在 Task 设计点段无残留（已全部改为 `PermissionDecisionError`）/ grep `ErrorKind.map` 已替换为 `ErrorKind.from` / grep `MCPCallResult` 在 Task 13 有完整 struct 定义 / grep `PermissionDecisionError` 在 Task 6/7 Files 段 + Task 4/7 catch / throw 处共 6+ 处引用一致。
+
 ---
 
 ## 关键架构约束（M2 不变量，所有 Task 必须满足）
@@ -235,7 +257,7 @@ Settings → Privacy 的 "记录选区原文" opt-in 由 Phase 2 实现，M2 阶
 | Create | `SliceAIKit/Sources/Orchestration/Permissions/PermissionGrantStore.swift` | session/persistent grant 存储 | Task 6 |
 | Create | `SliceAIKit/Sources/Orchestration/Permissions/EffectivePermissions.swift` | aggregated permissions struct（spec §3.9.6.5 骨架） | Task 7 |
 | Create | `SliceAIKit/Sources/Orchestration/Permissions/PermissionGraph.swift` | `compute(tool:) -> EffectivePermissions` | Task 7 |
-| Create | `SliceAIKit/Sources/Orchestration/Permissions/PermissionError.swift` | undeclared / denied / sandboxViolation | Task 6 / 7 |
+| Create | `SliceAIKit/Sources/Orchestration/Permissions/PermissionDecisionError.swift` | undeclared / denied / sandboxViolation / unknownProvider（**改名避开 SliceCore.PermissionError 冲突**——M1 SliceError.swift:141 已有 `PermissionError` = 系统权限错误命名空间） | Task 6 / 7 |
 | Create | `SliceAIKit/Sources/Orchestration/Telemetry/CostAccounting.swift` | sqlite append + 查询 | Task 8 |
 | Create | `SliceAIKit/Sources/Orchestration/Telemetry/CostRecord.swift` | 计费记录 struct | Task 8 |
 | Create | `SliceAIKit/Sources/Orchestration/Telemetry/AuditLogProtocol.swift` | append-only 接口 | Task 9 |
@@ -776,11 +798,11 @@ EOF
 
 - **统一审计**（Round 1 P1-2）：所有 `execute(...)` 路径（成功 / 失败 / 被拒 / not-implemented）至少产生**一条** `AuditEntry.invocationCompleted(InvocationReport)` 进 `AuditLog`（**Round 2 B-6.3 修订**：用 enum case 而非 raw report）。
 - **finishFailure / finishSuccess helper**（**Round 2 B-1 修订**完整签名）：
-  - `finishFailure(error: SliceError, invocationId: UUID, toolId: String, declared: Set<Permission>, effective: Set<Permission>, flags: Set<InvocationFlag>, startedAt: Date)`（**B-1 新增 startedAt 入参**——失败路径需要计算耗时）→ 构造 `InvocationReport(... outcome: .failed(errorKind: .map(error)))` → `await auditLog.append(.invocationCompleted(report))` → `yield .failed(error)` → 流结束
+  - `finishFailure(error: SliceError, invocationId: UUID, toolId: String, declared: Set<Permission>, effective: Set<Permission>, flags: Set<InvocationFlag>, startedAt: Date)`（**B-1 新增 startedAt 入参**——失败路径需要计算耗时）→ 构造 `InvocationReport(... outcome: .failed(errorKind: InvocationOutcome.ErrorKind.from(error)))` → `await auditLog.append(.invocationCompleted(report))` → `yield .failed(error)` → 流结束。**`ErrorKind.from(_:)` 是定义在 InvocationOutcome.ErrorKind 上的 static helper**（**Round 3 P2 修订**），签名 `static func from(_ error: SliceError) -> ErrorKind`，按 SliceError 顶层 case 映射：`.selection(_) → .selection` / `.provider(_) → .provider` / `.configuration(_) → .configuration` / `.permission(_) → .permission`（覆盖 SliceError 当前 4 个顶层 case，`SliceError` 加新 case 时此 helper 必须 exhaustive switch 强制更新——见 Task 14 grep `default:` 反向断言）。Helper 定义放在 Task 1 同文件 `Orchestration/Events/InvocationReport.swift` 里，作为 `extension InvocationOutcome.ErrorKind { ... }`
   - `finishSuccess(report: InvocationReport)` → `await auditLog.append(.invocationCompleted(report))` → `yield .finished(report)` → 流结束（report 由 caller 构造时 outcome = .success 或 .dryRunCompleted）
 - 成功路径（spec §3.4 Step 1–10）：
   - Step 1：`yield .started(invocationId)`（`invocationId = UUID()` 在入口生成）；同时 `let startedAt = Date()`（后续 finishFailure / finishSuccess 都用此值）
-  - Step 2：`do { let effective = try await permissionGraph.compute(tool: tool) } catch let e as PermissionGraph.Error { ... }`（**Round 2 B-5 修订**：`try await`；catch `.unknownProvider` → `finishFailure(error: .configuration(.invalidTool(...)))`）→ 如 `effective.undeclared` 非空 → `finishFailure(.permission(.undeclared(missing:)))`
+  - Step 2：`do { let effective = try await permissionGraph.compute(tool: tool); if !effective.undeclared.isEmpty { finishFailure(error: .permission(.undeclared(missing: effective.undeclared)), ...); return } } catch PermissionDecisionError.unknownProvider(let id) { finishFailure(error: .configuration(.invalidTool(id)), ...); return }`（**Round 2 B-5 + Round 3 P2/P3 修订 + push back**：catch pattern 用 `catch <enum>.<case>(let payload)` 直接匹配；**严禁** `catch let e as ... where case ... = e`（Swift 不支持 `where + case` 联用）；类型名用独立 `PermissionDecisionError` 避开 M1 SliceCore.PermissionError 命名冲突——见 Task 6 / 7 Files 段说明）
   - Step 2.5：`let outcome = await permissionBroker.gate(effective.union, provenance: tool.provenance, scope: .session, isDryRun: seed.isDryRun)`；**实现必须用无 `default` 的 `switch outcome`** 覆盖全 4 case（**Round 2 B-3 修订**——确保未来加 case 时编译器报错而非静默漏处理）：
     - `.approved` → 继续 Step 3
     - `.denied(reason:)` → `finishFailure(.permission(.denied(reason:)))`
@@ -800,6 +822,7 @@ EOF
   - **permission-deny**: PermissionBroker.gate 拒绝 → audit 1 条 `.invocationCompleted` with outcome `.failed(.permission)` → yield `.failed`
   - **permission-undeclared**: PermissionGraph 检测到 effective ⊄ declared → audit 1 条 `.invocationCompleted` with outcome `.failed(.permission)` → yield `.failed`
   - **dry-run（Round 2 B-2 修订）**: seed.isDryRun=true → Step 2.5 若 .wouldRequireConsent yield `.permissionWouldBeRequested`；Step 7 副作用全 yield `.sideEffectSkippedDryRun`；audit 1 条 `.invocationCompleted` with outcome `.dryRunCompleted` + flags `.dryRun`；额外断言 stream 中**不**包含 `.sideEffectTriggered` 事件（dry-run 时只能 skipped）
+  - **non-dry-run + .requiresUserConsent 对照（Round 3 P3 新增）**: seed.isDryRun=**false** + MockPermissionBroker 在 Step 2.5 返回 `.requiresUserConsent` → finishFailure(.permission(.notGranted)) → audit 1 条 `.invocationCompleted` with outcome `.failed(errorKind: .permission)` → yield `.failed`；与 dry-run 路径形成对照，**证明 caller 能区分两种 consent 信号**（`.requiresUserConsent` = 实际执行前的"用户拒绝"等价信号 vs `.wouldRequireConsent` = dry-run 期间的"如果实际执行需要确认"提示信号），避免误读
 - 每个测试用 OrchestrationTests/Helpers 注入完整 Mock 套件（MockPermissionBroker / MockContextCollector / MockOutputDispatcher / MockAuditLog / MockProvider 等）
 
 ---
@@ -817,7 +840,7 @@ EOF
 **完整 TDD 步骤：待第二轮展开**
 
 **关键设计点：**
-- `ContextCollector(providers: [String: any ContextProvider])` 按 `ContextRequest.providerId` 路由
+- `ContextCollector(providers: [String: any ContextProvider])` 按 `ContextRequest.provider` 字符串路由（**Round 3 P1 修订**：M1 `SliceCore/Context.swift:11` 字段名是 `provider: String`，**不是** `providerId`；plan 中所有 `request.providerId` 引用全部修正为 `request.provider`）
 - `resolve(seed: ExecutionSeed, requests: [ContextRequest]) async throws -> ResolvedExecutionContext`
 - 每个 request 有独立的 `timeout: Duration`（默认 5s，由 request 自己声明）
 - 必填 `Requiredness.required` 失败 → throw `ContextCollectorError.requiredFailed(key: ContextKey, underlying: SliceError)`（**Round 2 B-6.2 修订**：参数类型 `ContextKey` / `SliceError` 与 M1 落地的 `ResolvedExecutionContext.failures` 类型完全对齐——SliceCore/ResolvedExecutionContext.swift:24 verified）
@@ -836,7 +859,7 @@ EOF
 - Create: `SliceAIKit/Sources/Orchestration/Permissions/PermissionBrokerProtocol.swift`
 - Create: `SliceAIKit/Sources/Orchestration/Permissions/PermissionBroker.swift`
 - Create: `SliceAIKit/Sources/Orchestration/Permissions/PermissionGrantStore.swift`
-- Create: `SliceAIKit/Sources/Orchestration/Permissions/PermissionError.swift`
+- Create: `SliceAIKit/Sources/Orchestration/Permissions/PermissionDecisionError.swift`
 - Create: `SliceAIKit/Tests/OrchestrationTests/PermissionBrokerTests.swift`
 
 **完整 TDD 步骤：待第二轮展开**
@@ -869,7 +892,7 @@ EOF
 **Files:**
 - Create: `SliceAIKit/Sources/Orchestration/Permissions/EffectivePermissions.swift`
 - Create: `SliceAIKit/Sources/Orchestration/Permissions/PermissionGraph.swift`
-- Modify: `SliceAIKit/Sources/Orchestration/Permissions/PermissionError.swift`（追加 `.undeclared(missing:)`）
+- Modify: `SliceAIKit/Sources/Orchestration/Permissions/PermissionDecisionError.swift`（追加 `.unknownProvider(id: String)` case；Task 6 已建该文件含 `.undeclared(missing: Set<Permission>) / .denied / .sandboxViolation`；**Round 3 P2 修订 + push back**：使用独立 `PermissionDecisionError` 而非 SliceCore `PermissionError`——M1 `SliceError.swift:141` 已定义 `public enum PermissionError`（系统权限错误如 `accessibilityDenied / inputMonitoringDenied`），与 v2 工具权限决策错误语义不同；同名跨模块会让代码读者混淆，改名解决）
 - Create: `SliceAIKit/Tests/OrchestrationTests/PermissionGraphTests.swift`
 
 **完整 TDD 步骤：待第二轮展开**
@@ -879,7 +902,7 @@ EOF
 - 完全照抄 spec §3.9.6.5 的 `EffectivePermissions` struct（fromContexts / fromSideEffects / fromMCP / fromBuiltins / declared / union / undeclared computed）
 - `PermissionGraph(providerRegistry: ContextProviderRegistry)` 构造期注入注册表 **（Round 1 P2-2 新增）**——`ContextProviderRegistry` 是 SliceCore 中 M1 已就绪的 `[String: any ContextProvider.Type]` 简单封装；**严禁** PermissionGraph 内部硬编码 provider 名字字符串
 - `compute(tool: V2Tool) async throws -> EffectivePermissions`（actor 上的 async 方法但**不做 I/O**）：
-  - 对每个 `ContextRequest` 通过 registry 查 provider type；找不到 → `throw PermissionGraph.Error.unknownProvider(id: request.providerId)`（让 Tool 编辑器在保存时挡住 typo 的 provider 引用）
+  - 对每个 `ContextRequest` 通过 registry 按 `request.provider` 字符串查 provider type（**Round 3 P1 修订**：M1 字段名 `provider`，SliceCore/Context.swift:11 verified）；找不到 → `throw PermissionDecisionError.unknownProvider(id: request.provider)`（**Round 3 P2 修订 + push back**：使用独立 `PermissionDecisionError` 而非 SliceCore.PermissionError——后者已被 M1 SliceError.swift:141 占用为系统权限错误命名空间；`.unknownProvider(id:)` 作为 `PermissionDecisionError` 新 case 与 `.undeclared / .denied / .sandboxViolation` 同源，见本 Task Files 段 `PermissionDecisionError.swift Modify` 项追加此 case）
   - 找到 → 调静态方法 `providerType.inferredPermissions(for: request.args)` 取 permissions 进 `fromContexts`
   - 对每个 `SideEffect` 调 `.inferredPermissions` 进 `fromSideEffects`
   - 对 `tool.kind.agent.mcpAllowlist` 展开为 `[.mcp(server:tools:)]` 进 `fromMCP`
@@ -892,10 +915,10 @@ EOF
   - agent 工具 + builtinCapabilities 含 `.shellExec(["git status"])` 但 tool.permissions 缺 `.shellExec(commands:)` → undeclared 非空
   - **pipeline 工具 + step 含 inline `.callMCP(ref:)` sideEffect 但 tool.permissions 缺 `.mcp(...)` → undeclared 非空**（P2-2 新增）
   - **pipeline 工具 + step 含 inline prompt with contexts 引用 `file.read` 但 tool.permissions 缺 `.fileRead` → undeclared 非空**（P2-2 新增）
-  - **registry 缺 provider id**（tool.contexts 引用 "nonexistent.foo"，registry 没注册）→ throw `PermissionGraph.Error.unknownProvider(id: "nonexistent.foo")`（P2-2 新增）
+  - **registry 缺 provider id**（tool.contexts 引用 "nonexistent.foo"，registry 没注册）→ throw `PermissionDecisionError.unknownProvider(id: "nonexistent.foo")`（P2-2 新增；**Round 3 P2 修订 + push back**：错误类型用独立 `PermissionDecisionError` 避开 M1 SliceCore.PermissionError 命名冲突）
   - 全部声明覆盖（prompt / agent / pipeline 各跑一次） → undeclared 空
   - empty tool（无 contexts / sideEffects / mcp / builtin） → effective.union 空集
-- ExecutionEngine 在 Step 2 调 `try await permissionGraph.compute(tool: tool)` **（Round 2 B-5 修订：`try await` 不可缺，否则 async throws 编译错误）**；如 `effective.undeclared` 非空 → 走 `finishFailure(.permission(.undeclared(missing: ...)))`（与 Task 4 P1-2 修订对齐），**不进 Step 3**；如 throw `unknownProvider` → 走 `finishFailure(.configuration(.invalidTool(...)))`（caller 必须在 `do { try await compute } catch let e as PermissionGraph.Error` 块里 case 匹配 `.unknownProvider`）
+- ExecutionEngine 在 Step 2 调 `try await permissionGraph.compute(tool: tool)` **（Round 2 B-5 修订：`try await` 不可缺，否则 async throws 编译错误）**；如 `effective.undeclared` 非空 → 走 `finishFailure(.permission(.undeclared(missing: ...)))`（与 Task 4 P1-2 修订对齐），**不进 Step 3**；如 throw `PermissionDecisionError.unknownProvider(let id)` → 走 `finishFailure(.configuration(.invalidTool(id)))`（**Round 3 P2/P3 修订 + push back**：caller 用 Swift catch pattern `catch PermissionDecisionError.unknownProvider(let id) { ... }` 直接匹配 case 关联值；**不**写 `catch let e as ... where case ... = e`（Swift 不支持 `where + case` 联用）；类型名用独立 `PermissionDecisionError` 避开 SliceCore.PermissionError 命名冲突）
 
 ---
 
@@ -972,7 +995,7 @@ EOF
 - **OutputBinding.sideEffects 处理路径**：仍由 ExecutionEngine Step 7 直接读 `tool.outputBinding?.sideEffects`，与 `tool.displayMode` **完全解耦**——sideEffect 与 displayMode 是正交维度，不依赖 outputBinding.primary 这个冗余字段
 - 测试矩阵：
   - **`.window` 模式 chunk 顺序与计数（Round 2 B-4 修订）**：driver 推 3 个 chunk `["a", "b", "c"]` → 断言 `InMemoryWindowSink.received == ["a", "b", "c"]`（数量 3 + 顺序一致；用 Array == 而非 Set 比较）
-  - **非 .window 模式只 yield 一次 .notImplemented ExecutionEvent（Round 2 B-4 修订）**：ExecutionEngine 内部用 `var notImplementedYielded = false` 守卫；driver 推 5 chunks 给 `.bubble` 模式 → OutputDispatcher 被调用 5 次（每次都返回 `.notImplemented`），但 ExecutionEvent stream 只含 1 条 `.notImplemented`；断言 `events.filter { if case .notImplemented = $0 { true } else { false } }.count == 1`
+  - **非 .window 模式只 yield 一次 .notImplemented ExecutionEvent（Round 2 B-4 修订）**：守卫变量 `var notImplementedYielded = false` **必须是 ExecutionEngine.execute(tool:seed:) 函数内的 local var**（**Round 3 P2 修订**：严禁做成 actor field——actor 实例跨 invocation 复用时会污染状态，第二次调用 execute 时第一个 chunk 不再 yield .notImplemented）；driver 推 5 chunks 给 `.bubble` 模式 → OutputDispatcher 被调用 5 次（每次都返回 `.notImplemented`），但 ExecutionEvent stream 只含 1 条 `.notImplemented`；断言 `events.filter { if case .notImplemented = $0 { true } else { false } }.count == 1`；测试矩阵补一条**跨 invocation 隔离验证**：用同一个 ExecutionEngine 实例连续 execute 两次（都是 .bubble 模式 + 各 3 chunks），每次 stream 独立产出 1 条 `.notImplemented`，验证 local var 不跨 invocation 污染
   - **OutputDispatcher 调用次数验证（Round 2 B-4 修订）**：MockOutputDispatcher 用 actor 计数 `var handleCallCount = 0`；上面"非 .window 5 chunks"用例同时断言 `await mockOutput.handleCallCount == 5`（验证非 .window 模式仍逐 chunk 调用，只是不重复 yield 事件）
   - 构造 V2Tool 让 `displayMode != outputBinding.primary`（理论上 V2Tool decoder 会拒绝，但单测可绕过 decoder 直接构造）→ OutputDispatcher 仍按 displayMode 派发，验证不会读 outputBinding.primary
 
@@ -1040,12 +1063,25 @@ EOF
 
 **完整 TDD 步骤：待第二轮展开**
 
-**关键设计点：**
+**关键设计点（Round 3 P2 修订：MCPCallResult 类型在本 Task 落地，M1 SliceCore 未定义 verified）：**
+
 - `MCPClientProtocol.tools(for descriptor: MCPDescriptor) async throws -> [MCPToolRef]` / `.call(ref: MCPToolRef, args: [String: String]) async throws -> MCPCallResult`
-- `MockMCPClient` 接受构造期注入的 `tools` / `responses` 字典，按 ref 路由
+- **`MCPCallResult` 是新增类型，定义在 `Capabilities/MCP/MCPClientProtocol.swift` 同文件**（**Round 3 P2 修订**：M1 SliceCore 没有 `MCPCallResult`，grep verified；M2 在 Capabilities 层落地）：
+  ```swift
+  public struct MCPCallResult: Sendable, Equatable, Codable {
+      /// 返回内容；MCP 协议允许多块（text / image / blob），M2 仅约定 text，
+      /// Phase 1 真实 MCPClient 才扩展（届时把此 struct 移到 SliceCore 或 expose 更细的 ContentItem enum）
+      public let content: [String]
+      /// 是否 server 端报错（区别于 transport / parse 错误，后者由 client 直接 throw）
+      public let isError: Bool
+      /// MCP server 透传的 metadata（脱敏责任在 server 端；scrub 在 AuditLog 入口兜底）
+      public let meta: [String: String]?
+  }
+  ```
+- `MockMCPClient` 接受构造期注入的 `tools: [MCPToolRef]` / `responses: [MCPToolRef: MCPCallResult]` 字典，按 ref 路由；未命中 ref → throw `MCPClientError.toolNotFound(ref:)`
 - `SkillRegistryProtocol.findSkill(id: String) async throws -> Skill?` / `.allSkills() async throws -> [Skill]`
 - `MockSkillRegistry` 接受 `[Skill]` 直接返回
-- 测试覆盖 mock 行为正确（empty registry → nil；populated → 返回；call 错误传播）
+- 测试覆盖 mock 行为正确（empty registry → nil；populated → 返回；call 错误传播）；MCPCallResult round-trip Codable 测试（encode/decode 等价）
 
 ---
 
@@ -1109,6 +1145,21 @@ xcrun llvm-cov report .build/debug/SliceAIKitPackageTests.xctest/Contents/MacOS/
   -ignore-filename-regex=".*Tests.*|.*Mock.*" \
   SliceAIKit/Sources/Orchestration
 # 期望: Orchestration line coverage ≥ 75%
+```
+
+- [ ] **Step 5.5: GateOutcome / Outcome enum exhaustive switch 反向断言（Round 2 B-3 + Round 3 修订补全）**
+
+```bash
+# 验证 Round 2 B-3 锁定的"无 default"约束在 PermissionBroker / ExecutionEngine 真正落地
+# grep -c 返回 default: 出现次数；期望 0 + 0
+echo "PermissionBroker default count:"
+grep -c "^[[:space:]]*default:" SliceAIKit/Sources/Orchestration/Permissions/PermissionBroker.swift
+echo "ExecutionEngine default count:"
+grep -c "^[[:space:]]*default:" SliceAIKit/Sources/Orchestration/Engine/ExecutionEngine.swift
+# 也包括 ErrorKind.from / Permission tier 计算等 enum 关键 switch
+echo "InvocationReport (ErrorKind.from) default count:"
+grep -c "^[[:space:]]*default:" SliceAIKit/Sources/Orchestration/Events/InvocationReport.swift
+# 期望全部为 0；非零则失败（说明实现里漏了某些 case 用 default 兜底）
 ```
 
 - [ ] **Step 6: 填充 Task-detail 实施总结**
