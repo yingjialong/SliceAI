@@ -103,7 +103,22 @@ SliceAIKit/Tests/CapabilitiesTests/
 
 ### B. Codex 评审回合记录
 
-> Round 1 / 2 / ... 在每轮评审落地后填充。第一稿尚未过评审。
+#### Round 1（2026-04-25，第一稿）
+
+**Verdict**: REWORK_REQUIRED → 接受所有 8 条 finding 并落地修订（本次提交，**不接受任何 finding 的反驳**）。
+
+| Finding | 问题 | 修复落地 |
+|---|---|---|
+| **P1-1** dry-run 绕过 PermissionBroker 下限 | 第一稿 Task 6 写 `isDryRun=true` 时所有 gate 直接 `.approved`，违反 spec §3.9.2 "下限只依赖 tier" + D-22；dry-run 仍跑 context resolution / LLM，需要 readonly-local / readonly-network 权限 | Task 6 关键设计点重写：dry-run 仅由 ExecutionEngine Step 7 跳过副作用**实际执行**，broker 入口不豁免；新增 `GateOutcome.wouldRequireConsent(uxHint:)` 给 Playground UI 显示"如果实际执行需要 X / Y / Z 权限"，但**不静默 .approved** |
+| **P1-2** 失败/拒绝路径未写 AuditLog | spec §3.9.7 明确"任何 execute 调用都至少产生一条 InvocationReport，成功/失败/被拒都记录"；第一稿 Task 4 仅 happy path 写 audit，permission-deny / context-fail 直接 yield `.failed` 退出 | Task 4 关键设计点重写：引入私有 helper `finishFailure(error:invocationId:declared:effective:flags:)` —— 构造 InvocationReport → `AuditLog.append` → 才 yield `.failed`；ExecutionEngineTests 4 条失败路径全部断言 audit.entries.count == 1 |
+| **P2-1** PermissionBroker 测试矩阵不全（D-25 漏 firstParty 部分） | 第一稿 Task 6 写"至少抽样 12 cell"；D-25 / spec §3.9.1 要求 firstParty 对所有 4 tier 都不能跳过首次确认 | Task 6 关键设计点：5 tier × 4 provenance = **20 cell 全覆盖**（不抽样）；单列 firstParty 对 readonly-network / local-write 不跳过首次确认（D-25）+ firstParty 对 network-write / exec 每次都要确认（D-22）的断言 |
+| **P2-2** PermissionGraph 缺 pipeline 测试 + provider 推导来源不清 | 第一稿 Task 7 测试矩阵只覆盖 prompt / agent / empty；`compute(tool:)` 如何从 `ContextRequest.providerId` 找到 provider 的 `inferredPermissions(for:)` 未说明 | Task 7 关键设计点：`PermissionGraph(providerRegistry: ContextProviderRegistry)` 构造期注入注册表（不硬编码 provider 名字）；测试矩阵补 2 条 pipeline 用例 + 1 条 `unknownProvider` 错误用例 |
+| **P2-3** OutputDispatcher 主展示来源与 M1 R-B 修正冲突 | 第一稿 Task 10 写"根据 `V2Tool.outputBinding.primary` 派发"；M1 plan R-B / commit `d141c05` 已锁定 `displayMode` 是 primary truth、`outputBinding.primary` 仅作 decoder 一致性校验的冗余字段 | Task 10 标题 + 关键设计点全部改为"根据 `V2Tool.displayMode` 派发"；ExecutionEngine 始终传 `tool.displayMode`，**不读** `outputBinding?.primary`；OutputBinding.sideEffects 仍由 ExecutionEngine Step 7 直接读，与 displayMode 解耦 |
+| **P2-4** Task 0 编号 33 与 Task_history 当前最大值冲突 | M1 PR merge 后 `docs/Task_history.md:7` 已是 "## Task 33 · Phase 0 M1"；plan Task 0 多处仍硬编码 Task 33 / 提到 "Task 32 在第 5 行" | Task 0 全部硬编码 Task 33 → Task 34；Step 3 插入位置改为"在 Task 33 之前"；Step 1 grep 期望从 "Task 32/31/30，下一个 33" → "Task 33/32/31，下一个 34"；Step 4 commit message 同步 |
+| **P3-1** Task 3 "init 接受 7 个依赖" | 实际列了 8 个（contextCollector / permissionBroker / providerResolver / mcpClient / skillRegistry / costAccounting / auditLog / output） | 改为 "init 接受 8 个依赖" |
+| **P3-2** Task 1 测试数量混用 4 / 5 | Step 9 备注同时写 "4 tests passing" 与 "5 tests pass" | 统一为 "5 tests pass"（ExecutionEventTests × 2 + InvocationReportTests × 3） |
+
+**未做修订**：无。Codex 8 条 finding 全部接受落地（评审报告全文见 commit message 引用 + 对话记录）。
 
 ---
 
@@ -229,7 +244,7 @@ Settings → Privacy 的 "记录选区原文" opt-in 由 Phase 2 实现，M2 阶
 
 **Files:**
 - Create: `docs/Task-detail/2026-04-25-phase-0-m2-orchestration.md`
-- Modify: `docs/Task_history.md`（在最顶部 Task 33 之前插入 Task 34）
+- Modify: `docs/Task_history.md`（在最顶部 `## Task 33 · Phase 0 M1` 之前插入 `## Task 34 · Phase 0 M2`）
 
 **步骤：**
 
@@ -238,8 +253,8 @@ Settings → Privacy 的 "记录选区原文" opt-in 由 Phase 2 实现，M2 阶
 ```bash
 # 在主仓库根目录跑（worktree 内也可）
 grep "^## Task " docs/Task_history.md | head -3
-# 期望输出：Task 32 / Task 31 / Task 30（M1 收尾时已写到 Task 32）
-# 下一个可用编号为 33；本 plan 用 Task 33（按"grep 取下一个可用值"原则，不硬编码）
+# 期望输出：Task 33 / Task 32 / Task 31（M1 PR #1 merge 后已索引到 Task 33）
+# 下一个可用编号为 34；本 plan 用 Task 34（按"grep 取下一个可用值"原则，不硬编码——若实施时已被其他 commit 占用 34，按实际 +1 取号）
 ```
 
 - [ ] **Step 2：创建 Task-detail 骨架文件**
@@ -247,7 +262,7 @@ grep "^## Task " docs/Task_history.md | head -3
 写入 `docs/Task-detail/2026-04-25-phase-0-m2-orchestration.md`：
 
 ```markdown
-# Task 33 · Phase 0 M2 · Orchestration + Capabilities 骨架
+# Task 34 · Phase 0 M2 · Orchestration + Capabilities 骨架
 
 > **状态**：实施中
 > **plan**：`docs/superpowers/plans/2026-04-25-phase-0-m2-orchestration.md`
@@ -280,12 +295,12 @@ grep "^## Task " docs/Task_history.md | head -3
 待实施完成后填充。
 ```
 
-- [ ] **Step 3：在 Task_history.md 顶部追加索引（Task 33）**
+- [ ] **Step 3：在 Task_history.md 顶部追加索引（Task 34）**
 
-在第 5 行 `## Task 32 · 基于 Codex 第七轮评审...` 之前插入：
+在第 7 行 `## Task 33 · Phase 0 M1 · 核心类型与配置迁移` 之前插入：
 
 ```markdown
-## Task 33 · Phase 0 M2 · Orchestration + Capabilities 骨架
+## Task 34 · Phase 0 M2 · Orchestration + Capabilities 骨架
 
 - **时间**：2026-04-25
 - **描述**：把 v2.0 spec §3.4 / §3.9 描述的执行引擎 + 权限闭环 + 安全模型骨架落地为 `Orchestration` + `Capabilities` 两个 target 的可独立单测代码；**不接入 app 启动链路**（M3 才切）。10 个 spec 子任务（M2.1 ExecutionEngine / M2.2 ContextCollector / M2.3 PermissionBroker / M2.3a PermissionGraph / M2.4 CostAccounting / M2.5 AuditLog / M2.6 OutputDispatcher / M2.7 PromptExecutor / M2.8 PathSandbox / M2.9 MCP/Skill 接口）拆为 14 个 implementation Task
@@ -303,7 +318,7 @@ git commit -m "$(cat <<'EOF'
 docs(phase-0/m2): seed Task-detail + Task_history index
 
 - Add docs/Task-detail/2026-04-25-phase-0-m2-orchestration.md skeleton
-- Index Task 33 in docs/Task_history.md
+- Index Task 34 in docs/Task_history.md
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
@@ -609,12 +624,11 @@ final class InvocationReportTests: XCTestCase {
 }
 ```
 
-- [ ] **Step 9: 跑完整 OrchestrationTests，确认 4 tests pass**
+- [ ] **Step 9: 跑完整 OrchestrationTests，确认 5 tests pass**
 
 ```bash
 swift test --filter OrchestrationTests
-# 期望: 4 tests passing（ExecutionEventTests x 2 + InvocationReportTests x 3 = 5...）
-# 实际：3 tests in InvocationReportTests + 2 in ExecutionEventTests = 5 tests pass
+# 期望: 5 tests pass（ExecutionEventTests x 2 + InvocationReportTests x 3）
 ```
 
 - [ ] **Step 10: 跑 swiftlint --strict，0 violations**
@@ -687,7 +701,7 @@ EOF
 
 **关键设计点：**
 - `ExecutionEngine` 是 `actor`（满足 spec §3.4 + Swift 6 strict concurrency）
-- init 接受 7 个依赖（与 spec §3.4 完全对齐）：`contextCollector` / `permissionBroker` / `providerResolver` / `mcpClient` / `skillRegistry` / `costAccounting` / `auditLog` / `output`——M2 阶段全部接受 protocol，便于测试注入 Mock
+- init 接受 **8 个依赖**（与 spec §3.4 完全对齐）：`contextCollector` / `permissionBroker` / `providerResolver` / `mcpClient` / `skillRegistry` / `costAccounting` / `auditLog` / `output` —— M2 阶段全部接受 protocol，便于测试注入 Mock
 - `execute(tool:seed:)` 返回 `AsyncThrowingStream<ExecutionEvent, Error>`；本 Task 内部只 yield `.started` + `.notImplemented` + `.finished(stub)` 三件事，让 ExecutionEngineTests 能验证流框架
 - 主流程的 Step 2 / Step 2.5 / Step 3 / Step 4 / Step 5 在 Task 4 / 6 / 7 才接入
 
@@ -703,14 +717,28 @@ EOF
 
 **完整 TDD 步骤：待第二轮展开**
 
-**关键设计点：**
-- 严格按 spec §3.4 流程：Step 1 yield `.started` → Step 2 PermissionGraph.compute + ⊆ 校验 → Step 2.5 PermissionBroker.gate → Step 3 ContextCollector.resolve → Step 4 ProviderResolver.resolve → Step 5 dispatch by tool.kind（**M2 仅展开 .prompt，.agent / .pipeline 全部 yield `.notImplemented` + finished**）→ Step 6 PromptExecutor.run 流式转 .llmChunk 给调用者 → Step 7 OutputDispatcher 处理 sideEffects（每个 sideEffect 前再过 PermissionBroker）→ Step 8 CostAccounting.record → Step 9 AuditLog.append → Step 10 yield .finished(report)
-- 测试矩阵覆盖 4 条 prompt-kind 路径：
-  - **happy**: 全 mock 放行 → 流式 yield delta → finished(report)
-  - **context-fail**: required ContextRequest 失败 → yield .failed(.context(.required(...)))
-  - **permission-deny**: PermissionBroker.gate 拒绝 → yield .failed(.permission(.denied(...)))
-  - **dry-run**: seed.isDryRun=true → 仍走 LLM but 跳过所有 sideEffect；report.flags 含 .dryRun
-- 每个测试用 OrchestrationTests/Helpers 注入完整 Mock 套件
+**关键设计点（Round 1 P1-2 修订：失败路径必须写 AuditLog；spec §3.9.7 不可绕过）：**
+
+- **统一审计**：所有 `execute(...)` 路径（成功 / 失败 / 被拒 / not-implemented）至少产生**一条** `InvocationReport` 进 `AuditLog`。引入私有 helper `finishFailure(error:invocationId:toolId:declared:effective:flags:)`：构造 InvocationReport → `await auditLog.append(...)` → 才 `yield .failed(error)` 并结束流。`finishSuccess(report:)` 同理。
+- 成功路径（spec §3.4 Step 1–10）：
+  - Step 1：`yield .started(invocationId)`（invocationId = `UUID()` 在入口生成）
+  - Step 2：`let effective = await permissionGraph.compute(tool:)` → 如 `effective.undeclared` 非空 → **finishFailure**(`.permission(.undeclared(missing:))`)
+  - Step 2.5：`let outcome = await permissionBroker.gate(effective.union, provenance: tool.provenance, scope: .session, isDryRun: seed.isDryRun)` → `.denied(reason:)` → **finishFailure**(`.permission(.denied(reason:))`)；`.requiresUserConsent` → **finishFailure**(`.permission(.notGranted)`)（M2 测试中 MockPermissionBroker 直接 .approved，无 UI）；`.wouldRequireConsent`（dry-run 路径）→ 转换为 `.notImplemented` 事件流但不 finishFailure（因为 dry-run 是合法状态）
+  - Step 3：`let resolved = try await contextCollector.resolve(seed:requests: tool.kind.contexts)` → 必填失败 throw → catch → **finishFailure**(`.context(.required(key:underlying:))`)
+  - Step 4：`let provider = try await providerResolver.resolve(tool.kind.provider)` → 失败 → **finishFailure**(`.provider(.notFound(id:))`)
+  - Step 5：`switch tool.kind { case .prompt: ...; case .agent / .pipeline: yield .notImplemented(...) ; finishSuccess(stub) }`（M2 仅展开 .prompt 真实路径）
+  - Step 6：`for try await chunk in promptExecutor.run(tool, resolved, provider) { yield .llmChunk(delta: chunk); await output.handle(chunk: chunk, mode: tool.displayMode, invocationId:) }`
+  - Step 7：`for sideEffect in tool.outputBinding?.sideEffects ?? [] { let g = await permissionBroker.gate(sideEffect.inferredPermissions, ...) ; if seed.isDryRun { yield .sideEffectTriggered(sideEffect)（标记 dry-run skipped） } else { execute }`（**dry-run 仍 gate 但不实际执行**——P1-1 修订要求；执行细节 Phase 1 才填）
+  - Step 8：`await costAccounting.record(...)`
+  - Step 9：构造 InvocationReport → **finishSuccess**(report) → 内部 `await auditLog.append(report)` → `yield .finished(report)`
+- **失败路径全部走 finishFailure helper**——保证 audit 永远记录；errorKind 包含 declared/effective/diff/flags 四项关键审计字段
+- 测试矩阵覆盖 5 条 prompt-kind 路径，**全部断言 `mockAuditLog.entries.count == 1`**：
+  - **happy**: 全 mock 放行 → 流式 yield delta → finished(report)；audit 1 条 `.finished`
+  - **context-fail**: required ContextRequest 失败 → audit 1 条 `.failed(.context.required)` → yield `.failed`
+  - **permission-deny**: PermissionBroker.gate 拒绝 → audit 1 条 `.failed(.permission.denied)` → yield `.failed`
+  - **permission-undeclared**: PermissionGraph 检测到 effective ⊄ declared → audit 1 条 `.failed(.permission.undeclared)` → yield `.failed`（**Round 1 P1-2 新增**）
+  - **dry-run**: seed.isDryRun=true → 仍走 LLM；副作用走 gate **但不实际执行**；report.flags 含 `.dryRun`；audit 1 条 `.finished`（with dryRun flag）（**Round 1 P1-1 修订**：明确 gate 仍跑、仅执行 skip）
+- 每个测试用 OrchestrationTests/Helpers 注入完整 Mock 套件（MockPermissionBroker / MockContextCollector / MockOutputDispatcher / MockAuditLog / MockProvider 等）
 
 ---
 
@@ -750,12 +778,23 @@ EOF
 
 **完整 TDD 步骤：待第二轮展开**
 
-**关键设计点：**
+**关键设计点（Round 1 P1-1 + P2-1 修订）：**
+
 - `PermissionBrokerProtocol.gate(effective: Set<Permission>, provenance: Provenance, scope: GrantScope, isDryRun: Bool) async throws -> GateOutcome`
-- `GateOutcome = .approved | .denied(reason: String) | .requiresUserConsent(uxHint: ConsentUXHint)`
-- 下限决策：把 Permission 映射到 5 个 tier（readonly-local / readonly-network / local-write / network-write / exec），每个 tier 对应 lowerBound policy
-- `firstParty` provenance 不能放行 `network-write` / `exec`：测试矩阵覆盖 spec §3.9.2 全表（5 tier × 4 provenance = 20 cell，至少抽样 12 cell）
-- `isDryRun=true` 时所有 gate 直接返回 .approved（dry-run 不实际执行副作用）
+- `GateOutcome` 现为 **4 态**：
+  - `.approved`：通过（已有 grant 或 tier 不需要确认）
+  - `.denied(reason: String)`：拒绝（用户曾经显式拒绝过 / 黑名单等）
+  - `.requiresUserConsent(uxHint: ConsentUXHint)`：需要弹 UI 确认（M2 测试中 MockPermissionBroker 不会返回此态；生产路径 M3 才接 UI）
+  - `.wouldRequireConsent(uxHint: ConsentUXHint)` **（Round 1 P1-1 新增）**：dry-run 路径下，本应弹确认的 permission——给 Playground UI 显示"如果实际执行需要 X / Y / Z 权限"用，**不静默 .approved**；caller 应识别此态后跳过实际副作用执行但继续主流程
+- 下限决策：把 Permission 映射到 5 个 tier（readonly-local / readonly-network / local-write / network-write / exec），每个 tier 对应 lowerBound policy；**lowerBound 仅依赖 tier，与 provenance 完全无关**（spec §3.9.2 关键性质，D-22）
+- **dry-run 不豁免下限（Round 1 P1-1 修订）**：spec §3.9.2 明确"下限只依赖 tier"，dry-run 仅由 ExecutionEngine Step 7 跳过副作用**实际执行**（P1-2 Step 7 修订对齐），broker 入口必须正常计算 gate：
+  - 对 readonly-local / readonly-network / local-write 的 permission（context resolution / LLM 路径所需）：**仍走完整 gate 流程**，dry-run 不允许跳
+  - 对 network-write / exec 的 permission（仅来自 sideEffect，dry-run 跳过执行）：返回 `.wouldRequireConsent(uxHint:)` 让 Playground 提示，**严禁返回 .approved 静默放行**
+- **§3.9.2 全表测试矩阵 5 tier × 4 provenance = 20 cell 全覆盖（不抽样）（Round 1 P2-1 修订）**——测试代码最低断言数下限：
+  - **D-22 子集**：所有 4 provenance 对 network-write / exec **每次**都返回 `.requiresUserConsent` 或 `.wouldRequireConsent`（共 8 cell），firstParty 也不例外
+  - **D-25 子集**：firstParty 对 readonly-network / local-write **首次**也返回 `.requiresUserConsent`（共 2 cell）—— 不允许跳过首次确认
+  - **readonly-local 子集**：所有 4 provenance 默认 `.approved`（无 grant 也通过）（共 4 cell）
+  - **其余 6 cell**：non-firstParty provenance × non-readonly-local tier 的组合按 spec §3.9.1 表显式断言 UX hint 文案差异
 - `PermissionGrantStore` 是 actor；M2 仅 in-memory 实现，session-scoped grant 持久化到 Phase 1 才做
 
 ---
@@ -772,16 +811,28 @@ EOF
 
 **完整 TDD 步骤：待第二轮展开**
 
-**关键设计点：**
+**关键设计点（Round 1 P2-2 修订：注入 ContextProviderRegistry + 补 pipeline 测试 + unknownProvider 错误）：**
+
 - 完全照抄 spec §3.9.6.5 的 `EffectivePermissions` struct（fromContexts / fromSideEffects / fromMCP / fromBuiltins / declared / union / undeclared computed）
-- `PermissionGraph.compute(tool: V2Tool) -> EffectivePermissions`：纯函数，不做 I/O
-- 测试矩阵：
-  - prompt 工具，contexts 含 `file.read` 但 tool.permissions 缺 `.fileRead` → undeclared 非空
-  - prompt 工具，sideEffects 含 `appendToFile` 但 tool.permissions 缺 `.fileWrite` → undeclared 非空
-  - agent 工具，mcpAllowlist 含 `["fs.read"]` 但 tool.permissions 缺 `.mcp(server:"fs", tools:["fs.read"])` → undeclared 非空
-  - 全部声明覆盖 → undeclared 空
-  - empty tool（无 contexts / sideEffects / mcp）→ effective.union 空集
-- ExecutionEngine 在 Step 2 调 `PermissionGraph.compute(tool: tool)`；如 `effective.undeclared` 非空 → yield `.failed(.permission(.undeclared(missing: ...)))` 并结束流，**不进 Step 3**
+- `PermissionGraph(providerRegistry: ContextProviderRegistry)` 构造期注入注册表 **（Round 1 P2-2 新增）**——`ContextProviderRegistry` 是 SliceCore 中 M1 已就绪的 `[String: any ContextProvider.Type]` 简单封装；**严禁** PermissionGraph 内部硬编码 provider 名字字符串
+- `compute(tool: V2Tool) async throws -> EffectivePermissions`（actor 上的 async 方法但**不做 I/O**）：
+  - 对每个 `ContextRequest` 通过 registry 查 provider type；找不到 → `throw PermissionGraph.Error.unknownProvider(id: request.providerId)`（让 Tool 编辑器在保存时挡住 typo 的 provider 引用）
+  - 找到 → 调静态方法 `providerType.inferredPermissions(for: request.args)` 取 permissions 进 `fromContexts`
+  - 对每个 `SideEffect` 调 `.inferredPermissions` 进 `fromSideEffects`
+  - 对 `tool.kind.agent.mcpAllowlist` 展开为 `[.mcp(server:tools:)]` 进 `fromMCP`
+  - 对 `tool.kind.agent.builtinCapabilities` 映射为 `.shellExec(commands:)` 等进 `fromBuiltins`
+  - 对 `tool.kind.pipeline.steps` 递归聚合每个 step（**Round 1 P2-2 新增**：pipeline step 含 inline `.mcp` / inline prompt with contexts 时同样累积到对应 from* set）
+- 测试矩阵（**Round 1 P2-2 修订**：补 pipeline 与 unknownProvider）：
+  - prompt 工具 + contexts 含 `file.read` 但 tool.permissions 缺 `.fileRead` → undeclared 非空
+  - prompt 工具 + sideEffects 含 `appendToFile` 但 tool.permissions 缺 `.fileWrite` → undeclared 非空
+  - agent 工具 + mcpAllowlist 含 `["fs.read"]` 但 tool.permissions 缺 `.mcp(server:"fs", tools:["fs.read"])` → undeclared 非空
+  - agent 工具 + builtinCapabilities 含 `.shellExec(["git status"])` 但 tool.permissions 缺 `.shellExec(commands:)` → undeclared 非空
+  - **pipeline 工具 + step 含 inline `.callMCP(ref:)` sideEffect 但 tool.permissions 缺 `.mcp(...)` → undeclared 非空**（P2-2 新增）
+  - **pipeline 工具 + step 含 inline prompt with contexts 引用 `file.read` 但 tool.permissions 缺 `.fileRead` → undeclared 非空**（P2-2 新增）
+  - **registry 缺 provider id**（tool.contexts 引用 "nonexistent.foo"，registry 没注册）→ throw `PermissionGraph.Error.unknownProvider(id: "nonexistent.foo")`（P2-2 新增）
+  - 全部声明覆盖（prompt / agent / pipeline 各跑一次） → undeclared 空
+  - empty tool（无 contexts / sideEffects / mcp / builtin） → effective.union 空集
+- ExecutionEngine 在 Step 2 调 `await permissionGraph.compute(tool: tool)`；如 `effective.undeclared` 非空 → 走 `finishFailure(.permission(.undeclared(missing: ...)))`（与 Task 4 P1-2 修订对齐），**不进 Step 3**；如 throw `unknownProvider` → 走 `finishFailure(.configuration(.invalidTool(...)))`
 
 ---
 
@@ -832,7 +883,7 @@ EOF
 
 ## Task 10: M2.6 · OutputDispatcherProtocol + 默认实现（仅 .window 分支）
 
-> 落地 spec §3.3.6 + §3.4 Step 6/7 的 OutputDispatcher：根据 V2Tool.outputBinding.primary 派发到对应 sink。M2 只实现 `.window` 分支（落到 in-memory MockWindowSink），其余 5 个 PresentationMode 直接 yield `.notImplemented`。
+> 落地 spec §3.3.6 + §3.4 Step 6/7 的 OutputDispatcher：**根据 `V2Tool.displayMode` 派发**到对应 sink（**Round 1 P2-3 修订**——M1 plan R-B / commit `d141c05` 已锁定 `displayMode` 是 primary truth、`outputBinding.primary` 仅作 V2Tool decoder/validate 的一致性校验冗余字段；ExecutionEngine 与 OutputDispatcher **都不读 outputBinding.primary**）。M2 只实现 `.window` 分支（落到 in-memory MockWindowSink），其余 5 个 PresentationMode 直接返回 `.notImplemented`。
 
 **Files:**
 - Create: `SliceAIKit/Sources/Orchestration/Output/OutputDispatcherProtocol.swift`
@@ -841,11 +892,15 @@ EOF
 
 **完整 TDD 步骤：待第二轮展开**
 
-**关键设计点：**
+**关键设计点（Round 1 P2-3 修订）：**
+
 - `OutputDispatcherProtocol.handle(chunk: String, mode: PresentationMode, invocationId: UUID) async throws -> DispatchOutcome`
+- ExecutionEngine 调用时**始终**传 `tool.displayMode`，**严禁**传 `tool.outputBinding?.primary`（**Round 1 P2-3 修订**——遵循 M1 plan R-B 锁定的"displayMode 是 primary truth"决议；`outputBinding.primary` 在 V2Tool decoder 处已与 displayMode 校验过一致性，运行时只读 displayMode）
 - `DispatchOutcome = .delivered | .notImplemented(reason: String)`
 - `.window` 分支：把 chunk 投递到 `WindowSinkProtocol`（M2 测试用 `InMemoryWindowSink` 收集，生产路径 M3 才接入 ResultPanel）
 - `.bubble` / `.replace` / `.file` / `.silent` / `.structured` 一律返回 `.notImplemented(reason: "...")`，让 ExecutionEngine 把这条事件转发为 `.notImplemented` ExecutionEvent
+- **OutputBinding.sideEffects 处理路径**：仍由 ExecutionEngine Step 7 直接读 `tool.outputBinding?.sideEffects`，与 `tool.displayMode` **完全解耦**——sideEffect 与 displayMode 是正交维度，不依赖 outputBinding.primary 这个冗余字段
+- 测试矩阵补一条断言：构造 V2Tool 让 `displayMode != outputBinding.primary`（理论上 V2Tool decoder 会拒绝，但单测可绕过 decoder 直接构造）→ OutputDispatcher 仍按 displayMode 派发，验证不会读 outputBinding.primary
 
 ---
 
