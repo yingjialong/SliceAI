@@ -126,14 +126,15 @@ extension InvocationOutcome.ErrorKind {
     /// 把 SliceError 顶层 case 映射到 InvocationOutcome.ErrorKind
     ///
     /// 使用 exhaustive switch（无 default）——SliceError 加新顶层 case 时编译器强制更新此映射。
-    /// Task 1 只处理 M1 已有的 4 个 case；Task 5/7 新增 `.context` / `.toolPermission`
-    /// 后需同步在 SliceError 对应 case 并在此补充映射分支。
+    /// Task 1 只处理 M1 已有的 4 个 case；Task 5 已补 `.context`；Task 7 新增
+    /// `.toolPermission` 时再补一行映射即可。
     public static func from(_ error: SliceError) -> InvocationOutcome.ErrorKind {
         switch error {
         case .selection:      return .selection
         case .provider:       return .provider
         case .configuration:  return .configuration
         case .permission:     return .permission
+        case .context:        return .context
         }
     }
 }

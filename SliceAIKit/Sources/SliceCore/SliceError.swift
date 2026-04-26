@@ -6,6 +6,8 @@ public enum SliceError: Error, Sendable, Equatable {
     case provider(ProviderError)
     case configuration(ConfigurationError)
     case permission(PermissionError)
+    /// v2 上下文采集失败（M2 Round 4 新增）；细分语义见 `ContextError`
+    case context(ContextError)
 
     /// 面向最终用户的友好错误文案
     public var userMessage: String {
@@ -14,6 +16,7 @@ public enum SliceError: Error, Sendable, Equatable {
         case .provider(let e): return e.userMessage
         case .configuration(let e): return e.userMessage
         case .permission(let e): return e.userMessage
+        case .context(let e): return e.userMessage
         }
     }
 
@@ -54,6 +57,15 @@ public enum SliceError: Error, Sendable, Equatable {
             switch e {
             case .accessibilityDenied: return "permission.accessibilityDenied"
             case .inputMonitoringDenied: return "permission.inputMonitoringDenied"
+            }
+        // 脱敏规则：ContextKey.rawValue / ContextProvider id / underlying SliceError 都可能携带
+        // 用户文件路径 / MCP server 名 / API 响应等敏感信息——按"任意 String payload 一律
+        // <redacted>"原则统一脱敏，避免上下文采集失败的日志反向泄漏用户工作内容。
+        case .context(let e):
+            switch e {
+            case .requiredFailed: return "context.requiredFailed(<redacted>)"
+            case .providerNotFound: return "context.providerNotFound(<redacted>)"
+            case .timeout: return "context.timeout(<redacted>)"
             }
         }
     }
