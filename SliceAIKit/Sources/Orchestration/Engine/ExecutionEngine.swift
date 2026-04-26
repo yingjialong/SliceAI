@@ -2,42 +2,53 @@ import Capabilities
 import Foundation
 import SliceCore
 
-/// 执行引擎主 actor。Task 3 仅落地：actor 声明 + 10-dep init 装配 + execute 入口签名 +
-/// AsyncThrowingStream 三事件占位。
+/// v2 编排主入口：把一次"触发种子 + V2Tool"驱动到 LLM 调用 + 副作用 + 审计落盘。
 ///
-/// 真正的 Step 1-10 主流程（PermissionGraph 校验 / ContextCollector / ProviderResolver /
-/// PromptExecutor / LLM stream / OutputDispatcher / sideEffects / CostAccounting /
-/// AuditLog / finished）在 **Task 4** 中替换 `runMainFlow` 占位实现。
+/// **流程概览（spec §3.4 Step 1-10）**：
+/// 1. `.started` 事件 + 记录 `startedAt`
+/// 2. PermissionGraph 静态聚合 effective permissions；undeclared 非空直接终止
+/// 3. PermissionBroker.gate 整体 effective 集合（4 态决策）
+/// 4. ContextCollector 平铺并发解析 ContextRequest
+/// 5. ProviderResolver 解析 ProviderSelection 到具体 V2Provider
+/// 6. 按 tool.kind 分派；M2 仅 `.prompt` 走 PromptExecutor，其余 yield `.notImplemented`
+/// 7. PromptExecutor 流：转发 chunk + OutputDispatcher 投递；末尾收 `.completed(UsageStats)`
+/// 8. outputBinding.sideEffects：每条独立 gate；dry-run skip / partial-failure 标记
+/// 9. CostAccounting 写一条 CostRecord（usd 估算）
+/// 10. finishSuccess/finishFailure：构造 InvocationReport 写 AuditLog + yield `.finished`/`.failed`
 ///
-/// 本 Task 完成时，调用 `execute(tool:seed:)` 立即 yield `.started` →
-/// `.notImplemented(reason:)` → `.finished(report:)` 三件事并 finish stream，
-/// 让单测能验证 init + 流框架。
+/// **依赖装配（§C-10.1 audit 表）**：10 个依赖按 actor / protocol 区分；UI 模式下由
+/// `AppContainer` 一次性 wire，测试用对应 Helpers/Mock 注入。
 ///
-/// **10 个依赖参数与 §C-10.1 audit 表 1:1 对应**
+/// **设计要点**：
+/// - 主流程拆成多个 actor-isolated step helper（见 `ExecutionEngine+Steps.swift`），
+///   每个 helper 接受同一个 `FlowContext` 上下文打包，避免参数爆炸；
+/// - 错误处理统一收口到 `finishFailure`，调用方只需 match `.failed` / `.finished` 两种终态；
+/// - `nonisolated func execute(...)` 让调用方拿到 stream 时无需 await，符合 Task 3 已发布契约；
+///   真正的并发隔离由内部 `runMainFlow` 这个 actor-isolated 方法承担。
 public actor ExecutionEngine {
 
     // MARK: - Stored dependencies（§C-10.1 audit 表中的 10 个依赖）
 
-    /// Task 5 扩展后负责并发采集 ContextRequest 的集合器
-    private let contextCollector: ContextCollector
-    /// Task 6 扩展后负责 permission gate 决策的代理（protocol 形态，便于测试注入）
-    private let permissionBroker: any PermissionBrokerProtocol
-    /// Task 7 扩展后负责聚合 effectivePermissions 的图结构
-    private let permissionGraph: PermissionGraph
-    /// Task 2 完成的 ProviderSelection → V2Provider 解析器
-    private let providerResolver: any ProviderResolverProtocol
-    /// Task 11 扩展后负责渲染 prompt + 调用 LLM stream 的执行器
-    private let promptExecutor: PromptExecutor
-    /// Task 13 扩展后负责 MCP tool call 的客户端（protocol 形态）
-    private let mcpClient: any MCPClientProtocol
-    /// Task 13 扩展后负责 Skill 解析的注册表（protocol 形态）
-    private let skillRegistry: any SkillRegistryProtocol
-    /// Task 8 扩展后负责 token cost 记账的 actor
-    private let costAccounting: CostAccounting
-    /// Task 9 扩展后负责追加结构化审计条目的日志（protocol 形态）
-    private let auditLog: any AuditLogProtocol
-    /// Task 10 扩展后负责把结果分发到 UI / file / clipboard 的派发器（protocol 形态）
-    private let output: any OutputDispatcherProtocol
+    /// 并发上下文采集器（actor）
+    let contextCollector: ContextCollector
+    /// 权限决策代理（protocol）
+    let permissionBroker: any PermissionBrokerProtocol
+    /// 有效权限聚合图（actor）
+    let permissionGraph: PermissionGraph
+    /// ProviderSelection 解析器（protocol）
+    let providerResolver: any ProviderResolverProtocol
+    /// Prompt 渲染 + LLM 流调用器（actor）
+    let promptExecutor: PromptExecutor
+    /// MCP tool call 客户端（protocol，Task 13 落地）
+    let mcpClient: any MCPClientProtocol
+    /// Skill 注册表（protocol，Task 13 落地）
+    let skillRegistry: any SkillRegistryProtocol
+    /// Token cost 记账器（actor）
+    let costAccounting: CostAccounting
+    /// 审计日志追加器（protocol）
+    let auditLog: any AuditLogProtocol
+    /// 结果派发器（protocol）
+    let output: any OutputDispatcherProtocol
 
     // MARK: - Init
 
@@ -82,15 +93,14 @@ public actor ExecutionEngine {
 
     /// 入口：同步返回 stream，主流程在 actor-isolated `runMainFlow` 中执行。
     ///
-    /// Task 3 占位：仅 yield .started → .notImplemented → .finished(stub) 三件事；
-    /// Task 4 替换为真实 Step 1-10 主流程。
+    /// `nonisolated`：本方法不直接读写 actor 状态，仅创建 Task 并把工作委托给
+    /// actor-isolated `runMainFlow`。标记 nonisolated 允许调用方无需 await 即可拿到 stream
+    /// （与 Task 3 发布的契约一致，避免 caller 改签名）。
     ///
     /// - Parameters:
     ///   - tool: 要执行的 V2Tool
     ///   - seed: 本次调用的执行种子（选区 / 前台 App / 锚点等）
-    /// - Returns: AsyncThrowingStream 事件序列；Task 3 阶段固定产出 3 个事件后结束
-    /// `nonisolated`：本方法不直接读写 actor 状态，仅创建 Task 并把工作委托给
-    /// actor-isolated `runMainFlow`。标记 nonisolated 允许调用方无需 await 即可拿到 stream。
+    /// - Returns: AsyncThrowingStream 事件序列；按 spec §3.4 顺序产出 Step 1-10 各事件
     public nonisolated func execute(
         tool: V2Tool,
         seed: ExecutionSeed
@@ -108,41 +118,72 @@ public actor ExecutionEngine {
         }
     }
 
-    // MARK: - Actor-isolated 主流程（Task 3 占位 / Task 4 真实实现）
+    // MARK: - Actor-isolated 主流程
 
-    /// Task 3 占位：直接 yield 三事件框架；Task 4 替换为完整 Step 1-10 主流程。
+    /// 主流程入口：依次执行 Step 1-10，各阶段失败统一收口到 `finishFailure`。
     ///
-    /// - Parameters:
-    ///   - tool: 要执行的 V2Tool
-    ///   - seed: 执行种子
-    ///   - continuation: AsyncThrowingStream 续体，负责事件输出和流结束
-    private func runMainFlow(
+    /// 把每个阶段的 happy / failure 路径拆成独立 helper（见 `ExecutionEngine+Steps.swift`），
+    /// 让本方法控制流极简（仅顺序串接）；所有跨 step 共享的上下文（invocationId / toolId /
+    /// declared / startedAt / continuation）打包成 `FlowContext` 引用类型，避免参数爆炸。
+    func runMainFlow(
         tool: V2Tool,
         seed: ExecutionSeed,
         continuation: AsyncThrowingStream<ExecutionEvent, any Error>.Continuation
     ) async {
-        let invocationId = UUID()
-
-        // Step 1 占位：标记主流程已启动
-        continuation.yield(.started(invocationId: invocationId))
-
-        // Task 3 placeholder：真实 Step 2-9 由 Task 4 替换
-        continuation.yield(.notImplemented(reason: "Task 3 placeholder; Task 4 will wire Step 1-10 main flow"))
-
-        // Task 3 stub finished report，使用 InvocationReport 显式构造（#if DEBUG stub() 仅测试可用）
-        let stubReport = InvocationReport(
-            invocationId: invocationId,
+        // Step 1：派发 .started + 记录开始时间，用于 InvocationReport.startedAt
+        let context = FlowContext(
+            invocationId: UUID(),
             toolId: tool.id,
-            declaredPermissions: Set(tool.permissions),
-            effectivePermissions: [],
-            flags: [],
+            declared: Set(tool.permissions),
             startedAt: Date(),
-            finishedAt: Date(),
-            totalTokens: 0,
-            estimatedCostUSD: 0,
-            outcome: .success
+            continuation: continuation
         )
-        continuation.yield(.finished(report: stubReport))
-        continuation.finish()
+        continuation.yield(.started(invocationId: context.invocationId))
+
+        // Step 2：PermissionGraph 静态聚合 + undeclared 校验
+        guard let effective = await runPermissionGraph(tool: tool, context: context) else { return }
+        context.effective = effective.union
+
+        // Step 2.5：PermissionBroker 整体 gate（dry-run 仍走 lowerBound 计算）
+        guard await runPermissionGate(
+            tool: tool, effective: effective, isDryRun: seed.isDryRun, context: context
+        ) else { return }
+
+        // Step 3：ContextCollector 平铺并发解析 ContextRequest
+        guard let resolved = await runContextCollection(
+            tool: tool, seed: seed, context: context
+        ) else { return }
+
+        // Step 4：ProviderResolver 解析 ProviderSelection
+        guard let provider = await runProviderResolution(tool: tool, context: context) else { return }
+
+        // Step 5/6：按 tool.kind 分派；M2 阶段只展开 .prompt
+        let promptTool: PromptTool
+        switch tool.kind {
+        case .prompt(let p):
+            promptTool = p
+        case .agent, .pipeline:
+            // M2 不实现 .agent / .pipeline；yield .notImplemented + finishSuccess（stub 报告）
+            await finishNotImplementedKind(context: context)
+            return
+        }
+
+        // Step 6/7：PromptExecutor 流式调用 + OutputDispatcher 派发
+        guard let promptUsage = await runPromptStream(
+            tool: tool, promptTool: promptTool, resolved: resolved, provider: provider,
+            context: context
+        ) else { return }
+
+        // Step 7（续）：sideEffects 逐条 gate；partial-failure 写入 flags
+        let partialFailure = await runSideEffects(
+            tool: tool, isDryRun: seed.isDryRun, context: context
+        )
+        if partialFailure { context.flags.insert(.partialFailure) }
+
+        // Step 8/9：CostAccounting + finishSuccess（拆 helper 收纳计费 + 终态收口）
+        await recordCostAndFinishSuccess(
+            tool: tool, provider: provider, usage: promptUsage,
+            isDryRun: seed.isDryRun, context: context
+        )
     }
 }
