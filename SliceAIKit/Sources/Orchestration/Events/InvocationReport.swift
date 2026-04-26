@@ -133,6 +133,7 @@ extension InvocationOutcome.ErrorKind {
         case .configuration:  return .configuration
         case .permission:     return .permission
         case .context:        return .context
+        case .toolPermission: return .toolPermission
         }
     }
 }

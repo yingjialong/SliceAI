@@ -8,6 +8,8 @@ public enum SliceError: Error, Sendable, Equatable {
     case permission(PermissionError)
     /// v2 上下文采集失败；细分语义见 `ContextError`
     case context(ContextError)
+    /// v2 工具权限决策失败；细分语义见 `ToolPermissionError`
+    case toolPermission(ToolPermissionError)
 
     /// 面向最终用户的友好错误文案
     public var userMessage: String {
@@ -17,6 +19,7 @@ public enum SliceError: Error, Sendable, Equatable {
         case .configuration(let e): return e.userMessage
         case .permission(let e): return e.userMessage
         case .context(let e): return e.userMessage
+        case .toolPermission(let e): return e.userMessage
         }
     }
 
@@ -52,6 +55,9 @@ public enum SliceError: Error, Sendable, Equatable {
             // V2Provider.validate / V2Tool.validate），但统一按"任意 String payload 一律 <redacted>"
             // 原则处理，避免未来扩展 validator 时误把 prompt / apiKey 等拼进 msg 导致日志泄漏。
             case .validationFailed: return "configuration.validationFailed(<redacted>)"
+            // 脱敏规则：tool id / reason 都可能携带用户自由文本（自定义工具 id / validator 描述），
+            // 一律 <redacted>，与 validationFailed 同口径。
+            case .invalidTool: return "configuration.invalidTool(<redacted>)"
             }
         case .permission(let e):
             switch e {
@@ -66,6 +72,20 @@ public enum SliceError: Error, Sendable, Equatable {
             case .requiredFailed: return "context.requiredFailed(<redacted>)"
             case .providerNotFound: return "context.providerNotFound(<redacted>)"
             case .timeout: return "context.timeout(<redacted>)"
+            }
+        // 脱敏规则：所有 toolPermission 子 case 都可能携带敏感信息——
+        // - missing 集合元素含 fileRead/fileWrite path（用户文件路径）/ mcp server 名 / appIntents bundleId
+        // - denied/notGranted 同上 + reason 文案可能含外部错误信息
+        // - unknownProvider id 可能是用户自定义工具的引用（如私有 MCP 名）
+        // - sandboxViolation path 是用户文件路径
+        // 一律 <redacted>，仅保留 .undeclared 的 count 作为日志可观测性数据。
+        case .toolPermission(let e):
+            switch e {
+            case .undeclared(let missing): return "toolPermission.undeclared(count=\(missing.count))"
+            case .denied: return "toolPermission.denied(<redacted>)"
+            case .notGranted: return "toolPermission.notGranted"
+            case .unknownProvider: return "toolPermission.unknownProvider(<redacted>)"
+            case .sandboxViolation: return "toolPermission.sandboxViolation(<redacted>)"
             }
         }
     }
@@ -131,6 +151,12 @@ public enum ConfigurationError: Error, Sendable, Equatable {
     /// 在写入磁盘前调用。msg 由 validator 生成，只包含 provider id / tool id / 字段名等"技术描述"——
     /// **不得**包含 prompt / API Key 等用户自由文本。
     case validationFailed(String)
+    /// Tool manifest 配置错误（如引用未注册的 ContextProvider id / 不合法的 builtinCapability）
+    ///
+    /// 与 `validationFailed` 的区别：`validationFailed` 是结构性 / 字段级校验，
+    /// `invalidTool` 是引用 / 关系级校验（manifest 自身合法但跨资源引用断链）。
+    /// 由 `PermissionGraph.compute(tool:)` 等更晚阶段的处理器抛出。
+    case invalidTool(id: String, reason: String)
 
     public var userMessage: String {
         switch self {
@@ -145,6 +171,9 @@ public enum ConfigurationError: Error, Sendable, Equatable {
         case .validationFailed(let msg):
             // validator 生成的 msg 原样带给用户，便于定位到具体 provider / tool 字段
             return "配置校验失败：\(msg)"
+        case .invalidTool(let id, let reason):
+            // tool id + reason 拼成可读文案，便于用户在 Settings 里定位到出错的工具
+            return "工具 \"\(id)\" 配置错误：\(reason)"
         }
     }
 }

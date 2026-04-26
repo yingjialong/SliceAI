@@ -69,12 +69,14 @@ final class ExecutionEngineTests: XCTestCase {
     /// 构造带全部 10 个依赖的 ExecutionEngine
     ///
     /// Task 5 已把 `ContextCollector()` stub init 替换为 `init(registry:)`；
+    /// Task 7 把 `PermissionGraph()` 替换为 `init(providerRegistry:)`，
     /// fixture 注入空 `ContextProviderRegistry`（无任何 provider）以保持骨架测试不依赖真实采集。
     private func makeEngine() -> ExecutionEngine {
-        ExecutionEngine(
-            contextCollector: ContextCollector(registry: ContextProviderRegistry(providers: [:])),
+        let emptyRegistry = ContextProviderRegistry(providers: [:])
+        return ExecutionEngine(
+            contextCollector: ContextCollector(registry: emptyRegistry),
             permissionBroker: MockPermissionBroker(),
-            permissionGraph: PermissionGraph(),
+            permissionGraph: PermissionGraph(providerRegistry: emptyRegistry),
             providerResolver: DefaultProviderResolver(
                 configurationProvider: { MockProvider.configWith([]) }
             ),
