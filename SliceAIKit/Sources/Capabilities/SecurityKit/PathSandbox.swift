@@ -50,12 +50,19 @@ public struct PathSandbox: Sendable {
 
     /// 硬禁止前缀（**带尾随 `/`**）：永远拒绝，无视用户配置 / 角色。
     /// 既包含用户家目录敏感位置，也包含系统级敏感位置。
+    ///
+    /// **macOS symlink 兜底**：`/etc → /private/etc`、`/var → /private/var` 是 macOS 系统级 symlink，
+    /// `resolvingSymlinksInPath()` 会把 `/etc/passwd` 展开为 `/private/etc/passwd`。如果只列 `/etc/`，
+    /// 展开后的路径就匹配不到硬禁止——一旦用户 allowlist 包含 `/private/etc/`，就能绕过硬禁止。
+    /// 因此把 `/private/etc/`、`/private/var/db/` 同步列入硬禁止表，覆盖展开后的真实路径。
     private static let hardDenyPrefixesTilde: [String] = [
         "~/Library/Keychains/",
         "~/.ssh/",
         "~/Library/Cookies/",
         "/etc/",
+        "/private/etc/",
         "/var/db/",
+        "/private/var/db/",
         "/Library/Keychains/"
     ]
 

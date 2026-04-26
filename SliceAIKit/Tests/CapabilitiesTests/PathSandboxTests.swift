@@ -149,11 +149,26 @@ final class PathSandboxTests: XCTestCase {
                 return
             }
             XCTAssertEqual(rawPath, raw)
-            // /etc 在 macOS 上是 symlink → /private/etc，resolvingSymlinksInPath 后通常变 /private/etc/passwd
-            // 但硬禁止匹配是基于 normalize 后的字符串前缀；/private/etc 不在硬禁止表里，
-            // 所以这里实际拦截发生在"白名单"那一关而非"硬禁止"那一关——但抛的错误类型是同一个 .escapesAllowlist
-            // 这正是 spec §3.9.3 的设计：硬禁止 + 白名单两道关只用一种"逃逸"错误类型对外
             XCTAssertFalse(normalized.isEmpty)
+        }
+    }
+
+    /// **关键安全回归**：用户把 `/private/etc/` 加入 user allowlist 后，硬禁止仍然拒绝。
+    ///
+    /// 这一条是修复"macOS symlink 展开后绕过硬禁止"漏洞的金标准测试：
+    /// `/etc/passwd` 经 `resolvingSymlinksInPath()` 变成 `/private/etc/passwd`；
+    /// 若硬禁止表只有 `/etc/`，则 user allowlist `/private/etc/` 命中 → 通过 → 泄露 passwd。
+    /// 修复后硬禁止表同时包含 `/private/etc/`，user allowlist 不再能绕过。
+    func test_normalize_userAllowlistCannotBypassHardDeny_throwsEscapesAllowlist() {
+        // 用户故意把 macOS 真实的 /private/etc/ 加进 user allowlist
+        let sandbox = PathSandbox(userAllowlist: ["/private/etc/"])
+        let raw = "/etc/passwd"
+
+        XCTAssertThrowsError(try sandbox.normalize(raw, role: .read)) { error in
+            guard case PathSandboxError.escapesAllowlist = error else {
+                XCTFail("user allowlist 不应能绕过硬禁止，预期 .escapesAllowlist，实际 \(error)")
+                return
+            }
         }
     }
 
@@ -218,6 +233,25 @@ final class PathSandboxTests: XCTestCase {
         XCTAssertTrue(
             normalized.path.contains("/Library/Application Support/SliceAI/"),
             "normalized 应位于 SliceAI 应用支持目录，实际 = \(normalized.path)"
+        )
+    }
+
+    /// **Phase 1 回归保护**：user allowlist 同时进 `.read` 与 `.write` 池。
+    ///
+    /// plan §1948–1951 明确"`.write` 仅允许 `~/Library/Application Support/SliceAI/**` + 用户附加白名单"。
+    /// 当 Phase 1 接入 Settings → Permissions → File Access 让用户加入自定义目录时，
+    /// 该目录下的写操作必须能通过——否则用户配置形同虚设。
+    func test_normalize_userAllowlistWrite_returnsExpandedURL() throws {
+        // 用户把 ~/Code/ 加入 allowlist
+        let sandbox = PathSandbox(userAllowlist: ["~/Code/"])
+        let raw = "~/Code/main.py"
+
+        let normalized = try sandbox.normalize(raw, role: .write)
+
+        XCTAssertEqual(normalized.lastPathComponent, "main.py")
+        XCTAssertTrue(
+            normalized.path.contains("/Code/"),
+            "user allowlist 路径应能写入，实际 = \(normalized.path)"
         )
     }
 
