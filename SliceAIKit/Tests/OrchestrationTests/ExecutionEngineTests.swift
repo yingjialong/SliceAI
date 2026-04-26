@@ -9,6 +9,26 @@ import XCTest
 /// Task 4 填入真实主流程后，本文件中的 `test_execute_*` 测试会被扩展或替换。
 final class ExecutionEngineTests: XCTestCase {
 
+    // MARK: - Test lifecycle state
+
+    /// 收集本测试类创建过的临时 CostAccounting db 文件 URL。
+    /// makeEngine() 每次注册一个 URL，tearDown 统一删除，避免在 NSTemporaryDirectory()
+    /// 堆积 sqlite db 文件污染 CI 环境（与 CostAccountingTests 自身的 tearDown 清理对齐）。
+    private var tempDbURLs: [URL] = []
+
+    /// 测试方法结束后清理 tempDbURLs：
+    /// - 此时 makeEngine() 返回的 ExecutionEngine actor（持有 CostAccounting）通常已是 local
+    ///   var 出作用域，ARC 释放后 CostAccounting deinit 关闭 sqlite 句柄；
+    /// - 然后再删 db 文件；用 try? 是因为文件可能已不存在（上一轮删掉过 / 测试根本没创建），
+    ///   不应导致 tearDown 失败。
+    override func tearDown() async throws {
+        for url in tempDbURLs {
+            try? FileManager.default.removeItem(at: url)
+        }
+        tempDbURLs.removeAll()
+        try await super.tearDown()
+    }
+
     // MARK: - Fixture builders
 
     /// 构造最小 V2Tool 测试 stub
@@ -72,11 +92,15 @@ final class ExecutionEngineTests: XCTestCase {
     /// Task 7 把 `PermissionGraph()` 替换为 `init(providerRegistry:)`；
     /// Task 8 把 `CostAccounting()` 替换为 `init(dbURL:) throws`，fixture 改为 throws 传播。
     /// fixture 注入空 `ContextProviderRegistry`（无任何 provider）以保持骨架测试不依赖真实采集；
-    /// CostAccounting 用临时目录下的随机 .db 文件，测试结束后由 OS 清理（个别测试若需精细清理可显式删除）。
+    /// CostAccounting 用临时目录下的随机 .db 文件，dbURL 注册到 tempDbURLs 由 tearDown 清理，
+    /// 避免 CI 长期跑积累 sqlite 临时文件。
     private func makeEngine() throws -> ExecutionEngine {
         let emptyRegistry = ContextProviderRegistry(providers: [:])
         let dbURL = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("sliceai-engine-cost-\(UUID().uuidString).db")
+        // 先注册到清理列表，再 try CostAccounting init —— 即便 init 失败抛错，
+        // 已落盘的临时文件（若有）仍能在 tearDown 中被删除。
+        tempDbURLs.append(dbURL)
         let costAccounting = try CostAccounting(dbURL: dbURL)
         return ExecutionEngine(
             contextCollector: ContextCollector(registry: emptyRegistry),
