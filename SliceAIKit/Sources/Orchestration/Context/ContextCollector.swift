@@ -3,7 +3,7 @@ import SliceCore
 
 // MARK: - ContextProviderRegistry
 
-/// 上下文提供方注册表（M2 Task 5 新增）
+/// 上下文提供方注册表
 ///
 /// 设计要点：
 /// - **存实例不存 metatype**：让同一 provider 实例在 `ContextCollector` 与未来的
@@ -46,18 +46,27 @@ public actor ContextCollector {
     /// 共享的 provider 注册表（实例存储）
     private let registry: ContextProviderRegistry
 
-    /// 单 request 默认 timeout（M1 `ContextRequest` 暂无 timeout 字段；M3 加字段后从 request 读）
+    /// 单 request fallback timeout（per-request 默认值）
     ///
+    /// 设计语义：未来 `ContextRequest` 引入 `timeout` 字段后从 request 取值，构造期注入仅作
+    /// 兜底默认值。当前每个 request 都使用本值。
     /// 用 nanoseconds 而非 `Duration` 以兼容旧 macOS 14 SDK 的 `Task.sleep(nanoseconds:)` API。
-    private static let defaultTimeoutNanoseconds: UInt64 = 5 * 1_000_000_000
+    private let defaultTimeoutNanoseconds: UInt64
 
     // MARK: - Init
 
     /// 构造 collector
-    /// - Parameter registry: 共享的 `ContextProviderRegistry`（与未来的 `PermissionGraph`
-    ///   共用同一实例，避免双重注册）
-    public init(registry: ContextProviderRegistry) {
+    /// - Parameters:
+    ///   - registry: 共享的 `ContextProviderRegistry`（与未来的 `PermissionGraph` 共用同一实例，
+    ///     避免双重注册）。
+    ///   - defaultTimeoutNanoseconds: 单 request 默认 timeout（纳秒），默认 5 秒。可在测试中
+    ///     注入更小值以加速 timeout 路径用例；生产路径建议沿用默认值。
+    public init(
+        registry: ContextProviderRegistry,
+        defaultTimeoutNanoseconds: UInt64 = 5 * 1_000_000_000
+    ) {
         self.registry = registry
+        self.defaultTimeoutNanoseconds = defaultTimeoutNanoseconds
     }
 
     // MARK: - Public API
@@ -93,7 +102,7 @@ public actor ContextCollector {
             for request in requests {
                 // 在主 task 体内捕获 request（值类型，跨 actor 安全）+ registry / seed
                 let registry = self.registry
-                let timeout = Self.defaultTimeoutNanoseconds
+                let timeout = self.defaultTimeoutNanoseconds
                 group.addTask {
                     await Self.runOne(
                         request: request,
@@ -212,12 +221,12 @@ public actor ContextCollector {
     /// 把"非 SliceError"的底层错误包装为 SliceError
     ///
     /// **设计决策**：选用 `.provider(.networkTimeout)` 作为通用 wrapper，理由：
-    /// - SliceCore 现存 4 个顶层 case（selection / provider / configuration / permission）+
-    ///   Task 5 新增的 .context 中，IO / 网络 / 解码类底层错误语义最贴近"provider 行为类问题"。
+    /// - SliceCore 顶层 case（selection / provider / configuration / permission / context）中，
+    ///   IO / 网络 / 解码类底层错误语义最贴近"provider 行为类问题"。
     /// - 选 networkTimeout 而非 invalidResponse 是因为后者带 String payload（用户文本），
     ///   wrapper 不应携带任何上下文信息，networkTimeout 无关联值最安全。
     /// - 信息丢失（URLError.code / DecodingError.context）是可接受代价：开发期可在 ContextCollector
-    ///   入口另加日志（本任务暂未加，遵守 CLAUDE.md "无自由日志"规范——后续 Task 9 AuditLog 处理）。
+    ///   入口另加日志（本任务暂未加，遵守 CLAUDE.md "无自由日志"规范——AuditLog 接入后再处理）。
     /// - 测试断言只到外层 `.context(.requiredFailed(key:, underlying: _))`，不锁死 wrapper 的具体形态，
     ///   留出未来调整空间。
     private static func wrapAsSliceError(_ error: any Error) -> SliceError {

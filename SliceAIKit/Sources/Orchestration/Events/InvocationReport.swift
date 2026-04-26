@@ -105,7 +105,7 @@ public enum InvocationOutcome: Sendable, Codable, Equatable {
     /// dry-run 模式完成（未产生真实副作用）
     case dryRunCompleted
 
-    /// 错误大类（与 SliceError 6 顶层 case 对齐——含 Task 5/7 待新增的 .context / .toolPermission）
+    /// 错误大类（与 SliceError 顶层 case 对齐）
     public enum ErrorKind: String, Sendable, Codable, Equatable {
         /// 选区捕获失败
         case selection
@@ -115,9 +115,9 @@ public enum InvocationOutcome: Sendable, Codable, Equatable {
         case configuration
         /// 系统权限错误（accessibilityDenied / inputMonitoringDenied）
         case permission
-        /// v2 上下文采集错误（Task 5 新增：SliceError.context(ContextError)）
+        /// v2 上下文采集错误（SliceError.context(ContextError)）
         case context
-        /// v2 工具权限决策错误（Task 7 新增：SliceError.toolPermission(ToolPermissionError)）
+        /// v2 工具权限决策错误（SliceError.toolPermission(ToolPermissionError)）
         case toolPermission
     }
 }
@@ -125,9 +125,7 @@ public enum InvocationOutcome: Sendable, Codable, Equatable {
 extension InvocationOutcome.ErrorKind {
     /// 把 SliceError 顶层 case 映射到 InvocationOutcome.ErrorKind
     ///
-    /// 使用 exhaustive switch（无 default）——SliceError 加新顶层 case 时编译器强制更新此映射。
-    /// Task 1 只处理 M1 已有的 4 个 case；Task 5 已补 `.context`；Task 7 新增
-    /// `.toolPermission` 时再补一行映射即可。
+    /// 使用 exhaustive switch（无 default）——SliceError 新增顶层 case 时编译器强制更新此映射。
     public static func from(_ error: SliceError) -> InvocationOutcome.ErrorKind {
         switch error {
         case .selection:      return .selection

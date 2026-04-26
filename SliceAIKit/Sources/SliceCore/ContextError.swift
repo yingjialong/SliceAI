@@ -7,7 +7,7 @@ import Foundation
 /// `failures`。required 失败 / provider 注册缺失 / 单 request 超时这三类"无法继续"的错误
 /// 通过本 enum 表达，再被 `SliceError.context(_:)` 顶层包装，统一进入应用错误模型。
 ///
-/// **`indirect`**（plan Round 5 R5-P1.1）：`requiredFailed.underlying` 的类型是 `SliceError`，
+/// **`indirect`** 必须性：`requiredFailed.underlying` 的类型是 `SliceError`，
 /// 而 `SliceError.context` 又关联 `ContextError`，构成 `SliceError → ContextError → SliceError`
 /// 的直接递归。Swift 编译器要求递归的关联值必须用 `indirect` 间接存储，否则报
 /// "recursive enum '...' is not marked 'indirect'"。

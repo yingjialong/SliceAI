@@ -158,17 +158,18 @@ final class ContextCollectorTests: XCTestCase {
 
     // MARK: - 4. Timeout → throw .context(.timeout(key:))
 
-    /// provider sleep 远超默认 timeout（5s）→ 触发 timeout
+    /// provider sleep 远超注入 timeout（50ms）→ 触发 timeout
     ///
-    /// 用 SlowProvider sleep 30s + required 触发 throw。实际 race 应在 5s 内 throw timeout。
-    /// **测试时长约 5s**：单 case 即接受 ContextCollector 默认超时硬编码值。
+    /// 用 SlowProvider sleep 0.1s（>50ms timeout 阈值）+ required 触发 throw。
+    /// 注入 50ms timeout 让测试在数百 ms 内完成，避免拖慢 CI suite。
     func test_resolve_timeout_throwsTimeoutForRequired() async {
         let key = "slow.req"
         let providers: [String: any ContextProvider] = [
-            "slow": MockSlowProvider(name: "slow", sleepSeconds: 30)
+            "slow": MockSlowProvider(name: "slow", sleepSeconds: 0.1)
         ]
         let registry = ContextProviderRegistry(providers: providers)
-        let collector = ContextCollector(registry: registry)
+        // 注入 50ms timeout（默认 5s）以加速测试；mock sleep 0.1s 保证一定触发 timeout
+        let collector = ContextCollector(registry: registry, defaultTimeoutNanoseconds: 50_000_000)
         let requests = [makeRequest(keyName: key, provider: "slow", requiredness: .required)]
 
         let start = Date()
@@ -203,9 +204,9 @@ final class ContextCollectorTests: XCTestCase {
             XCTFail("expected SliceError, got \(error)")
         }
 
-        // 验证耗时在合理上限内（~5s timeout，留 1s buffer 应对 CI 抖动）
+        // 验证耗时在合理上限内（~50ms timeout，留 1s buffer 应对 CI 抖动）
         let elapsed = Date().timeIntervalSince(start)
-        XCTAssertLessThan(elapsed, 7.0, "timeout 应在默认 5s 阈值附近触发，实际 \(elapsed)s")
+        XCTAssertLessThan(elapsed, 1.0, "timeout 应在 50ms 阈值附近触发，实际 \(elapsed)s")
     }
 
     // MARK: - 5. Registry 缺 provider
@@ -300,20 +301,22 @@ final class ContextCollectorTests: XCTestCase {
 
     // MARK: - 并发独立性：一个慢 + 多个快，快的不被慢的拖累
 
-    /// 一个 optional 慢 provider（sleep 30s 触发 timeout）+ 多个快 required → 验证 group 取消传播：
+    /// 一个 optional 慢 provider（sleep 0.1s 触发 timeout）+ 多个快 required → 验证 group 取消传播：
     /// required 都成功后整个 resolve 不必等到慢的超时返回——但是 optional 失败仍会进 failures。
     ///
     /// **当前实现**：`for try await` 顺序消费 group，等待**所有**子任务完成；optional timeout
-    /// 也会等满 5s。这是 plan 接受的语义（D-17 强调"无 DAG"而非"先完成的尽快返回"），
+    /// 也会等满注入的 timeout 时长。这是 plan 接受的语义（D-17 强调"无 DAG"而非"先完成的尽快返回"），
     /// 因此测试只验证：optional 慢 provider timeout 后进 failures + 快 required 全成功。
+    /// 注入 50ms timeout + 0.1s mock sleep 让测试在数百 ms 内完成。
     func test_resolve_optionalSlowProvider_doesNotBlockEarlyButRecordsTimeout() async throws {
         let providers: [String: any ContextProvider] = [
-            "slow": MockSlowProvider(name: "slow", sleepSeconds: 30),
+            "slow": MockSlowProvider(name: "slow", sleepSeconds: 0.1),
             "fast1": MockSuccessProvider(name: "fast1", value: .text("a")),
             "fast2": MockSuccessProvider(name: "fast2", value: .text("b"))
         ]
         let registry = ContextProviderRegistry(providers: providers)
-        let collector = ContextCollector(registry: registry)
+        // 注入 50ms timeout（默认 5s）以加速测试；optional 慢路径会触发 timeout
+        let collector = ContextCollector(registry: registry, defaultTimeoutNanoseconds: 50_000_000)
         let requests = [
             makeRequest(keyName: "slow.opt", provider: "slow", requiredness: .optional),
             makeRequest(keyName: "k1", provider: "fast1", requiredness: .required),
@@ -331,7 +334,7 @@ final class ContextCollectorTests: XCTestCase {
         XCTAssertEqual(result.failures.count, 1)
         XCTAssertEqual(result.failures[ContextKey(rawValue: "slow.opt")], .context(.timeout(key: ContextKey(rawValue: "slow.opt"))))
 
-        // optional 超时仍要等满 5s timeout 才返回（plan 接受的语义）；上限留 buffer
-        XCTAssertLessThan(elapsed, 7.0, "整体应在 5s timeout + 一点 buffer 内返回，实际 \(elapsed)s")
+        // optional 超时仍要等满注入的 50ms timeout 才返回（plan 接受的语义）；上限留 buffer
+        XCTAssertLessThan(elapsed, 1.0, "整体应在 50ms timeout + 一点 buffer 内返回，实际 \(elapsed)s")
     }
 }

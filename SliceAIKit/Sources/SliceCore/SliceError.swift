@@ -6,7 +6,7 @@ public enum SliceError: Error, Sendable, Equatable {
     case provider(ProviderError)
     case configuration(ConfigurationError)
     case permission(PermissionError)
-    /// v2 上下文采集失败（M2 Round 4 新增）；细分语义见 `ContextError`
+    /// v2 上下文采集失败；细分语义见 `ContextError`
     case context(ContextError)
 
     /// 面向最终用户的友好错误文案
