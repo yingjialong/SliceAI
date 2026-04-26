@@ -29,13 +29,15 @@ public struct InvocationReport: Sendable, Equatable, Codable {
     /// 关键事件标记：unauthorized access / dry-run / partial-failure / ...
     public let flags: Set<InvocationFlag>
 
-    /// 起止时间 + 总 token + 估算成本
+    // MARK: - Timing & cost
+
+    /// 主流程启动时刻（ExecutionEngine.execute 入口写入）
     public let startedAt: Date
-    /// 执行结束时间
+    /// 主流程终止时刻（finishSuccess / finishFailure 写入）
     public let finishedAt: Date
-    /// 本次调用消耗的 token 总数
+    /// 整次 invocation 累计 token（input + output；M2 估算 / Phase 1 真实 LLM usage）
     public let totalTokens: Int
-    /// 本次调用的估算 USD 成本
+    /// 整次 invocation 估算成本（USD，Decimal 保精度）
     public let estimatedCostUSD: Decimal
 
     /// 执行结果（success / failed(errorKind:) / dryRunCompleted 三态）

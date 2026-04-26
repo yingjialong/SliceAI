@@ -40,6 +40,9 @@ final class ExecutionEventTests: XCTestCase {
             .failed(.configuration(.validationFailed("test"))),
             .notImplemented(reason: "PresentationMode.bubble not in M2 scope")
         ]
+        // .permissionWouldBeRequested 与 .sideEffectSkippedDryRun 是 dry-run 专属事件，
+        // 由 ExecutionEngine Step 2.5 / Step 7 在 dry-run 路径下 yield；
+        // 主流程 smoke test 不单独构造，由 Task 4 ExecutionEngineTests 的 dry-run 路径覆盖
         XCTAssertEqual(cases.count, 12)
     }
 }

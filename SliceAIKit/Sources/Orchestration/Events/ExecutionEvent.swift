@@ -47,12 +47,13 @@ public enum ExecutionEvent: Sendable {
     /// M2 范围 placeholder：还未实现的 PresentationMode / ToolKind 分支返回此事件
     case notImplemented(reason: String)
 
-    /// **Round 2 B-2 修订**：dry-run 路径下 PermissionBroker.gate 返回 `.wouldRequireConsent` 时 yield；
+    /// dry-run 路径下 PermissionBroker.gate 返回 `.wouldRequireConsent` 时 yield；
     /// caller 收到此事件后跳过实际执行但**继续主流程**；用于 Playground UI 显示
-    /// "如果实际执行会需要 X 权限"。**严禁** 与 `.approved` 混淆（Round 1 P1-1 修订防回归）
+    /// "如果实际执行会需要 X 权限"。**严禁** 与 `.approved` 混淆。
     case permissionWouldBeRequested(permission: Permission, uxHint: String)
 
-    /// **Round 2 B-2 修订**：Step 7 dry-run 时替代 `.sideEffectTriggered` 的事件，
-    /// 标记该 sideEffect 仅 gate 通过但**未实际执行**；不写 AuditLog（Task 9 audit 仅在真正执行时写）
+    /// Step 7 dry-run 时替代 `.sideEffectTriggered` 的事件，
+    /// 标记该 sideEffect 仅 gate 通过但**未实际执行**；不写 AuditLog
+    /// （AuditLog 仅在真正执行时写）。
     case sideEffectSkippedDryRun(SideEffect)
 }

@@ -40,4 +40,14 @@ final class InvocationReportTests: XCTestCase {
         XCTAssertEqual(decoded, flag)
         XCTAssertEqual(String(data: data, encoding: .utf8), "\"permissionUndeclared\"")
     }
+
+    func test_errorKind_from_mapsAllSliceErrorCases() {
+        // 4 个 M1 SliceError 顶层 case 必须各自映射到对应的 ErrorKind；
+        // Task 5/7 扩展 SliceError 时本测试 + ErrorKind.from exhaustive switch
+        // 共同构成回归守卫——任何漏接的 case 在编译期或本测试中暴露
+        XCTAssertEqual(InvocationOutcome.ErrorKind.from(.selection(.axUnavailable)), .selection)
+        XCTAssertEqual(InvocationOutcome.ErrorKind.from(.provider(.unauthorized)), .provider)
+        XCTAssertEqual(InvocationOutcome.ErrorKind.from(.configuration(.fileNotFound)), .configuration)
+        XCTAssertEqual(InvocationOutcome.ErrorKind.from(.permission(.accessibilityDenied)), .permission)
+    }
 }
