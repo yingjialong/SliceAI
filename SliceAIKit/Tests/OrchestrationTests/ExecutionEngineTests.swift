@@ -109,7 +109,12 @@ final class ExecutionEngineTests: XCTestCase {
             providerResolver: DefaultProviderResolver(
                 configurationProvider: { MockProvider.configWith([]) }
             ),
-            promptExecutor: PromptExecutor(),
+            // Task 11 后 PromptExecutor 接 keychain + llmProviderFactory；本测试只做 init smoke
+            // + 占位流验证（PromptExecutor 永远不会被调用），所以 Mock 行为无关紧要、空 keychain 即可
+            promptExecutor: PromptExecutor(
+                keychain: MockKeychain(),
+                llmProviderFactory: MockLLMProviderFactory(provider: MockLLMProvider())
+            ),
             mcpClient: MockMCPClient(),
             skillRegistry: MockSkillRegistry(),
             costAccounting: costAccounting,
