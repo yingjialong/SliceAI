@@ -165,6 +165,27 @@ final class MCPClientProtocolTests: XCTestCase {
         )
     }
 
+    // MARK: - 6.5 MCPClientError.developerContext 脱敏
+
+    /// `.toolNotFound` 的关联 ref 来自调用方代码（不会带敏感数据），developerContext 应原样含 server/name；
+    /// `.transportFailed` / `.decodingFailed` 的 reason 可能携带 server 路径 / underlying error 等敏感
+    /// 信息，developerContext 一律输出 `<redacted>`，与 `SliceError.developerContext` 同口径。
+    func test_mcpClientError_developerContext_redactsStringPayloads() {
+        let toolNotFoundCtx = MCPClientError.toolNotFound(ref: refEcho).developerContext
+        XCTAssertTrue(
+            toolNotFoundCtx.contains("server=stdio://server-a") && toolNotFoundCtx.contains("name=echo"),
+            "toolNotFound 应原样保留 ref 字段，便于定位调用方拼写错误，实际 = \(toolNotFoundCtx)"
+        )
+
+        let transportCtx = MCPClientError.transportFailed(reason: "broken pipe to /Users/me/.ssh/key").developerContext
+        XCTAssertEqual(transportCtx, "transportFailed(<redacted>)", "transportFailed reason 必须脱敏")
+        XCTAssertFalse(transportCtx.contains("/Users/me"), "脱敏后不应残留任何路径片段")
+
+        let decodingCtx = MCPClientError.decodingFailed(reason: "bad json: {\"apiKey\":\"sk-secret\"}").developerContext
+        XCTAssertEqual(decodingCtx, "decodingFailed(<redacted>)", "decodingFailed reason 必须脱敏")
+        XCTAssertFalse(decodingCtx.contains("sk-secret"), "脱敏后不应残留任何 secret")
+    }
+
     // MARK: - 7. callCount
 
     /// 多次 call 后 callCount 应累加；包括失败的 .toolNotFound 也计数

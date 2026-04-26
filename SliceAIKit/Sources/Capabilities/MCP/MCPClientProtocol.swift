@@ -85,7 +85,12 @@ public struct MCPToolRef: Sendable, Equatable, Hashable, Codable {
 ///   MCP 协议里 server 可以正常返回但带 `isError=true`，例如"找不到该资源"——这种语义错应该让上层
 ///   决定是否给用户提示，而不是 throw 把调用栈打断。
 /// - `meta`: server 透传的元数据。脱敏责任在 server 端约束；`AuditLog` 入口的
-///   `Redaction.scrubMetadata(...)` 兜底，避免 secret 流入审计日志。
+///   `Redaction.scrub(_:)` 兜底，避免 secret 流入审计日志。
+///
+/// **Phase 1 迁移契约**：MCP 协议本身允许 meta value 为任意 JSON（Bool / Number / Array / Object），
+/// M2 强收窄到 `String → String` 是为了让 Codable round-trip 简单。Phase 1 真实 client 落地时
+/// 此字段会升级为 `[String: AnyCodable]?` / 自定义 ContentValue enum；caller 需把读取代码从
+/// `result.meta?["k"]` 迁移到对应新结构，**这是已规划的 breaking change**。
 public struct MCPCallResult: Sendable, Equatable, Codable {
     /// 返回内容（M2 约定为 text 段）。
     public let content: [String]
@@ -120,10 +125,12 @@ public struct MCPCallResult: Sendable, Equatable, Codable {
 /// - `.decodingFailed`: server 返回的 JSON-RPC 响应解析失败（M2 阶段无解析逻辑，由 Phase 1
 ///   触发——这里先把 case 占住保证 enum 闭集稳定，避免 Phase 1 改 enum 时连带影响 M2 测试）。
 ///
-/// 关联值仅承载已脱敏 / 客户端可控的字符串：
-/// - `.toolNotFound` 的 `ref` 来自调用方，不会带敏感数据；
-/// - `.transportFailed` / `.decodingFailed` 的 `reason` 由真实 client 在生成时自行脱敏，
-///   M2 Mock 不会构造这两种 case，所以无脱敏风险。
+/// 关联值与日志脱敏：
+/// - `.toolNotFound` 的 `ref` 来自调用方代码，不会带敏感数据，可原样进日志；
+/// - `.transportFailed` / `.decodingFailed` 的 `reason` 是 Phase 1 真实 client 生成的字符串，
+///   可能携带 server 路径 / JSON 片段 / underlying error 等敏感信息——`developerContext`
+///   一律输出 `<redacted>`，与 `SliceError.developerContext` 对带 String payload 的 case 同口径。
+///   AuditLog 写入应使用 `developerContext` 而非 `String(describing:)`。
 public enum MCPClientError: Error, Sendable, Equatable {
     /// 调用的 tool 不在 server 暴露的 tools 列表里。
     case toolNotFound(ref: MCPToolRef)
@@ -133,4 +140,18 @@ public enum MCPClientError: Error, Sendable, Equatable {
 
     /// MCP server 返回的 JSON-RPC 响应解析失败。
     case decodingFailed(reason: String)
+
+    /// 用于日志打印的开发者上下文；对带 String payload 的 case 一律脱敏，与 `SliceError` 同口径。
+    /// 详见类型 doc"关联值与日志脱敏"段；调用方写 AuditLog 时请用本属性而非 `String(describing:)`。
+    public var developerContext: String {
+        switch self {
+        case .toolNotFound(let ref):
+            // ref 来自调用方代码，server / name 都是开发者已知字符串，可原样保留
+            return "toolNotFound(server=\(ref.server), name=\(ref.name))"
+        case .transportFailed:
+            return "transportFailed(<redacted>)"
+        case .decodingFailed:
+            return "decodingFailed(<redacted>)"
+        }
+    }
 }
