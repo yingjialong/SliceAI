@@ -17,7 +17,7 @@ public enum DispatchOutcome: Sendable, Equatable {
 /// 输出派发协议；ExecutionEngine Step 6 调用，负责按 `mode` 路由到对应 sink。
 ///
 /// 调用契约：
-/// - `mode` 来自 `V2Tool.displayMode`（M1 plan R-B 锁定的 primary truth）；
+/// - `mode` 来自 `V2Tool.displayMode`，是 mode 的 primary truth；
 ///   ExecutionEngine **严禁**传 `tool.outputBinding?.primary`，那个字段只是
 ///   V2Tool decoder 用来做一致性校验的冗余字段。
 /// - `invocationId` 与当前 invocation 的 audit / cost / cancel 路由 ID 一致，
@@ -28,7 +28,8 @@ public protocol OutputDispatcherProtocol: Sendable {
     ///
     /// - Parameters:
     ///   - chunk: 一次流式片段（不含分隔符；调用方负责合并）
-    ///   - mode: 来自 `V2Tool.displayMode`（primary truth；不读 `outputBinding.primary`）
+    ///   - mode: `V2Tool.displayMode` 是 mode 的 primary truth；不读 `outputBinding.primary`
+    ///     （`outputBinding.primary` 仅 V2Tool decoder 用作冗余一致性校验字段）
     ///   - invocationId: 当前 invocation 的唯一标识，用于 sink 路由 / 关联 cancel
     /// - Returns: `DispatchOutcome`；`.delivered` 表示成功投递，`.notImplemented` 表示
     ///   该模式 M2 未支持，调用方应把这个结果转发为 `.notImplemented` ExecutionEvent
