@@ -3,20 +3,20 @@ import SliceCore
 
 /// PermissionBroker 弹窗 UX 的文案 hint
 ///
-/// **设计语义**（KISS：Round 7 R7-P1.2 修订）：跨边界传递时与 `ExecutionEvent.permissionWouldBeRequested(uxHint:)`
+/// **设计语义**（KISS）：跨边界传递时与 `ExecutionEvent.permissionWouldBeRequested(uxHint:)`
 /// 的 String 形态保持一致；M2 阶段不引入额外 struct，避免编/解码与跨模块同步成本。生产路径（M3+）若
 /// 需要更结构化的字段（headline / detail / dialogStyle），届时再升级为 struct——届时改动的是 broker 内
 /// 的 hint 构造函数与 Playground 消费端，与 schema/json round-trip 无关。
 public typealias ConsentUXHint = String
 
-/// PermissionBroker.gate 的决策结果（**4 态**，Round 5 R5-P1.5 修订：三个非 approved 态都带
-/// `permission: Permission` 关联值，便于 caller 知道是哪条权限触发的决策）
+/// PermissionBroker.gate 的决策结果（**4 态**）：三个非 approved 态都带
+/// `permission: Permission` 关联值，便于 caller 知道是哪条权限触发的决策。
 ///
-/// **why non-throwing**（Round 12 R12-P1.4）：用 4 态 enum 表达"通过 / 拒绝 / 需 UI 确认 / dry-run 替代占位"
-/// 比抛错更清晰；caller 只 `await` 不需 `try`。新增 case 时务必同步 ExecutionEngine 的 exhaustive switch
-/// （Task 4 关键设计点 + Task 14 grep `default:` 反向断言）。
+/// **why non-throwing**：用 4 态 enum 表达"通过 / 拒绝 / 需 UI 确认 / dry-run 替代占位"
+/// 比抛错更清晰；caller 只 `await` 不需 `try`。新增 case 时务必同步 ExecutionEngine 主流程的
+/// exhaustive switch（CI 用 `grep default:` 反向断言保障无 default 兜底）。
 ///
-/// **dry-run 行为不豁免下限**（Round 1 P1-1）：`isDryRun=true` 时 broker 仍然计算下限；只是把
+/// **dry-run 行为不豁免下限**：`isDryRun=true` 时 broker 仍然计算下限；只是把
 /// network-write / exec 等"实际副作用前才需要每次确认"的下限替换为 `.wouldRequireConsent` 让 Playground
 /// 显示"如果实际执行会需要 X 权限"，**严禁** dry-run 静默 `.approved`。
 public enum GateOutcome: Sendable, Equatable {
@@ -58,7 +58,7 @@ public protocol PermissionBrokerProtocol: Sendable {
     ///   - provenance: 工具来源；只能调节 UX hint 文案，**严禁** 影响 lowerBound 决策
     ///   - scope: 调用方建议的 grant 时长；M2 仅做 in-memory session 缓存，不写持久化
     ///   - isDryRun: 是否 dry-run；true 时 network-write / exec 走 `.wouldRequireConsent`，
-    ///     readonly-local / readonly-network / local-write 仍走完整 gate 流程（spec §3.9.2 + Round 1 P1-1）
+    ///     readonly-local / readonly-network / local-write 仍走完整 gate 流程（spec §3.9.2）
     /// - Returns: `GateOutcome` 4 态决策结果；non-throwing
     func gate(
         effective: Set<Permission>,

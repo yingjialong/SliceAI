@@ -331,7 +331,7 @@ final class PermissionBrokerTests: XCTestCase {
 
     // MARK: - dry-run 子矩阵
 
-    /// dry-run + network-write → .wouldRequireConsent（spec §3.9.2 + Round 1 P1-1 修订）
+    /// dry-run + network-write → .wouldRequireConsent（spec §3.9.2）
     func test_gate_dryRun_networkWrite_returnsWouldRequireConsent() async {
         let broker = PermissionBroker()
         let outcome = await broker.gate(
