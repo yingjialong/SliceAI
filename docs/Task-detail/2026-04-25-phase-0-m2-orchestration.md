@@ -31,12 +31,12 @@
 
 | 顺序 | Task # | 标题 | 状态 |
 |---|---|---|---|
-| 1 | 0 | 文档初始化（Task-detail 骨架 + Task_history 索引） | 实施中 |
-| 2 | 1 | M2.1.a · ExecutionEvent + InvocationReport + Package wiring | 待启动 |
-| 3 | 2 | M2.1.b · ProviderResolverProtocol + DefaultProviderResolver + ProviderResolutionError | 待启动 |
-| 4 | 3 | M2.1.c · ExecutionEngine actor 骨架 + execute 入口签名 + 10 依赖装配 | 待启动 |
-| 5 | 5 | M2.2 · ContextCollector 平铺并发 + ContextProviderRegistry + SliceCore.ContextError 新建 | 待启动 |
-| 6 | 6 | M2.3 · PermissionBroker 接口 + 默认实现 + §3.9.2 下限硬编码 + GateOutcome 4 态 | 待启动 |
+| 1 | 0 | 文档初始化（Task-detail 骨架 + Task_history 索引） | 已完成 |
+| 2 | 1 | M2.1.a · ExecutionEvent + InvocationReport + Package wiring | 已完成 |
+| 3 | 2 | M2.1.b · ProviderResolverProtocol + DefaultProviderResolver + ProviderResolutionError | 已完成 |
+| 4 | 3 | M2.1.c · ExecutionEngine actor 骨架 + execute 入口签名 + 10 依赖装配 | 已完成 |
+| 5 | 5 | M2.2 · ContextCollector 平铺并发 + ContextProviderRegistry + SliceCore.ContextError 新建 | 已完成 |
+| 6 | 6 | M2.3 · PermissionBroker 接口 + 默认实现 + §3.9.2 下限硬编码 + GateOutcome 4 态 | 已完成 |
 | 7 | 7 | M2.3a · EffectivePermissions + PermissionGraph + SliceCore.ToolPermissionError 新建 | 待启动 |
 | 8 | 8 | M2.4 · CostAccounting actor + sqlite append + CostRecord | 待启动 |
 | 9 | 9 | M2.5 · AuditLogProtocol + JSONLAuditLog actor + Redaction 脱敏 + AuditEntry enum | 待启动 |
