@@ -69,10 +69,15 @@ final class ExecutionEngineTests: XCTestCase {
     /// 构造带全部 10 个依赖的 ExecutionEngine
     ///
     /// Task 5 已把 `ContextCollector()` stub init 替换为 `init(registry:)`；
-    /// Task 7 把 `PermissionGraph()` 替换为 `init(providerRegistry:)`，
-    /// fixture 注入空 `ContextProviderRegistry`（无任何 provider）以保持骨架测试不依赖真实采集。
-    private func makeEngine() -> ExecutionEngine {
+    /// Task 7 把 `PermissionGraph()` 替换为 `init(providerRegistry:)`；
+    /// Task 8 把 `CostAccounting()` 替换为 `init(dbURL:) throws`，fixture 改为 throws 传播。
+    /// fixture 注入空 `ContextProviderRegistry`（无任何 provider）以保持骨架测试不依赖真实采集；
+    /// CostAccounting 用临时目录下的随机 .db 文件，测试结束后由 OS 清理（个别测试若需精细清理可显式删除）。
+    private func makeEngine() throws -> ExecutionEngine {
         let emptyRegistry = ContextProviderRegistry(providers: [:])
+        let dbURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("sliceai-engine-cost-\(UUID().uuidString).db")
+        let costAccounting = try CostAccounting(dbURL: dbURL)
         return ExecutionEngine(
             contextCollector: ContextCollector(registry: emptyRegistry),
             permissionBroker: MockPermissionBroker(),
@@ -83,7 +88,7 @@ final class ExecutionEngineTests: XCTestCase {
             promptExecutor: PromptExecutor(),
             mcpClient: MockMCPClient(),
             skillRegistry: MockSkillRegistry(),
-            costAccounting: CostAccounting(),
+            costAccounting: costAccounting,
             auditLog: MockAuditLog(),
             output: MockOutputDispatcher()
         )
@@ -92,8 +97,8 @@ final class ExecutionEngineTests: XCTestCase {
     // MARK: - Tests
 
     /// 冒烟测试：10-dep init 能正常编译并构造 actor 实例
-    func test_init_buildsActorWithAllTenDependencies() async {
-        let engine = makeEngine()
+    func test_init_buildsActorWithAllTenDependencies() async throws {
+        let engine = try makeEngine()
         // actor 构造成功即视为 init 通过；显式 XCTAssertNotNil 让测试意图明确
         // （Swift actor 引用永远非 nil，但断言可读性优于 `_ = engine`，
         //  并避免覆盖率工具把无断言的测试算成"测过"造成假象）
@@ -102,7 +107,7 @@ final class ExecutionEngineTests: XCTestCase {
 
     /// 验证 Task 3 占位流：execute 输出恰好 3 个事件（.started / .notImplemented / .finished）
     func test_execute_yieldsStartedNotImplementedFinishedThenCompletes() async throws {
-        let engine = makeEngine()
+        let engine = try makeEngine()
         let tool = makeStubTool(id: "task3.placeholder")
         let seed = makeStubSeed()
 
