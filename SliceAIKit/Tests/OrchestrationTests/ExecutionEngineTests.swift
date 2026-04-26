@@ -89,8 +89,10 @@ final class ExecutionEngineTests: XCTestCase {
     /// 冒烟测试：10-dep init 能正常编译并构造 actor 实例
     func test_init_buildsActorWithAllTenDependencies() async {
         let engine = makeEngine()
-        // 构造成功即通过；actor 实例赋值给 _ 消除"未使用"警告
-        _ = engine
+        // actor 构造成功即视为 init 通过；显式 XCTAssertNotNil 让测试意图明确
+        // （Swift actor 引用永远非 nil，但断言可读性优于 `_ = engine`，
+        //  并避免覆盖率工具把无断言的测试算成"测过"造成假象）
+        XCTAssertNotNil(engine)
     }
 
     /// 验证 Task 3 占位流：execute 输出恰好 3 个事件（.started / .notImplemented / .finished）

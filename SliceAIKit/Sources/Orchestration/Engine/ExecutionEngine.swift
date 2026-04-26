@@ -14,7 +14,6 @@ import SliceCore
 /// 让单测能验证 init + 流框架。
 ///
 /// **10 个依赖参数与 §C-10.1 audit 表 1:1 对应**
-/// （R12-P1.2 修订；含 permissionGraph + promptExecutor 共 10 个）
 public actor ExecutionEngine {
 
     // MARK: - Stored dependencies（§C-10.1 audit 表中的 10 个依赖）
