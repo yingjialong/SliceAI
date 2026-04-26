@@ -52,8 +52,6 @@ final class MockLLMProvider: LLMProvider, @unchecked Sendable {
         // 记录请求供测试断言；withLock 闭包同步、async-safe
         state.withLock { $0.capturedRequest = request }
 
-        print("[MockLLMProvider] stream model=\(request.model) messages.count=\(request.messages.count)")
-
         // 同步抛错路径（模拟工厂创建后立即失败）
         if let err = throwBeforeStream { throw err }
 
@@ -119,8 +117,6 @@ final class MockLLMProviderFactory: LLMProviderFactory, @unchecked Sendable {
             state.capturedProvider = provider
             state.capturedAPIKey = apiKey
         }
-
-        print("[MockLLMProviderFactory] make providerId=\(provider.id) hasKey=\(!apiKey.isEmpty)")
 
         if let err = makeError { throw err }
         return self.provider

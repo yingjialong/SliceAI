@@ -20,8 +20,6 @@ final actor MockKeychain: KeychainAccessing {
     /// - Parameter providerId: 调用方按 `Provider.keychainAccount` 解析得到的 account 名
     /// - Returns: 存在则返回字符串，否则 nil（注意"空字符串"也算存在，由 PromptExecutor 自行视作未授权）
     func readAPIKey(providerId: String) async throws -> String? {
-        // 打印调试日志，便于失败测试快速定位 key 名拼写不一致问题
-        print("[MockKeychain] readAPIKey providerId=\(providerId) → exists=\(store[providerId] != nil)")
         return store[providerId]
     }
 
