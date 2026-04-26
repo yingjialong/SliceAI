@@ -16,7 +16,7 @@ public enum ProviderResolutionError: Error, Sendable, Equatable {
     case notImplemented(NotImplementedReason)
 
     /// 未实现路径的具体原因（按 ProviderSelection 形态分类）
-    public enum NotImplementedReason: String, Sendable, Codable, Equatable {
+    public enum NotImplementedReason: String, Sendable, Equatable {
         /// `.capability(requires:prefer:)` 形态需要按 capabilities 路由——Phase 1 实现
         case capabilityRouting
         /// `.cascade(rules:)` 形态需要按规则降级路由——Phase 5 实现

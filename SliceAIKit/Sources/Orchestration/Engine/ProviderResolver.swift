@@ -24,8 +24,11 @@ public protocol ProviderResolverProtocol: Sendable {
 
 /// 默认实现：通过注入的闭包按需获取最新 `V2Configuration`，避免持有 V2ConfigurationStore（便于测试注入）。
 ///
-/// `actor` 隔离保护内部读取期一致性；`configurationProvider` 闭包在每次 `resolve` 时调用一次，
-/// 让配置热更新（M3 后接 V2ConfigurationStore observer 时）能被立即反映。
+/// `actor` 提供 Sendable 隔离边界，让 `DefaultProviderResolver` 可以从任意并发上下文安全调用；
+/// 当前实现没有内部 mutable state，actor 隔离主要起 forward-compatibility 作用——
+/// M3 装配 V2ConfigurationStore 后如需添加配置缓存（mutable state），actor 可直接扩展，
+/// 调用方不需重构。`configurationProvider` 闭包在每次 `resolve` 时调用一次，
+/// 让配置热更新（M3 接 V2ConfigurationStore observer 时）能被立即反映。
 public actor DefaultProviderResolver: ProviderResolverProtocol {
 
     // MARK: - Properties
