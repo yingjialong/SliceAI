@@ -24,10 +24,10 @@ public actor PermissionGrantStore {
     ///
     /// **why provenance 字段是 String 而非 Provenance**：SliceCore 的 `Provenance` 仅声明
     /// `Codable + Sendable + Equatable`，**不是 Hashable**——而 SliceCore 在 Task 6 是
-    /// zero-touch（不允许修改）。这里把 provenance 折叠成 case 标签字符串作为 key 的
-    /// hash 维度，保留 case 区分度（firstParty / communitySigned / selfManaged / unknown）；
-    /// case 关联值（publisher / signedAt / importedFrom 等）当前不参与 key 计算——
-    /// 同一 case 下不同关联值视为同一 provenance 来源（Phase 1 若需要细分再升级）。
+    /// zero-touch（不允许修改）。这里把 provenance 折叠为含**稳定来源身份**的字符串作为
+    /// hash 维度——同一 case 下**不同**来源（不同 publisher / 不同导入 URL / 不同 ack 时间）
+    /// 视为**不同**信任边界，绝不共享 grant；防止"给 publisher A 授权后 publisher B 自动放行"
+    /// 这类 cross-source 授权泄漏。
     private struct GrantKey: Hashable, Sendable {
         let permission: Permission
         let provenanceTag: String
@@ -38,15 +38,29 @@ public actor PermissionGrantStore {
     /// In-memory 字典；key 命中即视为有效 grant
     private var grants: [GrantKey: PermissionGrant] = [:]
 
-    /// 把 SliceCore `Provenance` 折叠为可 hash 的 case 标签
+    /// 把 SliceCore `Provenance` 折叠为含稳定来源身份的字符串 key
+    ///
+    /// **隔离规则**：
+    /// - `.firstParty` 全 App 共享同一信任根 → 仅 case tag
+    /// - `.communitySigned(publisher:_)` 不同 publisher 是独立信任根 → 含 publisher（不含 signedAt）
+    /// - `.selfManaged(userAcknowledgedAt:)` 每次 ack 视为独立 trust event → 含 timestamp
+    /// - `.unknown(importedFrom:importedAt:)` 不同导入 URL 是独立来源 → 含 URL；nil URL 用
+    ///   importedAt 兜底分隔（避免两条 nil-URL .unknown 共享 grant）
     /// - Parameter provenance: 来源 enum
-    /// - Returns: 形如 "firstParty" / "communitySigned" 的字符串
+    /// - Returns: 形如 "firstParty" / "communitySigned:Acme" / "unknown:https://x.test" 的字符串
     private static func tag(for provenance: Provenance) -> String {
         switch provenance {
-        case .firstParty:        return "firstParty"
-        case .communitySigned:   return "communitySigned"
-        case .selfManaged:       return "selfManaged"
-        case .unknown:           return "unknown"
+        case .firstParty:
+            return "firstParty"
+        case .communitySigned(let publisher, _):
+            return "communitySigned:\(publisher)"
+        case .selfManaged(let userAcknowledgedAt):
+            return "selfManaged:\(userAcknowledgedAt.timeIntervalSince1970)"
+        case .unknown(let importedFrom, let importedAt):
+            // URL 非 nil 时用 absoluteString 作稳定 ID；为 nil 时降级为 importedAt 时间戳
+            // 防止两条 importedFrom=nil 的 .unknown 误共享同一 grant
+            let identity = importedFrom?.absoluteString ?? "<no-url>:\(importedAt.timeIntervalSince1970)"
+            return "unknown:\(identity)"
         }
     }
 

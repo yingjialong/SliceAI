@@ -1,9 +1,9 @@
 ---
 slug: phase-0-m2-pr-prep
 created: 2026-04-27T21:16+08:00
-last_updated: 2026-04-28T00:00+08:00
+last_updated: 2026-04-28T00:10+08:00
 status: in-progress
-total_rounds: 8
+total_rounds: 9
 max_iterations: 5
 ---
 
@@ -231,6 +231,24 @@ max_iterations: 5
 - **CI gate after fix.** `swift test` **561 / 561 pass**（计数不变；R8 是 fix 既有测试断言收紧 + yield-result fix，未新增 testcase）；`swiftlint lint --strict` **0 violations / 0 serious / 134 files**；xcodebuild Debug **BUILD SUCCEEDED**。
 - **Drift.** in-scope-only。
 - **Status.** continue（fix 落地需 commit + R9 复审；按 user-approved option B 流程，新增 commit 再跑 R9 验证）。
+
+### Round 9 · 2026-04-28 · 00:00~00:10
+
+- **Codex verdict.** needs-attention
+- **Severity counts.** 0 critical · 1 high · 0 medium · 0 low
+- **Decision ledger.**
+
+| # | Severity | Title | File:line | Decision | Reason / fix plan |
+|---|---|---|---|---|---|
+| F9.1 | high | Grant 缓存按 provenance case 合并，导致不同来源共享权限授权 | SliceAIKit/Sources/Orchestration/Permissions/PermissionGrantStore.swift:25-30 | accept | Root cause: `GrantKey` 只用 `provenanceTag` String，且 `tag(for:)` 仅返回 case label（"firstParty" / "communitySigned" / "selfManaged" / "unknown"），关联值（publisher / signedAt / importedFrom / userAcknowledgedAt）一律丢弃。结果：用户给 `.communitySigned(publisher: "Acme")` 工具授予 `.clipboard` permission 后，`.communitySigned(publisher: "Beta")` 工具的 `.clipboard` 也直接命中 `has()`；PermissionBroker 对缓存命中直接返回 `.approved`，绕过 consent UI。同样的泄漏发生在 `.unknown(importedFrom: URL_A)` 与 `.unknown(importedFrom: URL_B)` 之间。spec §3.9.6 信任边界设计中"D-25 不可降级 UX"明确要求 cross-source 授权隔离——这是**安全 / 信任边界**问题，不是优化。代码内注释 line 29-30 自承 "case 关联值当前不参与 key 计算——同一 case 下不同关联值视为同一 provenance 来源（Phase 1 若需要细分再升级）"——这条 self-acknowledged trade-off 在 R9 review 时被 Codex 正确判断为不应延迟。Fix: 重写 `tag(for:)` 让每条 Provenance case 携带稳定身份：firstParty 仅 case tag（共享系统信任根 OK）；communitySigned 含 publisher（不含 signedAt——publisher 是 Codex 推荐的"稳定身份"）；selfManaged 含 userAcknowledgedAt（每次 ack 视为独立 trust event）；unknown 含 importedFrom URL，URL nil 时降级为 importedAt 兜底（防止两条 nil-URL .unknown 共享）。新增 4 条回归测试覆盖 communitySigned-跨 publisher / unknown-跨 URL / unknown-nil URL 跨 importedAt / selfManaged-跨 ack 全部互不命中。 |
+
+- **Codex 主动确认.** R8 yield-result fix"本身看起来已覆盖目标窗口，本轮未发现其目标窗口仍泄漏到 OutputDispatcher 的证据"——明确了 R8 fix 在 PromptStream 上的覆盖到位；F9.1 是在已被忽略的代码区域（PermissionGrantStore）做的全新发现，不是 R8 fix 不足。
+- **Stagnation update.** F2.1 / F2.4 持续稳定；F9.1 是 Codex 在 R1-R8 cancel cascade 主线之外开的全新 review 维度——审查权限缓存 / 信任边界。这与 cancellation 主题无关，但属于 Goal Contract `Reference Documents` 中提到的 v2 spec §3.9.6 权限闭环范畴，仍在 in-scope。
+- **Fix applied.** 1 个 fix 落地：PermissionGrantStore.tag(for:) 重写让 GrantKey 精确隔离不同 provenance 来源；test 套件 PermissionGrantStoreTests 增 4 条断言（test_communitySigned_differentPublishers / test_unknownImports_differentURLs / test_unknownImports_nilURL_distinguishedByImportedAt / test_selfManaged_differentAckTimes_doNotShareGrant）。
+- **Files touched.** 1 source + 1 tests 改：`Orchestration/Permissions/PermissionGrantStore.swift`（GrantKey doc 重写 + tag(for:) 4 case 全部携带稳定身份）、`Tests/OrchestrationTests/PermissionGrantStoreTests.swift`（新增 4 条 cross-source 隔离测试）。
+- **CI gate after fix.** `swift test` **565 / 565 pass**（baseline 545 + R1-R8 累计 16 + R9 4 = 565）；`swiftlint lint --strict` **0 violations / 0 serious / 134 files**；xcodebuild Debug **BUILD SUCCEEDED**。
+- **Drift.** in-scope-only。
+- **Status.** continue（commit + R10 复审；累计 9 轮 review 已超 max_iterations 4 倍，但每轮都发现实质 finding 且都成功修复，loop 仍处于 productive 状态）。
 
 
 ---

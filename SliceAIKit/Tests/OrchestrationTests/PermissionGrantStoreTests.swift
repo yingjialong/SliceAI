@@ -122,4 +122,83 @@ final class PermissionGrantStoreTests: XCTestCase {
         XCTAssertTrue(hitP1, "p1 应命中")
         XCTAssertFalse(hitP2, "p2 关联值不同，不应命中 p1 的 grant")
     }
+
+    // MARK: - 7. 同 case Provenance 不同关联值的隔离（D-25 cross-source 授权泄漏防御）
+
+    /// `.communitySigned` publisher A 已授权后，publisher B 不应共享该 grant
+    /// 反例：旧实现仅按 case tag 折叠 → A 授权直接让 B 走 .approved，破坏信任边界
+    func test_communitySigned_differentPublishers_doNotShareGrant() async throws {
+        let store = PermissionGrantStore()
+        let permission = Permission.clipboard
+        let signedAt = Date()
+        let provenanceA = Provenance.communitySigned(publisher: "Acme", signedAt: signedAt)
+        let provenanceB = Provenance.communitySigned(publisher: "Beta", signedAt: signedAt)
+
+        try await store.record(permission: permission, provenance: provenanceA, scope: .session)
+
+        let hitA = await store.has(permission: permission, provenance: provenanceA)
+        XCTAssertTrue(hitA, "publisher Acme 自身查询应命中")
+
+        let hitB = await store.has(permission: permission, provenance: provenanceB)
+        XCTAssertFalse(hitB, "不同 publisher（Beta）不应共享 Acme 的 grant —— 否则跨源授权泄漏")
+    }
+
+    /// `.unknown` importedFrom URL_A 已授权后，importedFrom URL_B 不应共享该 grant
+    /// 反例：旧实现把所有 .unknown 折叠成同一 tag → 用户从 site_A 导入的工具拿到授权后，
+    /// 任意 site_B 导入的工具自动放行，违反 Phase 1+ "每次未知来源都必须重新确认" 设计
+    func test_unknownImports_differentURLs_doNotShareGrant() async throws {
+        let store = PermissionGrantStore()
+        let permission = Permission.fileRead(path: "~/Documents/test.md")
+        let importedAt = Date()
+        let provenanceA = Provenance.unknown(
+            importedFrom: URL(string: "https://gist.example.com/user/A.zip"),
+            importedAt: importedAt
+        )
+        let provenanceB = Provenance.unknown(
+            importedFrom: URL(string: "https://gist.example.com/user/B.zip"),
+            importedAt: importedAt
+        )
+
+        try await store.record(permission: permission, provenance: provenanceA, scope: .session)
+
+        let hitA = await store.has(permission: permission, provenance: provenanceA)
+        XCTAssertTrue(hitA, "URL_A 自身查询应命中")
+
+        let hitB = await store.has(permission: permission, provenance: provenanceB)
+        XCTAssertFalse(hitB, "不同 importedFrom URL 不应共享 grant —— 否则跨源授权泄漏")
+    }
+
+    /// `.unknown` importedFrom 为 nil 时，importedAt 不同也应视为不同 grant —— 防止两条
+    /// nil-URL .unknown（无稳定 URL 身份）退化共享同一 grant key
+    func test_unknownImports_nilURL_distinguishedByImportedAt() async throws {
+        let store = PermissionGrantStore()
+        let permission = Permission.clipboard
+        let provenanceA = Provenance.unknown(importedFrom: nil, importedAt: Date(timeIntervalSince1970: 1_000))
+        let provenanceB = Provenance.unknown(importedFrom: nil, importedAt: Date(timeIntervalSince1970: 2_000))
+
+        try await store.record(permission: permission, provenance: provenanceA, scope: .session)
+
+        let hitA = await store.has(permission: permission, provenance: provenanceA)
+        XCTAssertTrue(hitA, "import event A 自身查询应命中")
+
+        let hitB = await store.has(permission: permission, provenance: provenanceB)
+        XCTAssertFalse(hitB, "不同 importedAt 时间戳的 nil-URL .unknown 不应共享 grant")
+    }
+
+    /// `.selfManaged` 不同 userAcknowledgedAt 视为不同 trust event；不应共享 grant
+    /// （每次重新 acknowledge 应让用户重新确认下游 permission，避免旧 ack 被复用）
+    func test_selfManaged_differentAckTimes_doNotShareGrant() async throws {
+        let store = PermissionGrantStore()
+        let permission = Permission.fileWrite(path: "~/Library/Application Support/SliceAI/")
+        let provenanceA = Provenance.selfManaged(userAcknowledgedAt: Date(timeIntervalSince1970: 1_000))
+        let provenanceB = Provenance.selfManaged(userAcknowledgedAt: Date(timeIntervalSince1970: 2_000))
+
+        try await store.record(permission: permission, provenance: provenanceA, scope: .session)
+
+        let hitA = await store.has(permission: permission, provenance: provenanceA)
+        XCTAssertTrue(hitA, "ack event A 自身查询应命中")
+
+        let hitB = await store.has(permission: permission, provenance: provenanceB)
+        XCTAssertFalse(hitB, "不同 userAcknowledgedAt 视为独立 trust event，不应共享 grant")
+    }
 }
