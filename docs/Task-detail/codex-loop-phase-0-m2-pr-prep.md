@@ -1,9 +1,9 @@
 ---
 slug: phase-0-m2-pr-prep
 created: 2026-04-27T21:16+08:00
-last_updated: 2026-04-28T00:18+08:00
-status: paused-pending-user
-total_rounds: 10
+last_updated: 2026-04-28T00:25+08:00
+status: converged
+total_rounds: 11
 max_iterations: 5
 ---
 
@@ -271,9 +271,43 @@ max_iterations: 5
   - Option β：再跑 R11 验证 R10 fix（按"无 issue 再 PR"严格语义，但要承担继续发现新 corner finding 的可能 —— Codex 自己已建议停）
   - Option γ：直接进入 PR 阶段，把 R10 fix + 任意可能的 R11 backlog 在 PR description 列为 Phase 1+ 处理项（如适用）
 
+### Round 11 · 2026-04-28 · 00:18~00:25
+
+**用户决策**：选 Option β "再跑 R11 验证 R10 fix"。
+
+- **Codex verdict.** **approve** ✅
+- **Severity counts.** 0 critical · 0 high · 0 medium · 0 low
+- **Codex summary.** "未找到可支撑阻断 PR 的 critical/high。R10 的 `.unknown` grant key 已收敛为 URL + importedAt；当前 M2 没有持久化 grant/schema 升级入口，也未看到 PermissionBroker 下游重新合并 provenance 的路径。"
+- **Codex 主动确认.**
+  - F10.1 fix（per-import-event 隔离）已收敛
+  - 当前 M2 范围内 PermissionGrantStore 是 in-memory session-scope，没有持久化 grant migration 路径——schema 升级风险在 Phase 1 才会出现
+  - PermissionBroker 下游消费 grantStore.has() 不做额外 provenance 合并，per-import-event 语义贯穿
+- **Next steps**（来自 Codex）："进入 commit-and-PR；Phase 1 若引入持久化 grant 或导入迁移，再补 legacy importedAt 回填策略测试。"
+- **Status.** **CONVERGED**。loop 在 R11 终止。
+
 
 ---
 
 ## Final summary
+
+**Loop 总结（R1-R11）**
+
+- **总轮次**：11（max_iterations=5 的 2.2 倍）
+- **累计 finding**：12 条 high + 1 medium + 0 critical + 0 low（每轮发现的实质 finding 都被 fix）
+- **持续 deferred / agreed-disagreement**：F2.1（Permission exact-match `==` vs spec §3.3.5 wildcards）— Phase 1+ resolve；F2.4（ContextCollector cooperative timeout）— 通过 F5.1 fix 间接闭环
+- **最终 verdict**：R11 approve，无阻断 PR 的 critical/high finding
+- **测试增量**：545 → 566（+21 testcase）
+- **commit 累计**：4 个 codex-loop fix commits + 1 个 ledger finalization（待写）
+  - `47aef58` R1-R7 cancel cascade + redaction
+  - `0f63772` R8 yield-result guard
+  - `48fbe6e` R9 grant-cache provenance isolation
+  - `577ca38` R10 unknown grant per-import-event isolation
+- **CI gate（最终）**：swift test 566/566 pass；swiftlint --strict 0 violations / 134 files；xcodebuild Debug SUCCEEDED；§C-1 zero-touch + SliceCore 白名单 + plan/round metadata grep 全通过
+- **覆盖维度**：cancel cascade（12 道防线）+ 权限信任边界（per-source isolation）+ 审计脱敏（100%）+ MCPToolRef canonical + invocationId 贯穿 + ProviderSelection.fixed.modelId override
+- **Phase 1+ backlog**（来自 R11 + 历史 deferred）：
+  1. PermissionGrantStore 持久化 + legacy importedAt 回填策略
+  2. F2.1 Permission exact-match vs spec §3.3.5 wildcards 统一
+  3. §7.6 minor backlog（MCPCallResult.meta 类型迁移 / Mock 命名 InMemory* / extractContextRequests 重复 / estimateCostUSD magic number / FlowContext invariant 注释 / PathSandbox userAllowlist 输入校验）
+- **下一步**：用户决策 commit-slicing（保留 4 commits / 合 1 commit / reset --soft 重新切片）→ push → 开 PR
 
 <!-- filled in at termination -->
