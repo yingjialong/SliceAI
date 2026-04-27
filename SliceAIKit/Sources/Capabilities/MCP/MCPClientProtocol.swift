@@ -1,13 +1,18 @@
 import Foundation
+import SliceCore
 
 /// MCP（Model Context Protocol）客户端协议：抽象 stdio / SSE 传输，让 ExecutionEngine
 /// 在 M2 阶段就能注入 Mock 跑通主流程。
 ///
 /// 设计要点（KISS）：
 /// - 只暴露两个动作：`tools(for:)` 询问 server 暴露的工具列表、`call(ref:args:)` 调单个工具。
-/// - 全部 5 类型（protocol + `MCPDescriptor` + `MCPToolRef` + `MCPCallResult` + `MCPClientError`）
+/// - 协议本身 + 4 个传输/错误辅助类型（`MCPDescriptor` / `MCPCallResult` / `MCPClientError`）
 ///   集中在同一文件，方便把"对外契约"作为单点阅读；任一类型语义改动都会落到这里，避免拆散到多文件后
 ///   review 时漏看。
+/// - **`MCPToolRef` 不在本文件**：canonical 定义在 `SliceCore/OutputBinding.swift`，被
+///   `AgentTool.mcpAllowlist` / `PipelineStep.mcp` / `SideEffect.callMCP` / `ExecutionEvent.toolCallProposed`
+///   等多处引用——本协议直接 `import SliceCore` 复用，避免"传输层私有类型 vs 领域层 canonical 类型"
+///   的双向适配；Phase 1 真实 client 接入 AgentTool / SideEffect 时无需做字段名翻译。
 /// - Phase 1 才上真实 stdio / SSE 实现；届时再决定是否把 `MCPCallResult` 升级为更细的 ContentItem
 ///   (text / image / blob) enum，以及把 args 从 `String → String` 扩到任意 JSON。
 public protocol MCPClientProtocol: Sendable {
@@ -46,31 +51,6 @@ public struct MCPDescriptor: Sendable, Equatable, Hashable, Codable {
     /// - Parameter id: server 的稳定 ID。
     public init(id: String) {
         self.id = id
-    }
-}
-
-// MARK: - MCPToolRef
-
-/// MCP server 暴露的工具引用（最小 KISS 版本）。
-///
-/// 用 `(server, name)` 二元组定位一个工具——`server` 与 `MCPDescriptor.id` 对齐，`name` 在
-/// 该 server 内部唯一。这套结构与 MCP 官方 JSON-RPC 协议的 `tools/call` 请求一一对应。
-///
-/// 故意做 `Hashable`：`MockMCPClient` 需要把 `[MCPToolRef: MCPCallResult]` 当字典 key 路由响应。
-public struct MCPToolRef: Sendable, Equatable, Hashable, Codable {
-    /// 工具所在 server 的 ID（与 `MCPDescriptor.id` 对齐）。
-    public let server: String
-
-    /// 工具名（在该 server 内唯一）。
-    public let name: String
-
-    /// 构造一个工具引用。
-    /// - Parameters:
-    ///   - server: server 的稳定 ID。
-    ///   - name: 工具名。
-    public init(server: String, name: String) {
-        self.server = server
-        self.name = name
     }
 }
 
@@ -126,11 +106,14 @@ public struct MCPCallResult: Sendable, Equatable, Codable {
 ///   触发——这里先把 case 占住保证 enum 闭集稳定，避免 Phase 1 改 enum 时连带影响 M2 测试）。
 ///
 /// 关联值与日志脱敏：
-/// - `.toolNotFound` 的 `ref` 来自调用方代码，不会带敏感数据，可原样进日志；
-/// - `.transportFailed` / `.decodingFailed` 的 `reason` 是 Phase 1 真实 client 生成的字符串，
-///   可能携带 server 路径 / JSON 片段 / underlying error 等敏感信息——`developerContext`
-///   一律输出 `<redacted>`，与 `SliceError.developerContext` 对带 String payload 的 case 同口径。
-///   AuditLog 写入应使用 `developerContext` 而非 `String(describing:)`。
+/// - **三个 case 全部脱敏**：`.toolNotFound` 关联的 `ref.server` / `ref.tool` 在 Phase 1 真实接入
+///   用户配置的 MCP server 后，可能出现 `stdio:///Users/me/projects/secret/.mcp/server` 这类
+///   含本地路径 / 项目名 / 私有主机名的字符串；`.transportFailed` / `.decodingFailed` 的 `reason`
+///   则可能携带 server 路径 / JSON 片段 / underlying error。统一脱敏与 `SliceError.developerContext`
+///   对带 String / 路径 payload 的 case 同口径，避免 audit jsonl 与 Console 输出泄露用户配置。
+/// - 需要排查 `.toolNotFound` 时改用单独的 opt-in debug trace（Phase 1+ 落地），或对
+///   `ref.server` / `ref.tool` 做哈希 / 短 ID 后再写日志；本 PR 不引入此 opt-in 路径。
+/// - AuditLog 写入应使用 `developerContext` 而非 `String(describing:)`。
 public enum MCPClientError: Error, Sendable, Equatable {
     /// 调用的 tool 不在 server 暴露的 tools 列表里。
     case toolNotFound(ref: MCPToolRef)
@@ -141,13 +124,13 @@ public enum MCPClientError: Error, Sendable, Equatable {
     /// MCP server 返回的 JSON-RPC 响应解析失败。
     case decodingFailed(reason: String)
 
-    /// 用于日志打印的开发者上下文；对带 String payload 的 case 一律脱敏，与 `SliceError` 同口径。
+    /// 用于日志打印的开发者上下文；三个 case 一律脱敏，与 `SliceError` 同口径。
     /// 详见类型 doc"关联值与日志脱敏"段；调用方写 AuditLog 时请用本属性而非 `String(describing:)`。
     public var developerContext: String {
         switch self {
-        case .toolNotFound(let ref):
-            // ref 来自调用方代码，server / name 都是开发者已知字符串，可原样保留
-            return "toolNotFound(server=\(ref.server), name=\(ref.name))"
+        case .toolNotFound:
+            // ref.server / ref.tool 在 Phase 1 真实接入用户 MCP 配置后可能含路径 / 项目名 / 私有主机名
+            return "toolNotFound(server=<redacted>, tool=<redacted>)"
         case .transportFailed:
             return "transportFailed(<redacted>)"
         case .decodingFailed:

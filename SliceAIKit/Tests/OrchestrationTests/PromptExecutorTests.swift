@@ -396,7 +396,7 @@ final class PromptExecutorTests: XCTestCase {
         XCTAssertEqual(req.maxTokens, 256)
     }
 
-    /// ChatRequest.model 应来自 V2Provider.defaultModel
+    /// ChatRequest.model 在 ProviderSelection.fixed.modelId 为 nil 时回 V2Provider.defaultModel
     func test_run_modelComesFromProviderDefault() async throws {
         let llm = MockLLMProvider(chunks: [ChatChunk(delta: "ok")])
         let factory = MockLLMProviderFactory(provider: llm)
@@ -411,6 +411,36 @@ final class PromptExecutorTests: XCTestCase {
 
         guard let req = llm.capturedRequest else { return XCTFail("LLM 未收到 request") }
         XCTAssertEqual(req.model, "gpt-4o-mini")
+    }
+
+    /// ChatRequest.model 应优先用 ProviderSelection.fixed.modelId，覆盖 provider.defaultModel——
+    /// 与 v1 SliceCore/ToolExecutor.swift 的 `tool.modelId ?? provider.defaultModel` 同口径。
+    /// M3 切换到 V2 链路后用户工具级 modelId 不应被静默换成 provider.defaultModel。
+    func test_run_modelOverridesProviderDefault_whenSelectionFixedHasModelId() async throws {
+        let llm = MockLLMProvider(chunks: [ChatChunk(delta: "ok")])
+        let factory = MockLLMProviderFactory(provider: llm)
+        let executor = PromptExecutor(
+            keychain: MockKeychain(["test-openai": "sk-abc"]),
+            llmProviderFactory: factory
+        )
+        // provider.defaultModel = "gpt-4o-mini"；工具级 override = "gpt-4-turbo"
+        let v2 = makeOpenAIV2Provider(defaultModel: "gpt-4o-mini")
+        let promptToolWithOverride = PromptTool(
+            systemPrompt: nil,
+            userPrompt: "Process: {{selection}}",
+            contexts: [],
+            provider: .fixed(providerId: "test-openai", modelId: "gpt-4-turbo"),
+            temperature: nil,
+            maxTokens: nil,
+            variables: [:]
+        )
+
+        let stream = await executor.run(promptTool: promptToolWithOverride, resolved: makeResolved(), provider: v2)
+        _ = try await collect(stream)
+
+        guard let req = llm.capturedRequest else { return XCTFail("LLM 未收到 request") }
+        XCTAssertEqual(req.model, "gpt-4-turbo",
+                       "ProviderSelection.fixed.modelId 必须覆盖 provider.defaultModel")
     }
 
     // MARK: - Test 12: UsageStats 估算
@@ -558,6 +588,67 @@ final class PromptExecutorTests: XCTestCase {
         }
     }
 
+    // MARK: - Test 17: Consumer cancellation 传导到内部 producer
+
+    /// consumer drop iterator → PromptExecutor.run 的 `continuation.onTermination`
+    /// → 内部 task.cancel() → `try Task.checkCancellation()` / 协作式 for-await 抛错
+    /// → runInternal 退出 → chatStream iterator 释放 → LLMProvider.stream 内部
+    /// onTermination 触发 → URLSession 提前结束。
+    ///
+    /// 关键安全保证：consumer 关闭后，LLMProvider 内部 producer task 必须收到 cancel
+    /// 信号；否则 URLSession byte stream 仍跑到 DONE/超时，浪费网络流量与 token 计费。
+    /// 此前实现仅 ExecutionEngine 外层装 onTermination，PromptExecutor 内部 producer
+    /// 是 unstructured Task 不继承 cancellation，会持续消费 LLM stream。
+    func test_run_consumerDropsIterator_cancelsLLMProducerTaskAndPropagatesToProvider() async throws {
+        let llm = CancellationObservingLLMProvider()
+        let executor = PromptExecutor(
+            keychain: MockKeychain(["test-openai": "sk-abc"]),
+            llmProviderFactory: MockLLMProviderFactory(provider: llm)
+        )
+        let promptTool = makePromptTool()
+        let resolved = makeResolved()
+        let provider = makeOpenAIV2Provider()
+
+        // 关键：stream 必须**仅**被 consumer task 持有；如果 main test func 也持引用，
+        // consumer break 后 stream var 仍存活，AsyncThrowingStream onTermination 不会触发，
+        // cancel cascade 链路就断了。把 executor.run 调用 inline 进 consumer task body
+        // 让 stream 仅 consumer 持有 → consumer task return → stream deinit → onTermination
+        let consumerTask = Task<Int, Never> { [executor] in
+            let stream = await executor.run(
+                promptTool: promptTool,
+                resolved: resolved,
+                provider: provider
+            )
+            var chunkCount = 0
+            do {
+                for try await element in stream {
+                    if case .chunk = element {
+                        chunkCount += 1
+                        break
+                    }
+                }
+            } catch {
+                // 任何 catch（含 CancellationError）都视为消费结束
+            }
+            return chunkCount
+        }
+
+        let count = await consumerTask.value
+        XCTAssertEqual(count, 1, "consumer 应收到首个 chunk 后立即 break")
+
+        // 等 cancellation 完整 cascade：consumer task return → stream deinit →
+        // PromptExecutor.run 的 onTermination → task.cancel() → runInternal 退出 →
+        // chatStream iterator 释放 → CancellationObservingLLMProvider 内 producer.cancel()
+        // → Task.sleep 抛 CancellationError → catch 设 sleepCancelled
+        try? await Task.sleep(nanoseconds: 500_000_000)
+
+        let didCancel = await llm.sleepCancelled
+        XCTAssertTrue(
+            didCancel,
+            "PromptExecutor 内部 producer 必须把 cancel cascade 到 LLMProvider.stream，让 URLSession 提前结束"
+        )
+    }
+
     // MARK: - Helpers
 
     /// 通用断言：消费 stream 并期望抛错；handler 验证错误形态
@@ -570,6 +661,53 @@ final class PromptExecutorTests: XCTestCase {
             XCTFail("expected stream to throw")
         } catch {
             handler(error)
+        }
+    }
+}
+
+// MARK: - 辅助：cancellation 传导观测用 LLMProvider
+
+/// async-safe 状态容器：Swift 6 strict concurrency 下 NSLock 在 async 上下文不可用，
+/// 用 actor 串行化 _sleepCancelled 读写。
+private actor SleepCancelObserver {
+    private(set) var sleepCancelled = false
+    func record() { sleepCancelled = true }
+}
+
+/// 观测内部 producer 是否收到 cancel —— stream yield 1 chunk 后挂起 5s sleep；
+/// onTermination 触发 cancel 时 sleep 抛 CancellationError，被 catch 记录到
+/// `observer.sleepCancelled = true`。测试通过 `await llm.sleepCancelled == true`
+/// 验证 cancellation 已 cascade 到 provider 层。
+///
+/// 不复用 ExecutionEngineTests.BlockingMockLLMProvider 的原因：那个 fixture 不暴露
+/// "producer 是否被中断"信号；本 helper 专门暴露该信号供 PromptExecutor 单元测试断言。
+private final class CancellationObservingLLMProvider: LLMProvider, @unchecked Sendable {
+    /// async-safe sleep cancel 标志；producer task 写 / 测试 task 读都通过 actor hop
+    private let observer = SleepCancelObserver()
+
+    /// producer task 的 Task.sleep 是否被 CancellationError 中断；测试断言用
+    var sleepCancelled: Bool { get async { await observer.sleepCancelled } }
+
+    /// LLMProvider 协议方法：yield 1 chunk → 5s sleep → cancel-aware finish
+    func stream(request: ChatRequest) async throws -> AsyncThrowingStream<ChatChunk, any Error> {
+        // capture observer 给 producer task 跨 task 通信用
+        let observer = self.observer
+        return AsyncThrowingStream { continuation in
+            let producer = Task {
+                continuation.yield(ChatChunk(delta: "first", finishReason: nil))
+                do {
+                    // 5s 上限：测试期望在 < 500ms 内取消；超时即说明 cancel 链断了
+                    try await Task.sleep(nanoseconds: 5_000_000_000)
+                    continuation.finish()
+                } catch {
+                    await observer.record()
+                    continuation.finish(throwing: error)
+                }
+            }
+            // chatStream iterator 释放 → onTermination → producer.cancel() → sleep 抛错
+            continuation.onTermination = { _ in
+                producer.cancel()
+            }
         }
     }
 }

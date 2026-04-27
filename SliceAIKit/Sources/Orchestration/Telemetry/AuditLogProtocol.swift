@@ -104,7 +104,8 @@ public enum AuditEntry: Sendable, Equatable, Codable {
 ///    避免依赖生产者主动脱敏导致漏报；
 /// 2. `clear` 清空底层存储后，第一条记录必须是 `.logCleared(at:)`，让"清空"动作
 ///    本身留下审计痕迹（spec §3.9.7）；
-/// 3. `read(limit:)` 返回顺序必须等于 `append` 顺序（FIFO），让 UI 能稳定回放历史。
+/// 3. `read(limit:)` 返回**最近** N 条（取尾部，即 append 顺序的最后 N 条），
+///    返回数组内仍保留 append 时序（FIFO 内的 suffix），让 UI 能按时间正序回放最新历史。
 public protocol AuditLogProtocol: Sendable {
     /// 追加一条审计条目
     /// - Parameter entry: 待写入的 `AuditEntry`；实现方负责脱敏后落盘
@@ -113,8 +114,8 @@ public protocol AuditLogProtocol: Sendable {
     /// 清空底层存储，并写入一条 `.logCleared(at:)` 作为新文件的第一条记录
     func clear() async throws
 
-    /// 读取最近 N 条审计条目（按写入时序，前 N 条）
+    /// 读取最近 N 条审计条目（按写入时序排列，即 append 顺序的最后 N 条）
     /// - Parameter limit: 最多返回的条数；超过实际数量时返回全部
-    /// - Returns: 按 `append` 顺序排列的 `AuditEntry` 数组
+    /// - Returns: 按 `append` 顺序排列的最近 `AuditEntry` 数组
     func read(limit: Int) async throws -> [AuditEntry]
 }

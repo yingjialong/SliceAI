@@ -125,10 +125,14 @@ public actor JSONLAuditLog: AuditLogProtocol {
         try await append(.logCleared(at: Date()))
     }
 
-    /// 读取最近 N 条 audit entry，按写入顺序返回。
+    /// 读取最近 N 条 audit entry，按写入顺序返回（最旧 → 最新）。
+    ///
+    /// audit jsonl 是 append-only —— 文件末尾对应最新写入；UI / SRE 排查问题查"最近 N 条"
+    /// 应取文件尾部，所以用 `lines.suffix`。返回数组内仍保留写入时序（FIFO 内的 suffix），
+    /// 让回放 UI 能按时间正序展示。
     ///
     /// - Parameter limit: 最多返回的条数；超过实际数量时返回全部
-    /// - Returns: 按 append 顺序排列的 `AuditEntry` 数组（空文件返回空数组）
+    /// - Returns: 按 append 顺序排列的最近 `AuditEntry` 数组（空文件返回空数组）
     /// - Throws: JSON 解码失败时抛 `SliceError.configuration(.validationFailed(...))`
     public func read(limit: Int) async throws -> [AuditEntry] {
         // 文件不存在 / 读不到时退回空数组——audit read 不应因"还没写过"报错
@@ -142,8 +146,8 @@ public actor JSONLAuditLog: AuditLogProtocol {
             omittingEmptySubsequences: true
         )
 
-        // limit 为 0 / 负数视作"取 0 条"，prefix 自然处理
-        let limited = lines.prefix(max(0, limit))
+        // limit 为 0 / 负数视作"取 0 条"，suffix 自然处理；suffix 取尾部 N 行 = 最近写入的 N 条
+        let limited = lines.suffix(max(0, limit))
 
         var entries: [AuditEntry] = []
         entries.reserveCapacity(limited.count)
@@ -234,11 +238,16 @@ public actor JSONLAuditLog: AuditLogProtocol {
             let scrubbedParams = params.mapValues(Redaction.scrub)
             return .runAppIntent(bundleId: bundleId, intent: intent, params: scrubbedParams)
 
-        case .callMCP(let ref, let params):
-            // ref.server / ref.tool 是稳定标识符，保留
-            // params values 同 runAppIntent，必脱敏
+        case .callMCP(_, let params):
+            // 与 MCPClientError.toolNotFound 同口径：ref.server / ref.tool 在 Phase 1
+            // 真实 MCP server 接入时可能含本地路径 / 项目名 / 私有主机名 / token-like 字符串
+            // （MCPClientProtocol 文档已承认这点）；audit jsonl 是持久化 + 可分享给第三方支持
+            // 的载体，落盘时不应原样保留。invocation_id 路由仍可反查 toolId → mcpAllowlist
+            // 配置，排障 cardinality 不丢失。
+            // params values 同 runAppIntent，必脱敏。
             let scrubbedParams = params.mapValues(Redaction.scrub)
-            return .callMCP(ref: ref, params: scrubbedParams)
+            let scrubbedRef = MCPToolRef(server: "<redacted>", tool: "<redacted>")
+            return .callMCP(ref: scrubbedRef, params: scrubbedParams)
 
         case .writeMemory(let tool, let entry):
             // tool 是 toolId（与 .invocationCompleted 同口径处理）

@@ -1,4 +1,5 @@
 import Foundation
+import SliceCore
 
 /// `MCPClientProtocol` 的内存 Mock 实现：构造期注入 tools 与 responses，运行期按字典查表回放。
 ///

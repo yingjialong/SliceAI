@@ -97,6 +97,17 @@ public actor ExecutionEngine {
     /// actor-isolated `runMainFlow`。标记 nonisolated 允许调用方无需 await 即可拿到 stream
     /// （与 Task 3 发布的契约一致，避免 caller 改签名）。
     ///
+    /// **取消语义**：保存内部 Task handle 并通过 `continuation.onTermination` 在
+    /// stream consumer drop iterator（如 ResultPanel dismiss / 上层 Task cancel）时
+    /// 主动 `task.cancel()`。流程拆成 `runMainFlow`（Step 1-2.5 + ToolKind 分流）+
+    /// `runPromptKindPipeline`（Step 3-9 .prompt 路径），分别在每个 await 边界显式检查
+    /// `Task.isCancelled`——覆盖"早退 / Step 3 ContextCollector 前后 / Step 4
+    /// ProviderResolution 之后 / PromptStream 之前 / PromptStream 之后"共 5 道防线，
+    /// 让 Phase 1 真实 ContextProvider（fileRead/MCP/clipboard）做 IO 时也能被早退打断。
+    /// 拆 helper 是为了让两个函数都落在 swiftlint cyclomatic_complexity 12 / function_body 40
+    /// 限制内同时不牺牲 cancellation 响应粒度。保证 v0.1 既有"用户关闭面板即停"语义在 V2
+    /// 链路上端到端一致。
+    ///
     /// - Parameters:
     ///   - tool: 要执行的 V2Tool
     ///   - seed: 本次调用的执行种子（选区 / 前台 App / 锚点等）
@@ -108,12 +119,17 @@ public actor ExecutionEngine {
         // continuation 是 Sendable，可跨 actor 边界安全传递
         AsyncThrowingStream { continuation in
             // [weak self] 避免 engine 生命周期被 stream retain 延长
-            Task { [weak self] in
+            let task = Task { [weak self] in
                 guard let self else {
                     continuation.finish(throwing: CancellationError())
                     return
                 }
                 await self.runMainFlow(tool: tool, seed: seed, continuation: continuation)
+            }
+            // consumer drop iterator → onTermination → task.cancel() → runMainFlow / runPromptStream
+            // 在边界 `Task.isCancelled` 检查处短路；@Sendable closure 仅捕获 task（Sendable）。
+            continuation.onTermination = { _ in
+                task.cancel()
             }
         }
     }
@@ -131,14 +147,22 @@ public actor ExecutionEngine {
         continuation: AsyncThrowingStream<ExecutionEvent, any Error>.Continuation
     ) async {
         // Step 1：派发 .started + 记录开始时间，用于 InvocationReport.startedAt
+        // 复用 seed.invocationId（spec/数据模型注释明确"贯穿日志的追踪 id；
+        // 同一次划词/快捷键触发只生成一次"），让触发层日志、.started、.finished、
+        // OutputDispatcher、CostRecord、AuditLog 共用同一个 id；M3 接 UI 后做事故追踪、
+        // 取消路由、窗口路由都按 seed id 索引。
         let context = FlowContext(
-            invocationId: UUID(),
+            invocationId: seed.invocationId,
             toolId: tool.id,
             declared: Set(tool.permissions),
             startedAt: Date(),
             continuation: continuation
         )
         continuation.yield(.started(invocationId: context.invocationId))
+        // 取消短路 #1：consumer 收到 .started 后立即关闭面板 → onTermination → task.cancel()
+        // → 此处 isCancelled=true。onTermination 已 finish continuation；本路径**不**写 audit、
+        // **不**再 yield .failed（避免 audit 出现"用户取消但记 .failed"的歧义），直接 return。
+        if Task.isCancelled { return }
 
         // Step 2：PermissionGraph 静态聚合 + undeclared 校验
         guard let effective = await runPermissionGraph(tool: tool, context: context) else { return }
@@ -149,15 +173,9 @@ public actor ExecutionEngine {
             tool: tool, effective: effective, isDryRun: seed.isDryRun, context: context
         ) else { return }
 
-        // Step 3：ContextCollector 平铺并发解析 ContextRequest
-        guard let resolved = await runContextCollection(
-            tool: tool, seed: seed, context: context
-        ) else { return }
-
-        // Step 4：ProviderResolver 解析 ProviderSelection
-        guard let provider = await runProviderResolution(tool: tool, context: context) else { return }
-
-        // Step 5/6：按 tool.kind 分派；M2 阶段只展开 .prompt
+        // Step 5/6 提前分流：先按 tool.kind 选路，避免 .agent / .pipeline 浪费 ContextCollector +
+        // ProviderResolver 的预执行（spec M2 范围内 .agent/.pipeline 应是 stub —— 不应让真实
+        // ContextProvider 做 IO，也不该走 ProviderResolver 抛 fake .notFound 写 .failed audit）。
         let promptTool: PromptTool
         switch tool.kind {
         case .prompt(let p):
@@ -168,22 +186,10 @@ public actor ExecutionEngine {
             return
         }
 
-        // Step 6/7：PromptExecutor 流式调用 + OutputDispatcher 派发
-        guard let promptUsage = await runPromptStream(
-            tool: tool, promptTool: promptTool, resolved: resolved, provider: provider,
-            context: context
-        ) else { return }
-
-        // Step 7（续）：sideEffects 逐条 gate；partial-failure 写入 flags
-        let partialFailure = await runSideEffects(
-            tool: tool, isDryRun: seed.isDryRun, context: context
-        )
-        if partialFailure { context.flags.insert(.partialFailure) }
-
-        // Step 8/9：CostAccounting + finishSuccess（拆 helper 收纳计费 + 终态收口）
-        await recordCostAndFinishSuccess(
-            tool: tool, provider: provider, usage: promptUsage,
-            isDryRun: seed.isDryRun, context: context
+        // .prompt 路径：Step 3-9 拆到独立 helper，让 cancellation 防线覆盖每道 await
+        // 同时让 runMainFlow / runPromptKindPipeline 各自 ≤ swiftlint cyclomatic 12 + body 40。
+        await runPromptKindPipeline(
+            tool: tool, promptTool: promptTool, seed: seed, context: context
         )
     }
 }

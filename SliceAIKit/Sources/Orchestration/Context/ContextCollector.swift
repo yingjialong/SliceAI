@@ -104,7 +104,9 @@ public actor ContextCollector {
                 let registry = self.registry
                 let timeout = self.defaultTimeoutNanoseconds
                 group.addTask {
-                    await Self.runOne(
+                    // runOne 现在 throws：CancellationError 透传到 group，由 ExecutionEngine
+                    // .runContextCollection 的 `catch is CancellationError` 捕获并静默退出
+                    try await Self.runOne(
                         request: request,
                         seed: seed,
                         registry: registry,
@@ -149,12 +151,20 @@ public actor ContextCollector {
     ///
     /// 标 `static` 让闭包不捕获 `self`，避免 actor isolation 跨边界传递问题。
     /// 所有依赖通过参数显式注入（值语义、Sendable）。
+    ///
+    /// **取消语义**：CancellationError 必须**穿透**本函数原样向上抛出（而非被
+    /// 包装成 `.context(.requiredFailed)`）—— 用户关闭面板触发的 task cancel 会
+    /// cascade 到 child task 让 provider.resolve 内的 Task.sleep / IO 抛
+    /// CancellationError；如果在这里被包装成业务失败，上层 ExecutionEngine 会写
+    /// `.failed(.context)` audit + yield .failed，与"取消静默退出"语义冲突。
+    /// withThrowingTaskGroup 的 child task 抛错会让 group 整体抛同样的错，由
+    /// ExecutionEngine.runContextCollection 的 `catch is CancellationError` 捕获。
     private static func runOne(
         request: ContextRequest,
         seed: ExecutionSeed,
         registry: ContextProviderRegistry,
         timeoutNanoseconds: UInt64
-    ) async -> ChildResult {
+    ) async throws -> ChildResult {
         // Step A：provider 路由。registry 未命中 → 按 requiredness 分流
         guard let provider = registry.providers[request.provider] else {
             let err = SliceError.context(.providerNotFound(id: request.provider))
@@ -174,6 +184,10 @@ public actor ContextCollector {
                 )
             }
             return .success(key: request.key, value: value)
+        } catch is CancellationError {
+            // 透传 cancel — 不分类为 requiredFailure / optionalFailure，让 group 整体抛错
+            // 由 ExecutionEngine.runContextCollection 的 cancel 分支处理（不写 audit）。
+            throw CancellationError()
         } catch let sliceErr as SliceError {
             // provider 抛 SliceError（含 raceWithTimeout 抛出的 .context(.timeout)）
             return classifyFailure(request: request, error: sliceErr)
@@ -241,6 +255,22 @@ public actor ContextCollector {
     /// 使用 `withThrowingTaskGroup` 而非 `Task.detached + race`：结构化并发能保证两个子任务
     /// 在本函数返回前必定完成 / 取消，无悬空 Task；并且子任务取消由 group 自动传播，无需手写
     /// cancel handler。
+    ///
+    /// **超时语义是 best-effort 协作式**（Swift structured concurrency 限制）：sleep 分支抛 timeout
+    /// 后，`group.cancelAll()` 仅向 work 分支**发取消信号**。如果 ContextProvider 内部不检查
+    /// `Task.isCancelled` 或调用了非 cancellation-aware 的阻塞 API（如 Foundation 的
+    /// `Thread.sleep` / POSIX `usleep` / 同步网络），work 仍会继续运行，直到本函数 scope 退出
+    /// 时被 group destructor 等待。结果：调用方仍按时拿到 `.context(.timeout)` 错误，但底层
+    /// 资源（IO / 子进程 / 网络连接）可能短暂滞留——M2 Mock providers 全部 cancellation-cooperative，
+    /// 现实风险可控；Phase 1 真实 provider（filesystem / MCP / shell）必须遵守如下契约：
+    /// 1. **必须使用 cancellation-aware async API**（`Task.sleep` / `URLSession.data(for:)` /
+    ///    `withTaskCancellationHandler` 等）；
+    /// 2. **不得调用任何 POSIX 阻塞 syscall / `Thread.sleep` / 自旋忙等**；
+    /// 3. 若必须包装阻塞库（如 sqlite3 同步接口），应在底层 API 上加超时参数 / 拆 chunk 让步，
+    ///    或自行用 `withTaskCancellationHandler` 注册资源释放回调。
+    ///
+    /// 本函数不强制运行时校验上述契约（无法在不绕回非合作 provider 的情况下检测）；新增 provider
+    /// 时由 reviewer 把关并写"取消传导"测试。
     ///
     /// - Parameters:
     ///   - timeoutNanoseconds: 超时阈值

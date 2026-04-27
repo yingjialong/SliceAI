@@ -89,6 +89,30 @@ final class RedactionTests: XCTestCase {
         XCTAssertTrue(result.contains("Cookie: <redacted>"))
     }
 
+    /// RFC 6265 多对 cookie（用 `; ` 分隔）必须整段被替换——
+    /// 旧 `Cookie:\s*\S+` 在第一个空白处停止，会让第二个 `b=secret2` 漏过脱敏。
+    /// 这是审计日志真实泄露面，必须保持回归。
+    func test_scrub_cookieHeader_multipleValues_allRedacted() {
+        let input = "Cookie: a=secret1; b=secret2; c=secret3"
+        let result = Redaction.scrub(input)
+        // 任意一个 cookie value 都不应残留
+        XCTAssertFalse(result.contains("a=secret1"), "first cookie value leaked: \(result)")
+        XCTAssertFalse(result.contains("b=secret2"), "second cookie value leaked: \(result)")
+        XCTAssertFalse(result.contains("c=secret3"), "third cookie value leaked: \(result)")
+        // 整段头被压成单个 marker
+        XCTAssertTrue(result.contains("Cookie: <redacted>"))
+    }
+
+    /// Authorization 多 token / 含残留也必须吃到行尾——防止 `Bearer abc def` 这类
+    /// 多 token 格式或子规则替换后留下的尾随 token 漏过脱敏。
+    func test_scrub_authorizationHeader_multipleTokens_allRedacted() {
+        let input = "Authorization: my.jwt.token additional-segment"
+        let result = Redaction.scrub(input)
+        XCTAssertFalse(result.contains("my.jwt.token"), "first token leaked: \(result)")
+        XCTAssertFalse(result.contains("additional-segment"), "second token leaked: \(result)")
+        XCTAssertTrue(result.contains("Authorization: <redacted>"))
+    }
+
     // MARK: - 多模式叠加
 
     /// 同一字符串含 sk- + Bearer + Cookie，三者全部命中

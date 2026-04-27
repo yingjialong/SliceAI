@@ -106,7 +106,9 @@ final class JSONLAuditLogTests: XCTestCase {
     }
 
     /// sideEffectTriggered(.callMCP) round-trip——含 String 关联值（params dict）
-    /// params 不含敏感字段，确保普通参数原样保留
+    /// `ref.server` / `ref.tool` 落盘后会被 scrubEntry 脱敏成 `<redacted>`（与
+    /// `MCPClientError.toolNotFound` 同口径），所以 round-trip 期望值用 redacted 形态对比；
+    /// 非敏感 params 原样保留。
     func test_sideEffectTriggered_callMCP_roundTrips() async throws {
         let executedAt = Date(timeIntervalSince1970: 1_700_000_000)
         let original = AuditEntry.sideEffectTriggered(
@@ -119,7 +121,16 @@ final class JSONLAuditLogTests: XCTestCase {
         )
         try await sut.append(original)
         let read = try await sut.read(limit: 10)
-        XCTAssertEqual(read.first, original)
+        // 解构出 redacted 后的 sideEffect 与 params 单独断言（invocationId / executedAt 直接相等）
+        guard let entry = read.first,
+              case .sideEffectTriggered(_, let sideEffect, _) = entry,
+              case .callMCP(let scrubbedRef, let scrubbedParams) = sideEffect else {
+            XCTFail("read[0] expected .sideEffectTriggered(.callMCP), got \(read.first as Any)")
+            return
+        }
+        XCTAssertEqual(scrubbedRef.server, "<redacted>", "ref.server 必须被脱敏")
+        XCTAssertEqual(scrubbedRef.tool, "<redacted>", "ref.tool 必须被脱敏")
+        XCTAssertEqual(scrubbedParams, ["sql": "SELECT 1", "timeout": "30"], "非敏感 params 应原样保留")
     }
 
     /// logCleared(at:) round-trip
@@ -160,8 +171,10 @@ final class JSONLAuditLogTests: XCTestCase {
         XCTAssertFalse(content.contains("my.jwt.token"))
     }
 
-    /// SideEffect.callMCP 的 params values 含敏感字段时也应脱敏
-    func test_append_sideEffectCallMCP_paramsValueScrubbed() async throws {
+    /// SideEffect.callMCP 的 params values 含敏感字段时也应脱敏；ref.server / ref.tool 也全脱敏
+    /// （与 MCPClientError.toolNotFound 同口径，避免 audit jsonl 持久化用户配置中的
+    /// 本地路径 / 项目名 / 私有主机名 / token-like 字符串）。
+    func test_append_sideEffectCallMCP_refAndParamsScrubbed() async throws {
         let entry = AuditEntry.sideEffectTriggered(
             invocationId: UUID(),
             sideEffect: .callMCP(
@@ -172,12 +185,37 @@ final class JSONLAuditLogTests: XCTestCase {
         )
         try await sut.append(entry)
         let content = try String(contentsOf: fileURL, encoding: .utf8)
+        // 敏感 params value 必须脱敏
         XCTAssertFalse(content.contains("secret.jwt.value"))
-        // 非敏感字段应保留
+        // 非敏感 params value 应保留
         XCTAssertTrue(content.contains("foo/bar"))
-        // server / tool ref 是稳定标识符，不脱敏
-        XCTAssertTrue(content.contains("github"))
-        XCTAssertTrue(content.contains("createIssue"))
+        // ref.server / ref.tool 必须脱敏——任何"普通看似无害的标识符"也不留原文，
+        // 因为 Phase 1 用户配置可能让其变成路径 / token-like
+        XCTAssertFalse(content.contains("github"), "ref.server 必须脱敏")
+        XCTAssertFalse(content.contains("createIssue"), "ref.tool 必须脱敏")
+        XCTAssertTrue(content.contains("<redacted>"), "应含 <redacted> 标记")
+    }
+
+    /// 挑战性 ref：当 server / tool 含本地路径 / 项目名 / token-like 字符串时，落盘 jsonl
+    /// 必须不残留任何原文片段——验证 audit 在 Phase 1 真实 MCP server 接入时的安全保障。
+    func test_append_sideEffectCallMCP_challengingRef_noPathOrTokenLeaksToFile() async throws {
+        let suspiciousServer = "stdio:///Users/me/projects/secret-project/.mcp/server"
+        let suspiciousTool = "internal_admin_tool_token_abc123"
+        let entry = AuditEntry.sideEffectTriggered(
+            invocationId: UUID(),
+            sideEffect: .callMCP(
+                ref: MCPToolRef(server: suspiciousServer, tool: suspiciousTool),
+                params: [:]
+            ),
+            executedAt: Date()
+        )
+        try await sut.append(entry)
+        let content = try String(contentsOf: fileURL, encoding: .utf8)
+        // 路径片段 / 项目名 / token-like 一律不应出现
+        XCTAssertFalse(content.contains("/Users/me"), "本地路径前缀不应残留")
+        XCTAssertFalse(content.contains("secret-project"), "项目名不应残留")
+        XCTAssertFalse(content.contains("internal_admin_tool_token_abc123"), "token-like 不应残留")
+        XCTAssertFalse(content.contains("stdio://"), "server scheme 不应残留")
     }
 
     // MARK: - 4. clear() 留痕
@@ -251,5 +289,27 @@ final class JSONLAuditLogTests: XCTestCase {
         }
         let read = try await sut.read(limit: 100)
         XCTAssertEqual(read.count, 5)
+    }
+
+    /// limit < 实际条数时返回**最近** N 条（取 suffix，按写入时序）。
+    ///
+    /// 此前实现用 `lines.prefix(limit)` 拿文件开头的最旧 N 条，与 protocol 注释「读取最近
+    /// N 条」冲突；audit 文件增长后 SRE 查询最近条数会拿到旧记录，最新的失败 / sideEffect
+    /// 事件被隐藏，故改用 `lines.suffix(limit)`。
+    func test_read_withLimitLessThanCount_returnsRecentN_inAppendOrder() async throws {
+        // 写 5 条，递增 toolId 标记 append 顺序
+        for i in 0..<5 {
+            try await sut.append(.invocationCompleted(.stub(toolId: "t.\(i)")))
+        }
+        let read = try await sut.read(limit: 2)
+
+        // 必须取尾部 2 条 = append 顺序的最后两条 = "t.3" + "t.4"
+        XCTAssertEqual(read.count, 2)
+        let toolIds = read.compactMap { entry -> String? in
+            if case .invocationCompleted(let report) = entry { return report.toolId }
+            return nil
+        }
+        XCTAssertEqual(toolIds, ["t.3", "t.4"],
+                       "read(limit:2) 必须返回**最近** 2 条（t.3, t.4）按 append 时序，而非最旧 2 条")
     }
 }

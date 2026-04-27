@@ -29,9 +29,15 @@ public enum Redaction {
     ///
     /// **顺序很关键**：先用"具体 token 模式"（Bearer / sk-）替换敏感子串，
     /// 再用"行级 header 模式"（Authorization / Cookie）吃掉残留的 `<redacted>` 标记
-    /// 与字段名（如 "Authorization: <redacted>"）。如果反过来，
-    /// `Authorization:\s*\S+` 只能匹配第一个 `\S+` token——后续空格分隔的
-    /// `my.jwt.token` 会漏过脱敏。
+    /// 与字段名（如 "Authorization: <redacted>"）。
+    ///
+    /// **header 兜底必须 match 到行尾**：Cookie / Authorization 里常见多段 `key=value;
+    /// key2=value2`（RFC 6265 cookie pair 用 `; ` 分隔），`\S+` 只吃第一个空白前的 token，
+    /// 第二段 `key2=value2` 会原样留在 audit jsonl 中——真实泄露风险。改用 `[^\r\n]+`
+    /// 一直吃到行末（NSRegularExpression `.` 默认不跨行；这里更显式），覆盖：
+    /// - `Cookie: a=secret; b=secret2` → `Cookie: <redacted>`（不再漏 b=secret2）
+    /// - `Authorization: my.jwt.token next-stuff` → `Authorization: <redacted>`
+    /// - `Authorization: <redacted>`（已被 Bearer 子规则替换过）→ 仍幂等收敛
     private static let patterns: [(NSRegularExpression, String)] = {
         // 候选 patterns：(pattern, replacement)
         let raw: [(String, String)] = [
@@ -39,10 +45,10 @@ public enum Redaction {
             (#"Bearer\s+[A-Za-z0-9_\-\.=]+"#, "<redacted>"),
             // 2. OpenAI 风格 sk-xxxx（16+ 字符，含 dash / underscore）
             ("sk-[A-Za-z0-9_-]{16,}", "<redacted>"),
-            // 3. Authorization header（兜底吃掉 Authorization: <已替换> 之类的字段名前缀）
-            ("Authorization:\\s*\\S+", "Authorization: <redacted>"),
-            // 4. Cookie header（同上）
-            ("Cookie:\\s*\\S+", "Cookie: <redacted>")
+            // 3. Authorization header（吃到行尾，覆盖多 token / 子模式残留）
+            ("Authorization:\\s*[^\\r\\n]+", "Authorization: <redacted>"),
+            // 4. Cookie header（吃到行尾，覆盖 RFC 6265 多对 key=value 用 `; ` 分隔）
+            ("Cookie:\\s*[^\\r\\n]+", "Cookie: <redacted>")
         ]
         var compiled: [(NSRegularExpression, String)] = []
         for (pat, rep) in raw {

@@ -1,3 +1,4 @@
+import SliceCore
 import XCTest
 @testable import Capabilities
 
@@ -19,9 +20,9 @@ final class MCPClientProtocolTests: XCTestCase {
     private let serverA = MCPDescriptor(id: "stdio://server-a")
     private let serverB = MCPDescriptor(id: "stdio://server-b")
 
-    private let refEcho = MCPToolRef(server: "stdio://server-a", name: "echo")
-    private let refSum = MCPToolRef(server: "stdio://server-a", name: "sum")
-    private let refUnknown = MCPToolRef(server: "stdio://server-a", name: "ghost")
+    private let refEcho = MCPToolRef(server: "stdio://server-a", tool: "echo")
+    private let refSum = MCPToolRef(server: "stdio://server-a", tool: "sum")
+    private let refUnknown = MCPToolRef(server: "stdio://server-a", tool: "ghost")
 
     // MARK: - 1. tools happy
 
@@ -165,17 +166,30 @@ final class MCPClientProtocolTests: XCTestCase {
         )
     }
 
-    // MARK: - 6.5 MCPClientError.developerContext 脱敏
+    // MARK: - 6.5 MCPClientError.developerContext 脱敏（三 case 全脱敏）
 
-    /// `.toolNotFound` 的关联 ref 来自调用方代码（不会带敏感数据），developerContext 应原样含 server/name；
-    /// `.transportFailed` / `.decodingFailed` 的 reason 可能携带 server 路径 / underlying error 等敏感
-    /// 信息，developerContext 一律输出 `<redacted>`，与 `SliceError.developerContext` 同口径。
+    /// 三个 case 一律脱敏：
+    /// - `.toolNotFound` 关联的 `ref.server` / `ref.tool` 在 Phase 1 真实接入用户配置的 MCP server 后，
+    ///   可能出现 `stdio:///Users/me/projects/secret/.mcp/server` 这类含本地路径 / 项目名 / 私有主机名
+    ///   的字符串（典型攻击面：用户 server.id 含 token-like / 路径 / 工程名）。
+    /// - `.transportFailed` / `.decodingFailed` 的 reason 可能携带 server 路径 / underlying error。
+    /// 三 case 与 `SliceError.developerContext` 对带 String / 路径 payload 的 case 同口径。
     func test_mcpClientError_developerContext_redactsStringPayloads() {
-        let toolNotFoundCtx = MCPClientError.toolNotFound(ref: refEcho).developerContext
-        XCTAssertTrue(
-            toolNotFoundCtx.contains("server=stdio://server-a") && toolNotFoundCtx.contains("name=echo"),
-            "toolNotFound 应原样保留 ref 字段，便于定位调用方拼写错误，实际 = \(toolNotFoundCtx)"
+        // 用一个带"路径 / 项目名 / token-like"特征的 ref 来挑战 toolNotFound 脱敏
+        let suspiciousRef = MCPToolRef(
+            server: "stdio:///Users/me/projects/secret-project/.mcp/server",
+            tool: "internal_admin_tool_token_abc123"
         )
+        let toolNotFoundCtx = MCPClientError.toolNotFound(ref: suspiciousRef).developerContext
+        XCTAssertEqual(
+            toolNotFoundCtx,
+            "toolNotFound(server=<redacted>, tool=<redacted>)",
+            "toolNotFound 应整体脱敏，避免 Phase 1 用户 MCP 配置含路径 / 项目名时泄露"
+        )
+        // 关键反向断言：原 server / tool 字面量任何片段都不应出现在 developerContext 里
+        XCTAssertFalse(toolNotFoundCtx.contains("/Users/me"), "developerContext 不应残留任何路径片段")
+        XCTAssertFalse(toolNotFoundCtx.contains("secret-project"), "developerContext 不应残留任何项目名")
+        XCTAssertFalse(toolNotFoundCtx.contains("token_abc123"), "developerContext 不应残留任何 token-like")
 
         let transportCtx = MCPClientError.transportFailed(reason: "broken pipe to /Users/me/.ssh/key").developerContext
         XCTAssertEqual(transportCtx, "transportFailed(<redacted>)", "transportFailed reason 必须脱敏")

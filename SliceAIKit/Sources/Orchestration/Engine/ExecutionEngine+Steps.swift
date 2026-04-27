@@ -55,7 +55,8 @@ extension ExecutionEngine {
 
     /// Step 2：聚合 effective permissions；undeclared 非空直接终止。
     ///
-    /// 返回 nil 表示已 finishFailure，调用方应直接 return。
+    /// 返回 nil 表示已 finishFailure 或被取消。每条 catch + happy 分支都先查 `Task.isCancelled`
+    /// 静默退出，防止 cancel 后仍走 finishFailure 写"取消但记 .failed" 歧义 audit。
     func runPermissionGraph(
         tool: V2Tool,
         context: FlowContext
@@ -63,14 +64,17 @@ extension ExecutionEngine {
         let effective: EffectivePermissions
         do {
             effective = try await permissionGraph.compute(tool: tool)
+        } catch is CancellationError {
+            return nil
         } catch SliceError.toolPermission(.unknownProvider(let id)) {
-            // ContextRequest 引用未注册的 ContextProvider —— 配置错误，转 .invalidTool
+            if Task.isCancelled { return nil }
             await finishFailure(
                 error: .configuration(.invalidTool(id: id, reason: "context provider not registered")),
                 effective: [], context: context
             )
             return nil
         } catch {
+            if Task.isCancelled { return nil }
             // 其他 SliceError / 非 SliceError 一律包装为 validationFailed —— 不打日志（无自由日志）
             await finishFailure(
                 error: .configuration(.validationFailed("PermissionGraph error")),
@@ -78,6 +82,7 @@ extension ExecutionEngine {
             )
             return nil
         }
+        if Task.isCancelled { return nil }
 
         // D-24 闭环：effective.union ⊆ declared；漏报直接终止
         if !effective.undeclared.isEmpty {
@@ -92,8 +97,9 @@ extension ExecutionEngine {
 
     /// Step 2.5：PermissionBroker 对整体 effective set 做 gate 决策。
     ///
-    /// 返回 false 表示已 finishFailure / 决策失败终止；返回 true 主流程继续。
-    /// `.wouldRequireConsent` 在 dry-run 路径下 yield 占位事件后**继续**主流程。
+    /// 返回 false 表示已 finishFailure / 决策失败终止 / 被取消；返回 true 主流程继续。
+    /// `.wouldRequireConsent` 在 dry-run 路径下 yield 占位事件后继续主流程。
+    /// gate await 后查 `Task.isCancelled`，防止取消后仍写 .failed audit / yield 多余事件。
     func runPermissionGate(
         tool: V2Tool,
         effective: EffectivePermissions,
@@ -106,6 +112,7 @@ extension ExecutionEngine {
             scope: .session,
             isDryRun: isDryRun
         )
+        if Task.isCancelled { return false }
         switch outcome {
         case .approved:
             return true
@@ -140,6 +147,12 @@ extension ExecutionEngine {
         let contextRequests = extractContextRequests(from: tool)
         do {
             return try await contextCollector.resolve(seed: seed, requests: contextRequests)
+        } catch is CancellationError {
+            // 取消静默退出：onTermination 已 finish 外层 continuation；本路径不写 audit、
+            // 不再 yield。CancellationError 由 ContextCollector.runOne 透传上来，触发场景：
+            // 用户在 ContextCollector 解析途中关闭 panel → cancel cascade → provider.resolve
+            // 内部 Task.sleep / Task.checkCancellation 抛出 → group throw → 这里捕获。
+            return nil
         } catch SliceError.context(.requiredFailed(let key, let underlying)) {
             // required 失败语义已经成形，原样转为 InvocationReport.outcome.failed(.context)
             await finishFailure(
@@ -182,7 +195,13 @@ extension ExecutionEngine {
 
         do {
             return try await providerResolver.resolve(selection)
+        } catch is CancellationError {
+            // 真实 ProviderResolver（Phase 1 接 Keychain / 远端 model 列表）做 IO 时
+            // 收到 cancel cascade 抛 CancellationError —— 与 F5.1 ContextCollector 同口径，
+            // 不能落入 catch-all 走 finishFailure 写 .failed(.configuration) audit
+            return nil
         } catch ProviderResolutionError.notFound(let providerId) {
+            if Task.isCancelled { return nil }
             // 注：plan 原样代码用 `id` 误绑（不存在的局部变量），这里以绑定的 providerId 为准
             await finishFailure(
                 error: .configuration(.referencedProviderMissing(providerId)),
@@ -190,6 +209,7 @@ extension ExecutionEngine {
             )
             return nil
         } catch {
+            if Task.isCancelled { return nil }
             await finishFailure(
                 error: .configuration(.validationFailed("ProviderResolver error")),
                 effective: context.effective, context: context
@@ -200,8 +220,10 @@ extension ExecutionEngine {
 
     /// Step 6/7：跑 PromptExecutor stream，yield `.llmChunk` 并把 chunk 投递给 OutputDispatcher。
     ///
-    /// 返回 UsageStats 表示流正常结束；返回 nil 表示已 finishFailure。
-    /// `.notImplemented(reason)` 仅在第一次出现时 yield 一次（避免每个 chunk 都重复事件）。
+    /// 返回 UsageStats 表示流正常结束；返回 nil 表示已 finishFailure 或被取消。
+    /// `.notImplemented(reason)` 仅首次 yield。每个 chunk 入口 + `output.handle` await 后查
+    /// `Task.isCancelled`：取消后不再 yield .llmChunk / .notImplemented / 调 output.handle，
+    /// 防止 ResultPanel dismiss 后 chunk 仍投递到已关闭 panel。
     func runPromptStream(
         tool: V2Tool,
         promptTool: PromptTool,
@@ -212,20 +234,18 @@ extension ExecutionEngine {
         var promptUsage: UsageStats = .zero
         var notImplementedYielded = false
         let stream = await promptExecutor.run(
-            promptTool: promptTool,
-            resolved: resolved,
-            provider: provider
+            promptTool: promptTool, resolved: resolved, provider: provider
         )
         do {
             for try await element in stream {
                 switch element {
                 case .chunk(let chunk):
+                    if Task.isCancelled { return nil }
                     context.continuation.yield(.llmChunk(delta: chunk))
                     let dispatchOutcome = try await output.handle(
-                        chunk: chunk,
-                        mode: tool.displayMode,
-                        invocationId: context.invocationId
+                        chunk: chunk, mode: tool.displayMode, invocationId: context.invocationId
                     )
+                    if Task.isCancelled { return nil }
                     if case .notImplemented(let reason) = dispatchOutcome, !notImplementedYielded {
                         context.continuation.yield(.notImplemented(reason: reason))
                         notImplementedYielded = true
@@ -234,6 +254,10 @@ extension ExecutionEngine {
                     promptUsage = stats
                 }
             }
+        } catch is CancellationError {
+            // 静默取消：consumer drop iterator 已触发 onTermination → 外层 continuation 已 drain；
+            // 不写 audit、不 yield .failed（避免 audit 出现"用户取消但记 .failed"的歧义）。
+            return nil
         } catch let error as SliceError {
             await finishFailure(
                 error: error, effective: context.effective, context: context
@@ -255,6 +279,8 @@ extension ExecutionEngine {
     /// `.approved`：dry-run yield `.sideEffectSkippedDryRun`，否则 yield `.sideEffectTriggered` 并写 audit；
     /// `.denied` / `.requiresUserConsent`：partial-failure 标记 true（主流程不中止）；
     /// `.wouldRequireConsent`：dry-run 占位事件 `.sideEffectSkippedDryRun`。
+    /// 循环入口 + gate await 后查 `Task.isCancelled`：Phase 1 真实 sideEffect（writeFile /
+    /// showNotification / open URL）不可逆，取消后未派发部分静默丢弃。
     func runSideEffects(
         tool: V2Tool,
         isDryRun: Bool,
@@ -262,12 +288,14 @@ extension ExecutionEngine {
     ) async -> Bool {
         var partialFailure = false
         for sideEffect in tool.outputBinding?.sideEffects ?? [] {
+            if Task.isCancelled { break }
             let outcome = await permissionBroker.gate(
                 effective: Set(sideEffect.inferredPermissions),
                 provenance: tool.provenance,
                 scope: .session,
                 isDryRun: isDryRun
             )
+            if Task.isCancelled { break }
             switch outcome {
             case .approved:
                 if isDryRun {
@@ -302,6 +330,9 @@ extension ExecutionEngine {
     ///
     /// 拆 helper 把"计费 + 终态收口"逻辑从 main flow 抽出来，
     /// 让 `runMainFlow` 控制流体落在 swiftlint function_body 40 行以内。
+    /// cost record await 后查 `Task.isCancelled` —— 取消后跳过 finishSuccess（不写 audit、
+    /// 不 yield .finished）。CostRecord 残留是可接受代价（telemetry 多一条孤记录，
+    /// 比 audit 出现"取消但记 .success" 歧义影响小）。
     func recordCostAndFinishSuccess(
         tool: V2Tool,
         provider: V2Provider,
@@ -310,17 +341,21 @@ extension ExecutionEngine {
         context: FlowContext
     ) async {
         let costUSD = estimateCostUSD(usage: usage)
+        // CostRecord.model 与 PromptExecutor 实际请求的 model 必须同源——否则 audit 中的"请求模型"
+        // 与"记账模型"会漂移；用 resolveSelectedModel 集中解析 ProviderSelection.fixed.modelId
+        let model = resolveSelectedModel(tool: tool, fallback: provider.defaultModel)
         // try? 吞错：cost 写失败属于 telemetry，不应阻塞主流程；后续观察期由 sqlite IO 监控暴露
         try? await costAccounting.record(CostRecord(
             invocationId: context.invocationId,
             toolId: tool.id,
             providerId: provider.id,
-            model: provider.defaultModel,
+            model: model,
             inputTokens: usage.inputTokens,
             outputTokens: usage.outputTokens,
             usd: costUSD,
             recordedAt: Date()
         ))
+        if Task.isCancelled { return }
         if isDryRun { context.flags.insert(.dryRun) }
         let report = makeReport(
             context: context,
@@ -440,5 +475,23 @@ extension ExecutionEngine {
         let totalTokens = Decimal(usage.inputTokens + usage.outputTokens)
         // 0.000001 美元/token 是 M2 占位单价（约对应 $1/M tokens）；fallback .zero 让逻辑全程无 crash 路径
         return totalTokens * (Decimal(string: "0.000001") ?? .zero)
+    }
+
+    /// 解析工具级 model override：与 PromptExecutor 同口径，让 ChatRequest.model 与 CostRecord.model 同源。
+    ///
+    /// `nonisolated`：纯函数无 actor 状态依赖。
+    /// pipeline 没顶层 provider，一致回 fallback；其他 kind 各自取自己的 provider selection。
+    /// 只在 `.fixed(_, modelId:)` 且 modelId 非 nil 时返回 override，否则 fallback。
+    nonisolated func resolveSelectedModel(tool: V2Tool, fallback: String) -> String {
+        let selection: ProviderSelection
+        switch tool.kind {
+        case .prompt(let promptTool): selection = promptTool.provider
+        case .agent(let agentTool): selection = agentTool.provider
+        case .pipeline: return fallback
+        }
+        if case .fixed(_, let modelId) = selection, let modelId {
+            return modelId
+        }
+        return fallback
     }
 }

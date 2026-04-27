@@ -95,6 +95,13 @@ public actor PromptExecutor {
     /// - 跨 actor 取 stream 必须 `await`：`let s = await promptExecutor.run(...)`
     /// - 不需要 `try`：本方法本身不 throws；错误延迟到 `for try await element in s` 处抛出
     ///
+    /// **取消语义**：保存内部 producer Task handle 并通过 `continuation.onTermination` 在
+    /// stream consumer drop iterator（如 ExecutionEngine 外层 task cancel / 测试 break for-await）
+    /// 时主动 `task.cancel()`。runInternal 在 keychain / LLM stream 等关键 await 边界显式
+    /// `try Task.checkCancellation()`，让 cancel 信号 cascade 到 LLMProvider.stream 内部
+    /// （URLSession byte stream 通过其自身 onTermination 链终止）——避免 consumer 已离场后
+    /// 仍持续消耗网络 / token / 计费。
+    ///
     /// - Parameters:
     ///   - promptTool: PromptTool 配置（systemPrompt / userPrompt / variables / temperature / maxTokens）
     ///   - resolved: ContextCollector 已解析的执行上下文（提供 selection.text / frontApp 用于变量注入）
@@ -108,7 +115,9 @@ public actor PromptExecutor {
         // 注：stream closure 是 @Sendable 非 actor-isolated；闭包内必须用 Task { [weak self] in ... }
         // 跨边界跳进 actor，才能访问 self.keychain / self.llmProviderFactory（actor state）
         AsyncThrowingStream { continuation in
-            Task { [weak self] in
+            // 保存 task handle，让 onTermination 能 cancel 到内部 producer。
+            // Task.init（unstructured）不继承外层 task 的 cancellation —— 必须手动桥接。
+            let task = Task { [weak self] in
                 guard let self else {
                     // self 已释放（执行引擎销毁）：以取消语义结束 stream，调用方 catch CancellationError 处理
                     continuation.finish(throwing: CancellationError())
@@ -122,9 +131,19 @@ public actor PromptExecutor {
                         continuation: continuation
                     )
                     continuation.finish()
+                } catch is CancellationError {
+                    // 静默取消：consumer drop iterator 已触发 onTermination → continuation 已 drain。
+                    // 不 finish(throwing:) 以避免 ExecutionEngine.runPromptStream 的 catch 路径误报。
+                    continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
                 }
+            }
+            // consumer drop iterator → onTermination → task.cancel() → runInternal 内部
+            // `try Task.checkCancellation()` / `Task.sleep` / cooperative `for try await` 抛
+            // CancellationError → 上面 catch is CancellationError 静默 finish。
+            continuation.onTermination = { _ in
+                task.cancel()
             }
         }
     }
@@ -155,6 +174,10 @@ public actor PromptExecutor {
         guard let account = v1Provider.keychainAccount else {
             throw SliceError.provider(.unauthorized)
         }
+        // 取消短路：keychain 实现（含生产 Keychain）可能不响应 cooperative cancel；
+        // consumer drop iterator 时显式 check 让 task.cancel() 立即抛 CancellationError，
+        // 避免读 Keychain 触发系统授权弹窗 / 占用 IO。
+        try Task.checkCancellation()
         guard let apiKey = try await keychain.readAPIKey(providerId: account),
               !apiKey.isEmpty else {
             throw SliceError.provider(.unauthorized)
@@ -166,11 +189,15 @@ public actor PromptExecutor {
         let messages = renderMessages(promptTool: promptTool, resolved: resolved)
 
         // 5. 构造 ChatRequest
-        //    model 选择：v1Provider.defaultModel
-        //    （ProviderSelection.fixed.modelId 已由 Task 2 ProviderResolver 解析阶段固化为
-        //    V2Provider.defaultModel；本层不重复解析，避免双源真理）
+        //    model 选择：promptTool.provider.fixed.modelId 优先，缺省 fall back v1Provider.defaultModel。
+        //    与 v1 SliceCore/ToolExecutor.swift 的 `tool.modelId ?? provider.defaultModel` 同口径——
+        //    ProviderResolver 当前不消费 modelId（见 ProviderResolverProtocol 文档），由本层解析；
+        //    M3 切换到 V2 链路后用户工具级 modelId 不再被静默换成 provider.defaultModel。
+        let selectedModel = Self.resolveModel(
+            selection: promptTool.provider, fallback: v1Provider.defaultModel
+        )
         let request = ChatRequest(
-            model: v1Provider.defaultModel,
+            model: selectedModel,
             messages: messages,
             temperature: promptTool.temperature,
             maxTokens: promptTool.maxTokens
@@ -182,6 +209,9 @@ public actor PromptExecutor {
 
         // 6. 工厂创建 LLMProvider 实例 + 启动流式调用
         let llm = try llmProviderFactory.make(for: v1Provider, apiKey: apiKey)
+        // 取消短路：llm.stream 内部立即发起 URLSession 连接 / token 消耗；
+        // consumer drop iterator 时让 task.cancel() 在网络握手前抛错，避免计费。
+        try Task.checkCancellation()
         let chatStream = try await llm.stream(request: request)
 
         // 7. 转发 chunks 并累计输出字符数
@@ -224,6 +254,20 @@ public actor PromptExecutor {
         }
         messages.append(ChatMessage(role: .user, content: userText))
         return messages
+    }
+
+    /// 解析工具级 model override：与 v1 ToolExecutor 同口径
+    ///
+    /// `nonisolated` + `private static`：纯函数，无 actor 状态依赖，不引入 actor hop。
+    /// pipeline / capability / cascade 三种 selection 形态都没有顶层 modelId override 概念，
+    /// 一致回 fallback；只有 `.fixed(providerId, modelId:)` 且 modelId 非 nil 时才走 override。
+    private nonisolated static func resolveModel(
+        selection: ProviderSelection, fallback: String
+    ) -> String {
+        if case .fixed(_, let modelId) = selection, let modelId {
+            return modelId
+        }
+        return fallback
     }
 
     /// V2Provider → v1 Provider 适配
