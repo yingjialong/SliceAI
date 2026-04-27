@@ -1,9 +1,9 @@
 ---
 slug: phase-0-m2-pr-prep
 created: 2026-04-27T21:16+08:00
-last_updated: 2026-04-28T00:10+08:00
-status: in-progress
-total_rounds: 9
+last_updated: 2026-04-28T00:18+08:00
+status: paused-pending-user
+total_rounds: 10
 max_iterations: 5
 ---
 
@@ -249,6 +249,27 @@ max_iterations: 5
 - **CI gate after fix.** `swift test` **565 / 565 pass**（baseline 545 + R1-R8 累计 16 + R9 4 = 565）；`swiftlint lint --strict` **0 violations / 0 serious / 134 files**；xcodebuild Debug **BUILD SUCCEEDED**。
 - **Drift.** in-scope-only。
 - **Status.** continue（commit + R10 复审；累计 9 轮 review 已超 max_iterations 4 倍，但每轮都发现实质 finding 且都成功修复，loop 仍处于 productive 状态）。
+
+### Round 10 · 2026-04-28 · 00:10~00:18
+
+- **Codex verdict.** needs-attention
+- **Severity counts.** 0 critical · 1 high · 0 medium · 0 low
+- **Codex meta-recommendation.** Codex summary line 主动建议："R10 仍有 high，建议停止继续扩大 review loop，让用户决定先修复此阻断项再 PR，或显式带 backlog 进入 PR" —— 这是 Codex 第一次在 review summary 中主动呼吁 stop loop，标志 review 已进入 marginal returns 区域。
+- **Decision ledger.**
+
+| # | Severity | Title | File:line | Decision | Reason / fix plan |
+|---|---|---|---|---|---|
+| F10.1 | high | 同一 unknown URL 的后续导入会继承旧授权 | SliceAIKit/Sources/Orchestration/Permissions/PermissionGrantStore.swift:59-63 | accept | Root cause: R9 fix 仅在 .unknown URL 为 nil 时把 importedAt 纳入 key（兜底场景），URL 非 nil 时只用 `URL.absoluteString` 作 key——丢弃了 importedAt。这导致用户从 `https://example.com/tool.json` 在 T1 给 .fileWrite 授权后，T2 从同一 URL 重新导入新内容（mutable URL 不具备内容不可变性 / 签名身份）会命中 grant cache 直接 .approved，绕过 consent。Codex 推断：**unknown URL 不能作为稳定信任根**——必须按导入事件 (per-import-event) 而非按 URL 隔离。M2 没有 digest / 签名校验机制，per-import-event 是唯一安全方案。Fix: 把 .unknown 的 tag 改为始终包含 importedAt：`unknown:\(URL or <no-url>):\(importedAt 时间戳)`——同 URL 不同 importedAt 视为独立 trust event。新增回归测试 `test_unknownImports_sameURL_differentImportedAt_doNotShareGrant`；同时同 publisher 的 .communitySigned 仍仅用 publisher 不含 signedAt（Phase 4+ 签名校验是稳定身份）。 |
+
+- **Stagnation update.** F10.1 是 R9 fix 的"角落漏洞"——R9 fix 主修跨 publisher / 跨 URL 泄漏，留下"同 URL 不同时间"这个边角；R10 把它补完。loop 仍发现实质 high finding 但 finding 范围在收敛（从主流程 cancel → 权限 cache → cache 角落细节）。
+- **Fix applied.** 1 个 fix 落地：tag(for:) 让 .unknown URL+importedAt 联合作 key + 1 条回归测试。
+- **Files touched.** 1 source + 1 tests 改：`Orchestration/Permissions/PermissionGrantStore.swift`（.unknown tag 改为始终含 importedAt + 升级 doc 解释 mutable URL rationale）、`Tests/OrchestrationTests/PermissionGrantStoreTests.swift`（新增 `test_unknownImports_sameURL_differentImportedAt_doNotShareGrant`）。
+- **CI gate after fix.** `swift test` **566 / 566 pass**（baseline 545 + 累计 21 = 566）；`swiftlint lint --strict` **0 violations / 134 files**；xcodebuild Debug **BUILD SUCCEEDED**。
+- **Drift.** in-scope-only。
+- **Status.** **paused-pending-user**（按 Codex 建议 + Claude 自己评估：loop 已 R10 = max_iterations × 2，每轮 fix 价值在递减；F10.1 已 fix，loop 可在此收敛）。Claude 向用户呈递选项决定下一步：
+  - Option α：Approve（按 Claude 判断 R10 fix 已闭环 cross-source / per-import-event 安全语义，不再 R11；loop 终止 → commit-and-PR / commit-slicing）
+  - Option β：再跑 R11 验证 R10 fix（按"无 issue 再 PR"严格语义，但要承担继续发现新 corner finding 的可能 —— Codex 自己已建议停）
+  - Option γ：直接进入 PR 阶段，把 R10 fix + 任意可能的 R11 backlog 在 PR description 列为 Phase 1+ 处理项（如适用）
 
 
 ---

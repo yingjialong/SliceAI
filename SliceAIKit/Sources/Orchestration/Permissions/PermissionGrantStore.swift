@@ -42,12 +42,15 @@ public actor PermissionGrantStore {
     ///
     /// **隔离规则**：
     /// - `.firstParty` 全 App 共享同一信任根 → 仅 case tag
-    /// - `.communitySigned(publisher:_)` 不同 publisher 是独立信任根 → 含 publisher（不含 signedAt）
+    /// - `.communitySigned(publisher:_)` 不同 publisher 是独立信任根 → 含 publisher（不含 signedAt
+    ///   —— publisher 是 Phase 4+ 签名校验背书的稳定身份；同 publisher 重新签名仍命中 grant）
     /// - `.selfManaged(userAcknowledgedAt:)` 每次 ack 视为独立 trust event → 含 timestamp
-    /// - `.unknown(importedFrom:importedAt:)` 不同导入 URL 是独立来源 → 含 URL；nil URL 用
-    ///   importedAt 兜底分隔（避免两条 nil-URL .unknown 共享 grant）
+    /// - `.unknown(importedFrom:importedAt:)` **每次导入事件都是独立信任** → URL + importedAt 都纳入
+    ///   key。**rationale**：unknown URL 不具备内容不可变性 / 签名身份（同一 URL 在 T1 / T2 的
+    ///   两次导入可能指向不同内容），按 URL 共享 grant 会让 mutable URL 的新内容绕过 consent。
+    ///   M2 选择"per-import-event 隔离"语义；Phase 1+ 若 MCPDescriptor 接入 digest/signature 再升级。
     /// - Parameter provenance: 来源 enum
-    /// - Returns: 形如 "firstParty" / "communitySigned:Acme" / "unknown:https://x.test" 的字符串
+    /// - Returns: 形如 "firstParty" / "communitySigned:Acme" / "unknown:https://x.test:1234567890" 的字符串
     private static func tag(for provenance: Provenance) -> String {
         switch provenance {
         case .firstParty:
@@ -57,10 +60,10 @@ public actor PermissionGrantStore {
         case .selfManaged(let userAcknowledgedAt):
             return "selfManaged:\(userAcknowledgedAt.timeIntervalSince1970)"
         case .unknown(let importedFrom, let importedAt):
-            // URL 非 nil 时用 absoluteString 作稳定 ID；为 nil 时降级为 importedAt 时间戳
-            // 防止两条 importedFrom=nil 的 .unknown 误共享同一 grant
-            let identity = importedFrom?.absoluteString ?? "<no-url>:\(importedAt.timeIntervalSince1970)"
-            return "unknown:\(identity)"
+            // URL + importedAt 联合作 key —— per-import-event 隔离：同 URL 二次导入不命中旧 grant
+            // 防止 mutable URL（同 URL 不同时刻指向不同内容）通过缓存绕过 consent
+            let urlPart = importedFrom?.absoluteString ?? "<no-url>"
+            return "unknown:\(urlPart):\(importedAt.timeIntervalSince1970)"
         }
     }
 

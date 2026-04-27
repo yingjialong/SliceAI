@@ -168,6 +168,25 @@ final class PermissionGrantStoreTests: XCTestCase {
         XCTAssertFalse(hitB, "不同 importedFrom URL 不应共享 grant —— 否则跨源授权泄漏")
     }
 
+    /// 同一个 `.unknown` importedFrom URL 在不同 importedAt 时刻的导入视为独立 trust event
+    /// —— unknown URL 不具备内容不可变性（mutable URL）+ 无签名身份，按导入事件隔离 grant
+    /// 反例：旧实现仅用 URL.absoluteString 作 key，让"同 URL 重新导入新内容"绕过 consent
+    func test_unknownImports_sameURL_differentImportedAt_doNotShareGrant() async throws {
+        let store = PermissionGrantStore()
+        let permission = Permission.fileWrite(path: "/tmp/test.txt")
+        let url = URL(string: "https://example.com/tool.json")
+        let provenanceA = Provenance.unknown(importedFrom: url, importedAt: Date(timeIntervalSince1970: 1_000))
+        let provenanceB = Provenance.unknown(importedFrom: url, importedAt: Date(timeIntervalSince1970: 2_000))
+
+        try await store.record(permission: permission, provenance: provenanceA, scope: .session)
+
+        let hitA = await store.has(permission: permission, provenance: provenanceA)
+        XCTAssertTrue(hitA, "import event A 自身查询应命中")
+
+        let hitB = await store.has(permission: permission, provenance: provenanceB)
+        XCTAssertFalse(hitB, "同 URL 但不同导入时刻的 .unknown 视为独立 trust event；不应共享 grant —— 否则 mutable URL 新内容会绕过 consent")
+    }
+
     /// `.unknown` importedFrom 为 nil 时，importedAt 不同也应视为不同 grant —— 防止两条
     /// nil-URL .unknown（无稳定 URL 身份）退化共享同一 grant key
     func test_unknownImports_nilURL_distinguishedByImportedAt() async throws {
