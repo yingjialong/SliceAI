@@ -241,7 +241,9 @@ extension ExecutionEngine {
                 switch element {
                 case .chunk(let chunk):
                     if Task.isCancelled { return nil }
-                    context.continuation.yield(.llmChunk(delta: chunk))
+                    // 捕获 yield 结果：consumer 已 drop iterator 时 .terminated；不进 OutputDispatcher
+                    let yieldResult = context.continuation.yield(.llmChunk(delta: chunk))
+                    if case .terminated = yieldResult { return nil }
                     let dispatchOutcome = try await output.handle(
                         chunk: chunk, mode: tool.displayMode, invocationId: context.invocationId
                     )

@@ -1167,12 +1167,13 @@ final class ExecutionEngineTests: XCTestCase {
         // 等 cancellation 完整传导：consumer break → onTermination → task.cancel() → 后续每个 chunk 入口 isCancelled=true
         try? await Task.sleep(nanoseconds: 500_000_000)
 
-        // 关键断言：handleCallCount **远小于**总 chunk 数（6），证明 cancel 后 OutputDispatcher 没被继续调
-        // 修前：所有 6 个 chunk 都会调 handle（cancel 信号被 output.handle 吞）；
-        // 修后：第 1 个 chunk 处理完后 isCancelled=true 触发 return nil，最多 1-2 次 handle 调用
+        // 关键断言：handleCallCount ≤ 1 ——
+        // 修前：所有 6 个 chunk 都会调 handle（cancel 信号在 yield 后未被 yield-result/isCancelled 拦截）；
+        // 修后：第 1 个 chunk 进入 output.handle 后 cancel 已传导，第 2+ chunk 被 yield-result `.terminated`
+        // 或 post-handle isCancelled 短路拦下，dispatcher 最多被调 1 次
         let callCount = await outputDispatcher.handleCallCount
-        XCTAssertLessThan(callCount, chunks.count,
-                          "cancelled-during-prompt-stream must NOT dispatch ALL chunks; got handleCallCount=\(callCount), totalChunks=\(chunks.count)")
+        XCTAssertLessThanOrEqual(callCount, 1,
+                                 "cancelled-during-prompt-stream must dispatch at most 1 chunk (the trigger); got handleCallCount=\(callCount), totalChunks=\(chunks.count)")
 
         // audit 也不应有 .invocationCompleted —— cancel 静默退出
         let entries = await audit.entries

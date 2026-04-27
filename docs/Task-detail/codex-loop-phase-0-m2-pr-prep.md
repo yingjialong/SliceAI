@@ -1,9 +1,9 @@
 ---
 slug: phase-0-m2-pr-prep
 created: 2026-04-27T21:16+08:00
-last_updated: 2026-04-27T23:48+08:00
+last_updated: 2026-04-28T00:00+08:00
 status: in-progress
-total_rounds: 7
+total_rounds: 8
 max_iterations: 5
 ---
 
@@ -211,6 +211,26 @@ max_iterations: 5
 - **CI gate after fix.** `swift test` **561 / 561 pass**（baseline 545 + R1 4 + R2 2 + R3 3 + R4 3 + R5 1 + R6 2 + R7 1 = 561）；`swiftlint lint --strict` **0 violations / 0 serious / 134 files**；xcodebuild Debug **BUILD SUCCEEDED**。
 - **Drift.** in-scope-only。
 - **Status.** **paused-pending-user**（F7.1 是 procedural concern 需用户决策 commit 时机；F7.2 fix 已落地等 R8 验证）。Claude 提交对用户的呈递：列出 option A（保留 uncommitted 直接进 commit-slicing 阶段）与 option B（临时单 commit "codex-loop fixes (R1-R7)" 跑 R8，approve 后用户 git reset --soft 重新切片），等待用户选择后再决定是否 R8。
+
+### Round 8 · 2026-04-28 · 00:00~00:00
+
+**用户决策**：选 option B "临时单 commit + R8 复审"，commit `47aef58 fix(orchestration): apply codex-loop R1-R7 cancel cascade + redaction fixes` 落地后 R8 复审。
+
+- **Codex verdict.** needs-attention
+- **Severity counts.** 0 critical · 1 high · 0 medium · 0 low
+- **Decision ledger.**
+
+| # | Severity | Title | File:line | Decision | Reason / fix plan |
+|---|---|---|---|---|---|
+| F8.1 | high | PromptStream 在 .llmChunk yield 后未确认 continuation 是否已终止就继续派发输出 | SliceAIKit/Sources/Orchestration/Engine/ExecutionEngine+Steps.swift:243-246 | accept | Root cause: R7 fix 在 chunk 入口 + output.handle await 后均加了 `if Task.isCancelled` 短路，但忽略了 yield 与 await 之间的窗口：consumer 正是在收到这一次 .llmChunk 后才 break + onTermination + cancel set，chunk 入口 check 看不到这次取消（取消还没发生）；output.handle await 是个 actor hop，consumer 可能在此期间 break，但 R7 的"after handle"check 已经太迟——本 chunk 的 dispatch 已经发生。Phase 1 真实 OutputDispatcher（写文件 / 发通知 / 写已 dismiss 的 ResultPanel）就是被这个 chunk 派发的。R7 fix 阻挡了 chunk 2+ 的 dispatch，但**当前 chunk** 的 dispatch 仍会跑完。Codex 推荐做法：捕获 `continuation.yield(.llmChunk(...))` 的 YieldResult；若为 `.terminated`（consumer 已 drop iterator）立即 return nil。Fix: 把 `context.continuation.yield(.llmChunk(delta: chunk))` 改为 `let yieldResult = ...`；之后 `if case .terminated = yieldResult { return nil }` 在 await output.handle 之前直接退出。同步 tighten 测试断言：从 `XCTAssertLessThan(callCount, chunks.count)`（允许 ≤ 5 dispatch 都过）改为 `XCTAssertLessThanOrEqual(callCount, 1)`（严格断言"最多派发触发 break 的那 1 个 chunk"），fix 缺失时即可 fail。 |
+
+- **Stagnation update.** F2.1 / F2.4 持续稳定；F8.1 是 Codex 在 R7 cancel cascade 11 道边界上做的最后一处精细化补充——R7 列了"chunk 入口 + output.handle 后"两道防线，F8.1 指出"yield 与 output.handle 之间的窗口"是第三道，且使用 yield-result 比 isCancelled 更直接（观察 stream 终止 vs 任务取消）。R3+R4+R5+R6+R7+R8 累积发现 cancel 边界 1 → 12，每轮 +1~3 道；本轮新加防线为 yield-result 检测，与已有 isCancelled 短路互补构成"任务取消 + stream 终止"双信号防御。
+- **Codex 主动确认.** F7.1 procedural concern 已被用户选 option B（commit 47aef58）解除——Codex 本轮可正常 review committed branch，无 git scope 误判。
+- **Fix applied.** 1 个 fix 落地（F8.1）：runPromptStream 内 yield-result 检测 + tighten test 断言（max 1 dispatch）。
+- **Files touched.** 1 source + 1 tests 改：`Orchestration/Engine/ExecutionEngine+Steps.swift`（runPromptStream `case .chunk` 分支 yield 改捕获 YieldResult + `.terminated` 短路）、`Tests/OrchestrationTests/ExecutionEngineTests.swift`（test_execute_cancellationDuringPromptStream_skipsLaterChunkDispatch 断言从 `< chunks.count` 收紧为 `≤ 1`）。
+- **CI gate after fix.** `swift test` **561 / 561 pass**（计数不变；R8 是 fix 既有测试断言收紧 + yield-result fix，未新增 testcase）；`swiftlint lint --strict` **0 violations / 0 serious / 134 files**；xcodebuild Debug **BUILD SUCCEEDED**。
+- **Drift.** in-scope-only。
+- **Status.** continue（fix 落地需 commit + R9 复审；按 user-approved option B 流程，新增 commit 再跑 R9 验证）。
 
 
 ---
