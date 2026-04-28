@@ -1,0 +1,2232 @@
+# Phase 0 M2 · Orchestration + Capabilities 骨架 Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+>
+> **Plan 状态**：第一稿（2026-04-25 起草，未过 Codex 评审）。当前覆盖 **Header + Architecture + 全部文件清单 + 全部 14 个 Task 的标题/文件/目标 + Task 0 / Task 1 完整 TDD 步骤**；Task 2–14 的详细 TDD 步骤待 plan 评审通过后展开。
+
+**Goal:** 把 SliceAI v2.0 spec §3.4（执行引擎）+ §3.9.6.5（权限闭环）+ §3.9.2 / §3.9.3 / §3.9.5（安全下限 / 路径沙箱 / 日志脱敏）+ §3.3.6（OutputBinding）落地为 `Orchestration` + `Capabilities` 两个 SwiftPM target 的可独立单测的骨架，**完全不接入 app 启动链路**——`AppContainer` / `ToolExecutor` / 触发链 / `FileConfigurationStore` 全部零触及，app 行为保持 v0.1 + M1 现状不变。M3 才做"切到 ExecutionEngine + 删除 ToolExecutor"。
+
+**Architecture（M2 落地约束，沿用 M1 命名偏离）：**
+
+新目录布局——所有新代码限定在 `Orchestration/` + `Capabilities/` 两个 M1 已建好的空 target 下，零触及现有 8 个模块：
+
+```
+SliceAIKit/Sources/Orchestration/                      （M1 已建空 target，M2 填实）
+  ├─ Events/                                            （执行事件 + 报告）
+  │   ├─ ExecutionEvent.swift                           Task 1
+  │   └─ InvocationReport.swift                         Task 1
+  ├─ Engine/                                            （执行引擎 + 依赖接口）
+  │   ├─ ExecutionEngine.swift                          Task 3 / 4
+  │   ├─ ProviderResolver.swift                         Task 2
+  │   └─ ProviderResolutionError.swift                  Task 2
+  ├─ Context/                                           （上下文采集）
+  │   ├─ ContextCollector.swift                         Task 5
+  │   └─ (ContextCollectorError.swift 已废弃 — Round 4 改用 SliceCore.ContextError)
+  ├─ Permissions/                                       （权限闭环）
+  │   ├─ PermissionBrokerProtocol.swift                 Task 6
+  │   ├─ PermissionBroker.swift                         Task 6
+  │   ├─ PermissionGrantStore.swift                     Task 6
+  │   ├─ EffectivePermissions.swift                     Task 7
+  │   ├─ PermissionGraph.swift                          Task 7
+  │   └─ (PermissionDecisionError.swift 已废弃 — Round 4 改用 SliceCore.ToolPermissionError)
+  ├─ Telemetry/                                         （成本 + 审计）
+  │   ├─ CostAccounting.swift                           Task 8
+  │   ├─ CostRecord.swift                               Task 8
+  │   ├─ AuditLogProtocol.swift                         Task 9
+  │   └─ JSONLAuditLog.swift                            Task 9
+  ├─ Output/                                            （结果分派）
+  │   ├─ OutputDispatcherProtocol.swift                 Task 10
+  │   └─ OutputDispatcher.swift                         Task 10
+  ├─ Executors/                                         （三态 executor）
+  │   └─ PromptExecutor.swift                           Task 11
+  └─ Internal/
+      └─ Redaction.swift                                Task 9（共享脱敏工具）
+
+SliceAIKit/Sources/Capabilities/                       （M1 已建空 target，M2 填实）
+  ├─ SecurityKit/
+  │   ├─ PathSandbox.swift                              Task 12
+  │   └─ PathSandboxError.swift                         Task 12
+  ├─ MCP/
+  │   ├─ MCPClientProtocol.swift                        Task 13
+  │   └─ MockMCPClient.swift                            Task 13（仅 SkillRegistryTests / OrchestrationTests 使用，类型在 Capabilities 但仅供测试注入）
+  └─ Skills/
+      ├─ SkillRegistryProtocol.swift                    Task 13
+      └─ MockSkillRegistry.swift                        Task 13
+```
+
+**对应测试**（每个组件一个 test file，Capabilities 与 Orchestration 各自独立）：
+
+```
+SliceAIKit/Tests/OrchestrationTests/
+  ├─ ExecutionEventTests.swift                          Task 1
+  ├─ InvocationReportTests.swift                        Task 1
+  ├─ ProviderResolverTests.swift                        Task 2
+  ├─ ExecutionEngineTests.swift                         Task 3 / 4
+  ├─ ContextCollectorTests.swift                        Task 5
+  ├─ PermissionBrokerTests.swift                        Task 6
+  ├─ PermissionGraphTests.swift                         Task 7
+  ├─ CostAccountingTests.swift                          Task 8
+  ├─ JSONLAuditLogTests.swift                           Task 9
+  ├─ OutputDispatcherTests.swift                        Task 10
+  ├─ PromptExecutorTests.swift                          Task 11
+  └─ Helpers/
+      ├─ MockProvider.swift                             Task 2 / 3 / 4
+      ├─ MockContextProvider.swift                      Task 5
+      └─ MockOutputDispatcher.swift                     Task 10
+
+SliceAIKit/Tests/CapabilitiesTests/
+  ├─ PathSandboxTests.swift                             Task 12
+  ├─ MCPClientProtocolTests.swift                       Task 13
+  └─ SkillRegistryProtocolTests.swift                   Task 13
+```
+
+**Tech Stack:** Swift 6.0 / XCTest / `swift build` / `swift test --parallel --enable-code-coverage` / SwiftLint strict / Foundation only（Orchestration / Capabilities 都是零 UI、零 AppKit；Capabilities 允许触碰 sqlite C lib 但通过 Foundation `SQLite` 包装，MVP 阶段用 `FileHandle` jsonl 与 sqlite3 C API 即可）。
+
+**References:**
+- Spec: `docs/superpowers/specs/2026-04-23-sliceai-v2-roadmap.md` §3.4 / §3.3.5 / §3.3.6 / §3.9 / §4.2.3 M2
+- M1 落地文件: `SliceAIKit/Sources/SliceCore/` 下 19 个 V2* / 领域类型（M1 plan 顶部"评审修正索引 A"——M2 一律使用 `V2Tool` / `V2Provider` / `V2Configuration` / `PresentationMode` / `SelectionOrigin` 等 M1 实际落地名，**不**用 spec 中的 `Tool` / `Provider` / `DisplayMode` / `SelectionSource` 原始名）
+- 决策：D-17（平铺并发非 DAG）/ D-22（能力下限不可由 Provenance 突破）/ D-24（PermissionGraph 静态闭环）/ D-25（Provenance 只调 UX 文案）
+- v1 zero-touch 范围（**Round 6 R6-P1.4 修订**：与 §C-1 R4 放宽边界对齐）: `LLMProviders` / `SelectionCapture` / `HotkeyManager` / `DesignSystem` / `Windowing` / `Permissions` / `SettingsUI` / `SliceAIApp` 一律不动；`SliceCore` **既有类型 + 既有 case + 既有字段不动**——但允许"白名单纯增"：仅 `SliceError.swift Modify`（追加 .context / .toolPermission case + 既有 switch 补分支） + `ContextError.swift Create` + `ToolPermissionError.swift Create` 三个文件的非破坏性追加。详见 §C-1 完整规则
+- M1 PR / merge commit 基线: `5cdf0f7`（main HEAD as of 2026-04-25）
+
+---
+
+## 评审修正索引（Review Amendments）
+
+> 与 M1 plan 体例一致；当前为第一稿，索引段先占位，后续每轮 Codex 评审在此追加 Round 章节。
+>
+> **代码块快照约定（沿用 M1）**：plan 正文里的 Swift 代码块是"实施期路径指南"，记录该 Task 那一刻的实现蓝本，**不会**回填后续 fix commit 的更新。后续 worker 需要**最终源码**时应读 `SliceAIKit/Sources/Orchestration/` / `SliceAIKit/Sources/Capabilities/` 下的对应文件，而非 plan 里的代码块。当落地代码与本 plan 叙述/代码块不一致时，**以本索引 + 最终源码为准**。
+
+### A. 实施期改名（已知）
+
+> 第一稿暂无新改名；M1 已记录的 `PresentationMode` / `SelectionOrigin` 在 M2 中**继续沿用**——M2 不做命名修复，M3 rename pass 才统一回归 spec 原始意图。
+
+### B. Codex 评审回合记录
+
+#### Round 1（2026-04-25，第一稿）
+
+**Verdict**: REWORK_REQUIRED → 接受所有 8 条 finding 并落地修订（本次提交，**不接受任何 finding 的反驳**）。
+
+| Finding | 问题 | 修复落地 |
+|---|---|---|
+| **P1-1** dry-run 绕过 PermissionBroker 下限 | 第一稿 Task 6 写 `isDryRun=true` 时所有 gate 直接 `.approved`，违反 spec §3.9.2 "下限只依赖 tier" + D-22；dry-run 仍跑 context resolution / LLM，需要 readonly-local / readonly-network 权限 | Task 6 关键设计点重写：dry-run 仅由 ExecutionEngine Step 7 跳过副作用**实际执行**，broker 入口不豁免；新增 `GateOutcome.wouldRequireConsent(uxHint:)` 给 Playground UI 显示"如果实际执行需要 X / Y / Z 权限"，但**不静默 .approved** |
+| **P1-2** 失败/拒绝路径未写 AuditLog | spec §3.9.7 明确"任何 execute 调用都至少产生一条 InvocationReport，成功/失败/被拒都记录"；第一稿 Task 4 仅 happy path 写 audit，permission-deny / context-fail 直接 yield `.failed` 退出 | Task 4 关键设计点重写：引入私有 helper `finishFailure(error:invocationId:declared:effective:flags:)` —— 构造 InvocationReport → `AuditLog.append` → 才 yield `.failed`；ExecutionEngineTests 4 条失败路径全部断言 audit.entries.count == 1 |
+| **P2-1** PermissionBroker 测试矩阵不全（D-25 漏 firstParty 部分） | 第一稿 Task 6 写"至少抽样 12 cell"；D-25 / spec §3.9.1 要求 firstParty 对所有 4 tier 都不能跳过首次确认 | Task 6 关键设计点：5 tier × 4 provenance = **20 cell 全覆盖**（不抽样）；单列 firstParty 对 readonly-network / local-write 不跳过首次确认（D-25）+ firstParty 对 network-write / exec 每次都要确认（D-22）的断言 |
+| **P2-2** PermissionGraph 缺 pipeline 测试 + provider 推导来源不清 | 第一稿 Task 7 测试矩阵只覆盖 prompt / agent / empty；`compute(tool:)` 如何从 `ContextRequest.providerId` 找到 provider 的 `inferredPermissions(for:)` 未说明 | Task 7 关键设计点：`PermissionGraph(providerRegistry: ContextProviderRegistry)` 构造期注入注册表（不硬编码 provider 名字）；测试矩阵补 2 条 pipeline 用例 + 1 条 `unknownProvider` 错误用例 |
+| **P2-3** OutputDispatcher 主展示来源与 M1 R-B 修正冲突 | 第一稿 Task 10 写"根据 `V2Tool.outputBinding.primary` 派发"；M1 plan R-B / commit `d141c05` 已锁定 `displayMode` 是 primary truth、`outputBinding.primary` 仅作 decoder 一致性校验的冗余字段 | Task 10 标题 + 关键设计点全部改为"根据 `V2Tool.displayMode` 派发"；ExecutionEngine 始终传 `tool.displayMode`，**不读** `outputBinding?.primary`；OutputBinding.sideEffects 仍由 ExecutionEngine Step 7 直接读，与 displayMode 解耦 |
+| **P2-4** Task 0 编号 33 与 Task_history 当前最大值冲突 | M1 PR merge 后 `docs/Task_history.md:7` 已是 "## Task 33 · Phase 0 M1"；plan Task 0 多处仍硬编码 Task 33 / 提到 "Task 32 在第 5 行" | Task 0 全部硬编码 Task 33 → Task 34；Step 3 插入位置改为"在 Task 33 之前"；Step 1 grep 期望从 "Task 32/31/30，下一个 33" → "Task 33/32/31，下一个 34"；Step 4 commit message 同步 |
+| **P3-1** Task 3 "init 接受 7 个依赖" | 实际列了 8 个（contextCollector / permissionBroker / providerResolver / mcpClient / skillRegistry / costAccounting / auditLog / output） | 改为 "init 接受 8 个依赖" |
+| **P3-2** Task 1 测试数量混用 4 / 5 | Step 9 备注同时写 "4 tests passing" 与 "5 tests pass" | 统一为 "5 tests pass"（ExecutionEventTests × 2 + InvocationReportTests × 3） |
+
+**未做修订**：无。Codex 8 条 finding 全部接受落地（评审报告全文见 commit message 引用 + 对话记录）。
+
+#### Round 2（2026-04-25，Round 1 修订后）
+
+**Verdict**: REWORK_REQUIRED → Round 1 全 8 finding 验证 ✅；新发现 6 条 finding（3 P1 + 3 P2）全部接受并落地（本次提交，**不接受任何反驳**）。
+
+| Finding | 问题 | 修复落地 |
+|---|---|---|
+| **B-1** finishFailure 字段不闭合 | Round 1 修订自己引入的 bug：finishFailure 签名提到 `errorKind` / `startedAt`，但 Task 1 InvocationReport struct 不含 `errorKind` 字段；helper 签名也没有 `startedAt` 入参 | Task 1 InvocationReport 加 `outcome: InvocationOutcome` 字段（含 `.success` / `.failed(errorKind:)` / `.dryRunCompleted`）+ 新增 `InvocationOutcome` enum；Task 4 finishFailure 签名 `finishFailure(error:invocationId:toolId:declared:effective:flags:startedAt:)`；finishSuccess 同步补 outcome 入参 |
+| **B-2** wouldRequireConsent 状态机 Task 4 / Task 6 矛盾 | Task 6 说"caller 跳过执行继续主流程"；Task 4 Step 2.5 说"转 `.notImplemented` 事件"——两处描述自相矛盾 | Task 1 ExecutionEvent 新增 2 case：`.permissionWouldBeRequested(permission:uxHint:)`（Step 2.5 dry-run 时 yield 单条事件继续主流程）+ `.sideEffectSkippedDryRun(SideEffect)`（Step 7 dry-run 时 yield 替代实际执行）；Task 4 Step 2.5 / Step 7 / Task 6 描述统一为 "continue main flow，但 yield 上述 2 case 标记 dry-run skip" |
+| **B-3** GateOutcome 4 态未要求 exhaustive switch | 新增 `.wouldRequireConsent` 后，4 态 GateOutcome 若实现用 `default` 处理，未来加 case 会漏 | Task 4 关键设计点新增 "实现必须用无 `default` 的 `switch outcome` 覆盖全 4 case；Task 14 集成验证 step 增加 grep `default:` 在 PermissionBroker.swift / ExecutionEngine.swift 的反向断言（grep 返回非零=合格）" |
+| **B-4** OutputDispatcher 每 chunk 调用语义未锁定 | 非 `.window` 模式可能产生与 chunk 数量等比的 `.notImplemented` 调用，污染流；测试未约束 | Task 10 关键设计点：`.window` 测试断言 3 chunks → `InMemoryWindowSink.received.count == 3` + 顺序 `["a", "b", "c"]`；非 `.window` 模式 ExecutionEngine **只在第一个 chunk 时 yield 一次 `.notImplemented` ExecutionEvent**（用 `var notImplementedYielded = false` 守卫），后续 chunks dispatch 仍调用但不再 yield 重复事件 |
+| **B-5** PermissionGraph.compute 改 async throws 后调用漏 try | Task 4 Step 2 / Task 7 章节都写 `await compute(...)`，缺 `try`，直接编译错误 | Task 4 Step 2 改 `try await permissionGraph.compute(...)` + 加 `do { ... } catch let e as PermissionGraph.Error where case .unknownProvider = e { finishFailure(.configuration(.invalidTool(...))) }`；Task 7 关键设计点同步注明 caller 必须 `try await` |
+| **B-6.1** Task 2 `.fixed(providerId:)` 漏 modelId 入参 | M1 落地 `case fixed(providerId: String, modelId: String?)`（`SliceAIKit/Sources/SliceCore/ProviderSelection.swift:9` verified）；plan 写 `.fixed(providerId:)` 漏 modelId | Task 2 关键设计点：`.fixed(providerId:, modelId:)` 形态；`.resolve(_)` 解析时优先 modelId，若 nil 回落 `provider.defaultModel`（V2Provider 字段，M1 已就绪） |
+| **B-6.2** Task 5 ContextCollector failures 类型不对齐 | M1 `ResolvedExecutionContext.failures: [ContextKey: SliceError]`（`SliceAIKit/Sources/SliceCore/ResolvedExecutionContext.swift:24` verified）；plan 写 `[String: Error]` | Task 5 关键设计点：`failures: [ContextKey: SliceError]`（与 M1 类型对齐）；`ContextCollectorError.requiredFailed(key: ContextKey, underlying: SliceError)`（参数类型同步）；非 SliceError 的底层错误由 collector 包装为 SliceError 后再写入 |
+| **B-6.3** AuditLog.append 接口与 Task 4 调用不对齐 | Task 4 调 `auditLog.append(report)`（report = InvocationReport）；Task 9 定义 `append(_ entry: AuditEntry)`；类型不匹配 | Task 9 关键设计点：`AuditEntry` 是 enum，含 `.invocationCompleted(InvocationReport)` / `.sideEffectTriggered(invocationId:UUID, sideEffect:SideEffect, executedAt:Date)` / `.logCleared(at:Date)` 三 case；Task 4 改用 `auditLog.append(.invocationCompleted(report))`；finishFailure 内部同样用 `.invocationCompleted(report)` 写入（success / failure 都走 invocationCompleted，区分由 `report.outcome`） |
+| **B-6.4** Task 12 PathSandbox `standardizedFileURL` 不 resolve symlink | spec §3.9.3:989 措辞 "URL(fileURLWithPath:).standardizedFileURL 消除 .. / symlink" 与 Foundation API 实际行为不符（standardizedFileURL 只消除 `..` 不 resolve symlink） | Task 12 关键设计点：`PathSandbox.normalize(_:role:)` 实现链改为 `URL(fileURLWithPath:).resolvingSymlinksInPath().standardizedFileURL`（先 resolve symlink，再 standardize）；plan 注：spec §3.9.3 措辞错误本 plan 按 Foundation API 真实语义实现，spec 修订留下一轮 spec 评审；测试矩阵补 symlink 攻击：在 `~/Documents` 下 `ln -s` 指向 `~/Library/Keychains` → normalize 应返回 throw `.escapesWhitelist` |
+
+**未做修订**：无。Codex 6 条 finding 全部接受落地。Round 2 修订后跑了 verify pass：grep `await compute(` 无残留无 `try` 调用 / grep `auditLog.append(report)` 已替换为 `auditLog.append(.invocationCompleted(report))` / grep `[String: Error]` 已无 / grep `.fixed(providerId:)` 已含 modelId 形态。
+
+#### Round 3（2026-04-25，Round 2 修订后）
+
+**Verdict**: REWORK_REQUIRED → Round 2 全部 9 子 finding 落地（B-3 部分落地：Task 14 缺 grep `default:` 反向断言）；新发现 1 P1 + 4 P2 + 2 P3 = 7 条 finding 全部接受并落地（本次提交）。
+
+| Finding | 问题 | 修复落地 |
+|---|---|---|
+| **R3-P1** ContextRequest.providerId 与 M1 源码不一致 | M1 `SliceCore/Context.swift:11` 字段是 `provider: String`（非 `providerId`）；plan Task 5 line 820 + Task 7 line 882 / 895 都写 `request.providerId` → 直接编译错误 | 全部修正为 `request.provider`；Task 5 / Task 7 修订段加 verified 标注 |
+| **R3-P2.a** PermissionGraph.Error 定义位置不明 | plan 多处用 `PermissionGraph.Error.unknownProvider(id:)` 但未明示是 nested enum 还是 SliceCore PermissionError 的 case；Codex 建议改用统一 `PermissionError` | **接受 finding 但 push back Codex 建议的命名**——sanity check 发现 M1 `SliceError.swift:141` 已定义 `public enum PermissionError`（系统权限错误如 `accessibilityDenied / inputMonitoringDenied`），与 v2 工具权限决策错误语义不同；同名跨模块会让代码读者混淆。最终落地：新建独立 `PermissionDecisionError` enum（Task 6 Create + Task 7 Modify 追加 .unknownProvider）；废弃 `PermissionGraph.Error` 嵌套；**废弃 Codex 建议的 PermissionError 命名** |
+| **R3-P2.b** ErrorKind.map(_:) 未定义 | `finishFailure` 调用 `ErrorKind.map(error)` 但 plan 未说明定义位置 / 签名 | 改名为 `ErrorKind.from(_:)` 静态 helper；明确签名 `static func from(_ error: SliceError) -> ErrorKind`；定义放在 `Orchestration/Events/InvocationReport.swift` 中 `extension InvocationOutcome.ErrorKind`；按 SliceError 4 顶层 case 映射 |
+| **R3-P2.c** notImplementedYielded 生命周期歧义 | Task 10 写 "ExecutionEngine 内部用 var notImplementedYielded 守卫" 未明确是 actor field 还是 local var；做成 actor field 会跨 invocation 污染 | Task 10 关键设计点明确 "**必须是 execute(tool:seed:) 函数内 local var**"；测试矩阵补一条"同一 engine 实例连续 execute 两次，每次都独立产出 1 条 .notImplemented" 的跨 invocation 隔离断言 |
+| **R3-P2.d** MCPCallResult 类型未定义 | Task 13 protocol 引用 `MCPCallResult` 但 M1 SliceCore 没定义（grep verified），plan 也没给结构 | Task 13 关键设计点新增 `MCPCallResult` struct 定义（content: [String] / isError: Bool / meta: [String: String]?，放在 Capabilities/MCP/MCPClientProtocol.swift 同文件）+ 测试覆盖 round-trip |
+| **R3-P3.a** Task 4 catch pattern 缺正确语法示例 | 旧 plan / Codex 原话写 `catch let e as PermissionGraph.Error where case .unknownProvider = e` —— Swift catch 子句不支持 `where case` 联用 | Task 4 Step 2 / Task 7 关键设计点统一改为 `catch PermissionDecisionError.unknownProvider(let id) { ... }`（Swift catch pattern 直接匹配 case 关联值的标准写法；`PermissionDecisionError` 独立命名见 R3-P2.a 行的 push back 说明）；plan 显式写"严禁 where case 联用" |
+| **R3-P3.b** dry-run vs 非 dry-run 测试缺对照 | dry-run 路径已覆盖，但未单独测试非 dry-run + `.requiresUserConsent` → finishFailure 的对照路径，caller 可能误把 `.permissionWouldBeRequested` 当作 `.failed` 信号 | Task 4 测试矩阵从 5 条扩展到 6 条：新增 "non-dry-run + .requiresUserConsent → finishFailure(.permission(.notGranted))" 路径，断言 audit 1 条 `.invocationCompleted` outcome `.failed(.permission)` + yield `.failed`；与 dry-run 形成显式对照 |
+| **R3-补**：Round 2 B-3 部分落地补全 | Round 2 落地 Task 4 关键设计点的 "无 default switch outcome" 约束，但承诺的 Task 14 grep `default:` 反向断言未真正写出 | Task 14 新增 Step 5.5：`grep -c "^[[:space:]]*default:" PermissionBroker.swift / ExecutionEngine.swift / InvocationReport.swift` 三处期望 0；非零则失败 |
+
+**未做修订 / Push back（Round 3 receiving-code-review skill 应用）**：
+
+- **R3-P2.a 命名建议被 push back**：Codex 建议改用统一 `PermissionError`，但 sanity check 发现 M1 `SliceError.swift:141` 已定义 `public enum PermissionError`（含 `accessibilityDenied / inputMonitoringDenied`，系统权限错误命名空间），与 v2 工具权限决策错误（`undeclared / denied / sandboxViolation / unknownProvider`）**语义完全不同**；同名跨模块会让代码读者混淆。改用独立 `PermissionDecisionError` 解决。**接受 finding（命名歧义需 fix），push back 修复方案的命名选择**——这是依据 M1 源码事实的判断，不是盲信评审建议（receiving-code-review skill：technical rigor not performative agreement）
+- 其他 7 条 finding 全部接受 Codex 修复方案直接落地
+
+修订后 verify：grep `request.providerId` 无残留（仅历史表）/ grep `PermissionGraph.Error` 仅在 Round 1+2 历史表残留 / grep `ErrorKind.map` 已替换为 `ErrorKind.from` / grep `MCPCallResult` 在 Task 13 有完整 struct 定义 / grep `PermissionDecisionError` 在 Task 6/7 Files 段 + Task 4/7 catch / throw 处共 6+ 处引用一致。
+
+#### Round 4（2026-04-25，Round 3 修订后）
+
+**Verdict**: REWORK_REQUIRED → Round 3 全部 8 finding 落地（其中 R3-P2.b / R3-P3.b 两条 PARTIAL：ErrorKind.from extension 缺完整 Swift 代码块、测试矩阵标题写"5 条"实际列 6 条）；push back R3-P2.a 被 Codex 接受为合理 ✅；新发现 2 P1 + 4 P2 + 2 P3 + 1 一致性提示 = 9 条 finding；**用户决策（2026-04-25）选 (A) 放宽 C-1 zero-touch 边界**让 SliceCore 纯增 case 表达 v2 ExecutionEngine 失败语义（详见上方 §C-1 修订段）。
+
+| Finding | 问题 | 修复落地 |
+|---|---|---|
+| **R4-P1.a** SliceError 引用了 M1 不存在的 case | plan 多处用 `.failed(.context(...))` / `.permission(.undeclared)` / `.permission(.denied)` / `.permission(.notGranted)` / `.configuration(.invalidTool)`；M1 SliceError 仅 4 顶层 case + 13 子 case，全部不在 | **C-1 zero-touch 放宽到 SliceCore 纯增**：SliceError 加 `.context(ContextError)` + `.toolPermission(ToolPermissionError)` 两顶层 case + ConfigurationError 加 `.invalidTool(id:reason:)` case；新建 ContextError / ToolPermissionError 两 enum 在 SliceCore 落地。Task 4 / Task 5 / Task 7 全部 finishFailure 调用改用新 case |
+| **R4-P1.b** ToolKind 公共 accessor 不存在 | plan 用 `tool.kind.contexts` / `tool.kind.provider`；M1 ToolKind 是 enum 三 case 无公共 accessor，必须 pattern match | Task 4 Step 3-5 改用 `if case .prompt(let p) = tool.kind { /* p.contexts ... */ }` / `switch tool.kind { case .prompt(let p): ...; case .agent, .pipeline: ... }`；不增加 accessor extension（保持 M1 ToolKind zero-touch） |
+| **R4-P2.a** ContextProviderRegistry 不在 M1 | plan Task 7 写"M1 已就绪 ContextProviderRegistry"，verify 后 M1 仅有 ContextProvider protocol 无 Registry | Task 5 关键设计点新增："`ContextProviderRegistry` 是 M2 在 `Orchestration/Context/ContextCollector.swift` 同文件新建的简单封装（`[String: any ContextProvider.Type]`）；ContextCollector 与 PermissionGraph 共享同一 registry 实例" |
+| **R4-P2.b** PermissionDecisionError 缺完整 Swift 代码块 | Round 3 落地 PermissionDecisionError 但仅文字描述、没给完整 enum 定义 | **整体替换方案**：Round 4 删除 PermissionDecisionError 概念，改用 SliceCore 新增的 `ToolPermissionError`（完整 enum 定义见上方文件清单）；catch / throw 路径改用 `SliceError.toolPermission(.unknownProvider(id:))` 形式 |
+| **R4-P2.c** ErrorKind.from(_:) 缺完整 extension 代码块 | Round 3 描述映射规则但没给 Swift 代码 | Task 1 InvocationOutcome 段下追加完整 extension 代码块（含 6 顶层 case exhaustive switch）；见 plan ~line 630+ |
+| **R4-P2.d** CostRecord 字段 / API 未闭合 | Task 8 引用 `CostRecord` 未给 struct 定义；`usage` 数据来源未说明（M1 ChatChunk 无 usage 字段） | Task 8 关键设计点：CostRecord 完整 struct 定义（invocationId/toolId/providerId/model/inputTokens/outputTokens/usd/recordedAt）+ 说明 usage 来源："M2 范围 PromptExecutor 在 ChatChunk stream 结束后**估算** tokens（按 chunk 累计 char count / 4 粗估）；Phase 1 真实 LLMProvider 接 usage 字段后切换为精确值；CostAccounting 接受估算值即可" |
+| **R4-P2.e** Task 11 PromptExecutor V2Provider 适配缺口 | M1 LLMProviderFactory 只接 v1 Provider；plan 未说 PromptExecutor 怎么把 V2Provider 喂进去 | Task 11 关键设计点：PromptExecutor 内部把 V2Provider 转为 v1 Provider 视图（提取 baseURL / apiKey / defaultModel 字段）后调 LLMProviderFactory；**不**修改 LLMProviderFactory（zero-touch）；M3 删 ToolExecutor 时一并把 LLMProviderFactory 升级为接 V2Provider |
+| **R4-P3.a** MCPClientError.toolNotFound 未定义 | Task 13 引用但未给类型 | Task 13 关键设计点加完整 `enum MCPClientError: Error { case toolNotFound(ref: MCPToolRef); case transportFailed(underlying: Error); case decodingFailed(String) }` 定义 |
+| **R4-P3.b** Step 7 partialFailure 缺测试 | plan 描述 Step 7 某 sideEffect denied 时记 `.partialFailure` flag，但测试矩阵未覆盖 | Task 4 测试矩阵从 6 条扩展到 7 条：新增 "partial-failure" 路径——构造 tool 含 2 sideEffects，MockPermissionBroker 让第 1 个 .approved 第 2 个 .denied → 主流程仍 finishSuccess + report.flags 含 .partialFailure；audit 1 条 `.invocationCompleted` outcome `.success` flags 含 partialFailure |
+| **R4 一致性** master DoD 4 条路径 vs plan 6（→7）条 | master todolist §3.2 写 "ExecutionEngine 4 条路径"；plan 已经扩展 | master todolist 由用户在 main 分支单独修订（不在本 plan worktree 改）；plan 内部一致即可。M2 PR 描述里也会注明"测试矩阵 7 条而非原 spec/master DoD 4 条"以提醒 reviewer |
+
+**R3 PARTIAL 补全（同步本轮一并修）**：
+- **R3-P2.b PARTIAL → 完整**：Task 1 InvocationOutcome 段追加 ErrorKind.from extension 完整 Swift 代码块（含 6 case exhaustive switch）
+- **R3-P3.b PARTIAL → 完整**：Task 4 测试矩阵标题"5 条"改为"7 条"（含 R4-P3.b 新增的 partial-failure），所有 case 显式列出
+
+**未做修订**：无。Round 4 全部 9 条 finding + 2 条 R3 PARTIAL 全部接受落地。修订后 verify：grep `\.context(\|\.toolPermission(` 在 Task 设计点段有 6+ 处引用 / grep `tool.kind.contexts\|tool.kind.provider` 无残留（已改 pattern match）/ grep `PermissionDecisionError` 仅在历史表残留（设计点段已替换为 SliceError.toolPermission） / grep `ContextProviderRegistry` 在 Task 5 + Task 7 共 4+ 处一致引用 / grep `ErrorKind.from` extension 完整代码块在 Task 1 段。
+
+#### Round 5（2026-04-25，Round 4 修订后）
+
+**Verdict**: REWORK_REQUIRED → Round 4 全部 11 子 finding 落地（10 通过 + 3 部分通过的剩余空洞）；Round 5 新发现 **5 P1 + 2 P2 + 1 P3 = 8 条**；**触发"breaking the loop"sync**——单轮 ≥3 P1，与用户 sync 后选 (1) 继续；4 个 P1 是 Round 4 修订自引入的"消化反应"，1 个是 plan 结构性问题。
+
+| Finding | 问题 | 修复落地 |
+|---|---|---|
+| **R5-P1.1** ContextError 递归未标 `indirect` | SliceError → ContextError → SliceError 直接递归，Swift 6 编译失败；M1 SliceError 既有 exhaustive switch（line 11-58）也未补 .context / .toolPermission case 处理分支 | 文件清单 ContextError 改为 `public indirect enum ContextError`；SliceError.swift Modify 描述补"既有 userMessage / developerContext exhaustive switch 必须加 .context / .toolPermission 分支" |
+| **R5-P1.2** AuditEntry: Codable 链不闭合 | InvocationReport 缺 Codable，但 AuditEntry.invocationCompleted(InvocationReport) 需要 | Task 1 InvocationReport struct 加 `Codable` conformance；Codable 自动合成对此 struct 直接可用（所有字段 Codable：UUID/String/Set<Permission>/Date/Decimal/InvocationOutcome 等），不需要手写 |
+| **R5-P1.3** ContextProviderRegistry metatype 无法服务实例调用 | plan 写 `[String: any ContextProvider.Type]` metatype，但 ContextCollector 需要调实例方法 `provider.resolve(...)`；metatype 不能调实例方法 | Registry 改存 `[String: any ContextProvider]` 实例；PermissionGraph 通过 `type(of: registry.providers[id]!).inferredPermissions(for: args)` 间接拿到静态方法 |
+| **R5-P1.4** Task 顺序违反依赖 | Task 4 集成步骤引用 Task 5/6/7/11 的类型，但编号在前；按编号顺序实施会编译失败 | Task 4 顶部加"实施顺序约束"注释——保留 Task 4 编号但实施序列调整为 Task 1/2/3 → 5/6/7/8/9/10/11 → 4 → 12/13/14；Task 3（actor 骨架）不依赖具体类型，可以原序实施 |
+| **R5-P1.5** GateOutcome 关联值签名不一致 | 消费端用 `.denied(let permission, let reason)` / `.wouldRequireConsent(let permission, let uxHint)`，定义端缺 permission 参数 | Task 6 定义端 3 态（denied / requiresUserConsent / wouldRequireConsent）全部补 `permission: Permission` 关联值；与消费端签名一致 |
+| **R5-P2.1** toV1Provider 含 `...` 占位 + 强解包 `!` + 非 .openAICompatible 行为未定义 | 危险代码：fatalError / 强解包 / 占位 ellipsis | toV1Provider 改 `throws`；非 .openAICompatible kind throw `SliceError.configuration(.validationFailed(...))`；baseURL nil 也 throw（不强解包）；ExecutionEngine Step 5 catch 此错误走 finishFailure |
+| **R5-P2.2** C-1 zero-touch 表述自相矛盾 | plan 多处提到 SliceCore zero-touch 但 R4 已放宽 | 实际 grep 后发现：line 264 / 988 / 1094 / 1106 提的是"v1 ToolExecutor / LLMProviderFactory 不动"（v1 严格不动），不是"SliceCore 不动"——这与 R4 放宽不冲突。**未做修订**：plan 文字 OK，Codex 看到的是 zero-touch 一词的歧义；统一表述为 "v1 既有类型 zero-touch + SliceCore 仅允许白名单纯增" 在 §C-1 已明确 |
+| **R5-P3.1** sqlite REAL 存金额浮点精度问题 | Decimal 在 sqlite REAL 列存为 IEEE 754 浮点，可能精度损失 | Task 8 schema usd 列改为 `TEXT NOT NULL`；写入 `record.usd.description`，读取 `Decimal(string: stringValue)` |
+| **R5 自检 fix**：catch let SliceError → catch SliceError | Swift catch pattern 中 `let` 仅放在 case 关联值上，不放在 enum 路径前；R4 修订引入的 typo（之前在主对话已 spotted） | 3 处 catch let SliceError → catch SliceError（Task 4 Step 2 / Step 3 + Task 7 ExecutionEngine 调用描述） |
+
+**未做修订 / Push back（Round 5 receiving-code-review skill 应用）**：
+
+- **R5-P2.2 C-1 表述冲突**：Codex 看到 plan 多处提"zero-touch"觉得与 R4 放宽矛盾，但 verify 后这些位置（line 264/988/1094/1106）说的是"v1 ToolExecutor / LLMProviderFactory 严格不动"——属于 v1 严格 zero-touch（非 SliceCore 范围）。Codex 提出的问题是术语歧义而非真实矛盾，§C-1 顶部已明确"v1 模块严格 0 + SliceCore 允许纯增"两类规则。**未改 plan 文字**，但本次 verify 增加 `grep "SliceCore.*0\|SliceCore.*不动" plan` 的反向断言到 §C-1 验证段。**注：R6 后续证明此 push back 不彻底——R6-P1.4 重新发现 line 89 / 1271-1282 / 1357 / 1398 仍写"SliceCore diff = 0"门禁，与 §C-1 R4 放宽真实矛盾；Round 6 全部修订**
+- 其他 7 条 finding（5 P1 + 1 P2 + 1 P3 + 1 自检 fix）全部接受 Codex 修复方案直接落地
+
+#### Round 6（2026-04-25，Round 5 修订后）
+
+**Verdict**: REWORK_REQUIRED → Round 5 全部 9 子 finding 落地（其中 R5-P1.5 / R5-P2.2 部分落地，本轮补全）；新发现 **4 P1**——其中 2 个是 R5 漏修（R6-P1.2 GateOutcome 消费端、R6-P1.4 zero-touch 文案）+ 2 个是 R5 自引入新问题（R6-P1.1 InvocationFlag 缺 Hashable、R6-P1.3 Step 6 LLM stream 缺 catch）；**Codex 明确说"修复后可直接 APPROVED 进入 Task 2-13 详细 TDD 展开"**——这是 5+ 轮迭代后的"路在前方"信号。
+
+| Finding | 问题 | 修复落地 |
+|---|---|---|
+| **R6-P1.1** InvocationFlag 缺 Hashable | InvocationReport.flags 是 `Set<InvocationFlag>` 但 InvocationFlag 仅 `String, Sendable, Codable, Equatable`——Set 元素必须 Hashable，缺则编译失败 | InvocationFlag 加 `Hashable` conformance（String enum 自动合成 Hashable，加在声明里即可） |
+| **R6-P1.2** GateOutcome 消费端漏修（R5-P1.5 部分落地） | 定义端 R5 已改为 `.denied(permission:reason:)` / `.requiresUserConsent(permission:uxHint:)`，但 Task 4 Step 2.5 消费端仍写 `.denied(let reason)` / `.requiresUserConsent(let uxHint)`——签名错配编译失败 | Task 4 Step 2.5 case binding 全部改为 `.denied(let permission, let reason)` / `.requiresUserConsent(let permission, let uxHint)` 与定义端一致 |
+| **R6-P1.3** Step 6 LLM stream 抛错绕过 finishFailure | Step 6 仅 `for try await chunk in promptExecutor.run(...)`，无 do/catch；LLM provider 抛错会逃逸 ExecutionEngine 整个 stream，绕过 .failed 事件与 AuditLog 写入；违反 spec §3.9.7 "任何 execute 至少 1 条 InvocationReport" | Step 6 包 `do { for try await chunk in ... } catch let error as SliceError { finishFailure(error: error, ...) } catch { finishFailure(error: .provider(.invalidResponse("...")), ...) }`；非 SliceError 兜底包装为 .provider |
+| **R6-P1.4** zero-touch gate 与 §C-1 自相矛盾（R5-P2.2 push back 不彻底） | line 89（References）/ 1271-1282（Task 14 Step 3）/ 1357（PR checklist）/ 1398（Self-Review）仍写"SliceCore diff = 0"门禁；§C-1 已允许 SliceCore 白名单纯增（追加 case + 新建 ContextError/ToolPermissionError）；DoD 自相矛盾，实施者无法同时满足 | 全部 4 处文案改为"v1 既有类型 zero-touch + SliceCore 仅白名单 3 文件纯增（SliceError.swift Modify / ContextError.swift Create / ToolPermissionError.swift Create）"；Task 14 Step 3 git diff 命令移除 SliceCore，新增 SliceCore 白名单纯增的反向 grep 验证 + M1 既有 341 测试全绿验证 |
+
+**未做修订**：无。Round 6 全部 4 P1 接受 Codex 修复方案直接落地。修订后 verify：grep `Hashable` 在 InvocationFlag 声明 1 处 / grep `let permission, let reason` 消费端 ≥1 处 / Step 6 含 `} catch let error as SliceError {` ≥1 处 / Task 14 Step 3 含 SliceCore 白名单 grep 与 M1 测试 verify / line 89/1357/1398 文案与 §C-1 一致；连续两轮（R5+R6）的"漏修"问题靠本轮 verify pass 闭合。
+
+**预期**：Round 7 verdict ≥ CONDITIONAL_APPROVE（按 Round 6 Codex 明确信号）；如果 Round 7 仍发现 P1，必属 R6 修订自引入的新问题（按"breaking the loop"承诺将再次 stop & sync）。
+
+#### Round 7（2026-04-25，Round 6 修订后）
+
+**Verdict**: REWORK_REQUIRED → Round 6 全部 4 P1 中 R6-P1.3 / R6-P1.4 仅"部分落地"（同源系统性问题，本轮真正闭合）；新发现 3 P1 + 3 P2 + 1 P3；**Codex 明确说"3 个 P1 均为机械可修，不是架构方向问题，修复后可直接进入 Round 8 验证"**——继续修复路径不变；P1 数量趋势 R5(5)→R6(4)→R7(3)，下降中。
+
+| Finding | 问题 | 修复落地 |
+|---|---|---|
+| **R6-P1.3 + R7-P1.1** Task 4 主流程变量作用域系统性问题 | R6 加 do/catch 后但 `effective` / `resolved` / `provider` 都在内层 do 块 `let` 声明，外层 catch / Step 6 的 catch 看不到（Swift 词法作用域）；同时 gate 调用缺 `effective:` 参数标签 | 在 ExecutionEngine.execute 函数顶层（Step 1 之后、Step 2 之前）声明 `var effective: EffectivePermissions = .empty` / `var resolved: ResolvedExecutionContext! = nil` / `var provider: V2Provider! = nil` 三个 mutable var；Step 2/3/4 的 do 块去掉内层 `let`，赋值给顶层 var；所有 `permissionBroker.gate(...)` 调用补 `effective:` 参数标签 |
+| **R7-P1.2** ConsentUXHint 类型未定义 | GateOutcome 用 ConsentUXHint，ExecutionEvent.permissionWouldBeRequested 用 String，类型不一致 | KISS 方案：在 PermissionBrokerProtocol.swift 顶部加 `public typealias ConsentUXHint = String`；类型等价 String，跨 ExecutionEvent 透传无损 |
+| **R7-P2.1** SliceError 新增 case 缺完整 Swift 代码块 | plan 仅文字描述 userMessage / developerContext 修订，未给完整可编译代码 | 文件清单后新增独立段 "SliceCore 纯增完整 Swift 代码块（R7-P2.1）"，含 SliceError exhaustive switch + ContextError 完整 enum + ToolPermissionError 完整 enum + ConfigurationError.invalidTool case 完整代码（每段 userMessage / developerContext 全覆盖+ 脱敏遵循 spec §3.9.5） |
+| **R7-P2.2** zero-touch grep 验证对象错误 | `git show origin/main:...` 只证明 main 上旧 case 存在，不证明 HEAD 没破坏；`origin/main..HEAD` 受 main 后续移动影响 | Task 14 Step 3 改用 `BASE=$(git merge-base HEAD origin/main)`；grep 改为 `git show HEAD:...`（验证当前 HEAD 既有 case 仍存在）；diff 用 `$BASE..HEAD` 锁定 base |
+| **R7-P2.3** 旧命名残留（line 24/339/958/1482-1484） | line 24 / 339 仍写 ContextCollectorError.swift Create；line 1482-1484 附录仍写 .permission(.undeclared/.denied) 旧 case | 4 处全部修订：line 24 文件结构图改"已废弃"；line 339 文件清单改 ~~strikethrough~~；附录改 .toolPermission(.undeclared/.denied) |
+| **R7-P3.1** unused uxHint warning | Step 2.5 `.requiresUserConsent(let permission, let uxHint)` 但 uxHint 不用 | 改为 `.requiresUserConsent(let permission, _)` 占位；Step 7 同理 4 case 都用 `_` 占位（不用 permission/uxHint） |
+
+**未做修订**：无。Round 7 全部 7 条 finding 接受 Codex 修复方案直接落地。**verify pass 见 commit 后 grep 验证段。**
+
+**预期**：Round 8 verdict ≥ CONDITIONAL_APPROVE（按 Codex Round 7 明确信号"修复后可直接进入 Round 8 验证"）；P1 趋势收敛，下一轮应该收尾。
+
+#### Round 8（2026-04-25，Round 7 修订后）
+
+**Verdict**: REWORK_REQUIRED（仅 1 P1 + 2 P2 + 1 P3）；Codex 明确说"Round 9 即可 APPROVED"如果 B-1/B-2/B-3 都修。
+
+**P1 趋势**：R5(5) → R6(4) → R7(3) → **R8(1)** — **收敛点临近**。
+
+| Finding | 问题 | 修复落地 |
+|---|---|---|
+| **R8-B-1** EffectivePermissions.empty 未定义 | Round 7 var effective: EffectivePermissions = .empty 引用了 .empty，但 Task 7 EffectivePermissions struct 没加该静态字段；plan 实施按文档照抄会编译失败 | Task 7 关键设计点新增 `public static let empty = EffectivePermissions(declared: [], fromContexts: [], fromSideEffects: [], fromMCP: [], fromBuiltins: [])`——R7 修订自引入的 partial fix 由本轮闭合 |
+| **R8-B-2** IUO nil 安全依赖人工推理 | `var resolved: ResolvedExecutionContext! = nil` / `var provider: V2Provider! = nil` 是 Swift IUO，运行时读 nil 会崩；R7 plan 描述说"catch 都 return 不会读 nil"是人工推理，编译器不验证 | 接受 IUO 设计（KISS 原则下重构为 helper 函数会让 execute 函数体大幅膨胀），但**补充测试矩阵**：5 条失败路径都断言 ExecutionEngine 不读 provider!/resolved!（Mock 在失败前不注入，nil 保留；测试不崩 = IUO 安全的机械验证）；同时记录"如 Phase 1 ExecutionEngine 复杂度上升再重构为 helper 函数"作为技术债 |
+| **R8-B-3** SliceCore developerContext 脱敏不完整 | `providerNotFound(\(id))` / `unknownProvider(\(id))` 嵌入 String id，违反 spec §3.9.5"任意 String payload 一律 <redacted>"；ConfigurationError.invalidTool 缺 developerContext | (a) line 376 `providerNotFound(<redacted>)` / line 384 `unknownProvider(<redacted>)` 改 redact；(b) 给 M1 ConfigurationError 加 `developerContext` computed 属性（纯增，不改既有 case）覆盖 5 既有 case + invalidTool；(c) SliceError.developerContext 中 `.selection(let e)` / `.provider(let e)` / `.configuration(let e)` / `.permission(let e)` 改用 `e.developerContext`（M1 各子 enum 已有此属性）而非占位 `...` |
+| **R8-B-4** 附录 AuditLog.append 形态不一致 | 附录 spec §3.4 流程对照表 line 1649 仍写 `AuditLog.append(report)`，与 Task 4/9 统一为 enum case 不一致 | 附录改为 `AuditLog.append(.invocationCompleted(report))` |
+
+**未做修订**：无。Round 8 全部 4 条 finding（1 P1 + 2 P2 + 1 P3）接受 Codex 修复方案直接落地。**Codex Round 9 APPROVED 承诺：B-1/B-2/B-3 全部修订 → Round 9 应直接 APPROVED**（Codex Round 8 评审报告原话："B-1 的修复方向极清晰...Round 9 即可 APPROVED"）。
+
+**预期**：Round 9 verdict = APPROVED ⭐⭐ 或 CONDITIONAL_APPROVE ⭐ → 进入 Task 2-13 详细 TDD 展开。如果 Round 9 仍 REWORK_REQUIRED，构成"连续三轮 Codex 承诺 APPROVED 但未兑现"——按"breaking the loop"承诺触发 stop & sync。
+
+#### Round 9（2026-04-25，Round 8 修订后）
+
+**Verdict**: REWORK_REQUIRED（仅 1 P1 + 2 P2，**所有 P1 都是 R8 修订自引入**）；Codex 明确说"R10 应可 APPROVED"如果 B-NEW-1 / B-NEW-2 / B-NEW-4 都修。
+
+**P1 趋势**：R5(5) → R6(4) → R7(3) → R8(1) → R9(1) — 收敛态，但 R9 P1 是 R8 修订自引入。
+
+| Finding | 问题 | 修复落地 |
+|---|---|---|
+| **R9-B-NEW-1 P1** SliceError.developerContext 委托模式编译失败 | R8 修订把 `.selection(let e): return e.developerContext` 等改为委托模式，但 M1 SelectionError / ProviderError / PermissionError 子 enum 都**没有** `developerContext` computed 属性（M1 SliceError.swift:24-58 是顶层 nested switch 直接处理），实施者照抄会编译失败 | 改为"追加分支模式"：保留 M1 既有 nested switch 结构，**只追加** 3 处分支——(a) .configuration 嵌套 switch 末尾加 .invalidTool case；(b) switch self 顶层加 .context(let e) / .toolPermission(let e) 两个新顶层 case 分支；删除 R8 加的 ConfigurationError.developerContext computed 属性（M1 不用此委托模式） |
+| **R9-B-NEW-2 P2** ContextKey.rawValue 脱敏 | M1 ContextKey 是 RawRepresentable + 用户可自定义任意 rawValue（ContextKey.swift:9-15）；plan 把 rawValue 嵌入 developerContext（"context.requiredFailed(\(key.rawValue),...)") 违反 spec §3.9.5"任意 String payload 一律 redact" | ContextKey.rawValue 也按 String payload 脱敏：`.requiredFailed: return "context.requiredFailed(<redacted>)"` / `.timeout: return "context.timeout(<redacted>)"`（统一改 redacted，不再保留 key.rawValue） |
+| **R9-B-NEW-4 P2** Task 4/8/11 API 形态不一致 | (a) Task 4 Step 6 忽略 `output.handle` 的 `DispatchOutcome` 返回值，与 Task 10 "非 .window 模式只 yield 一次 .notImplemented" 测试要求不一致；(b) Task 8 说 PromptExecutor 用 onCompletion callback 传 usage，但 Task 11 PromptExecutor.run 签名仍是 `AsyncThrowingStream<String, Error>` 单返回 | (a) Task 4 Step 6 在 do 块内加 DispatchOutcome 处理（`if case .notImplemented(let reason) = outcome, !notImplementedYielded { yield .notImplemented(reason: reason); notImplementedYielded = true }`）；(b) Task 11 PromptExecutor.run 签名加 `onCompletion: @escaping @Sendable (UsageStats) -> Void = { _ in }` 入参 + 新增 UsageStats struct 定义；Task 8 用 onCompletion 回调对齐 |
+
+**未做修订**：无。Round 9 全部 3 条 finding 接受 Codex 修复方案直接落地。**关键判断**：R9-B-NEW-1 是"R8 修订自引入新阻断"（不是老 P1 反复），符合 Codex Round 9 评审报告原话"修复只需调整 SliceError.developerContext 的写法，范围极小，R10 应可 APPROVED"。
+
+**预期**：Round 10 verdict = APPROVED ⭐⭐——这是 plan 9 轮迭代后的真实收敛点。如 R10 仍 REWORK_REQUIRED 且引入新 P1，构成"R8/R9 连续两轮自引入 P1"模式 → 触发 stop & sync 让用户判断是否 plan 进入"完美主义 vs 实施"的取舍点。
+
+#### Round 10（2026-04-25，Round 9 修订后）
+
+**Verdict**: REWORK_REQUIRED（2 P1 + 1 P2，**全部 R9 修订自引入 + 范围极小**）；**Codex 明确说"这不是完美主义循环，修复范围非常小"+"不建议接受现状（直接修编译错误成本更低）"**——给出非常清晰的"真正最后一公里"信号。
+
+| Finding | 问题 | 修复落地 |
+|---|---|---|
+| **R10-P1-1** OutputDispatcherProtocol.handle 调用缺 try | R9 修订加 DispatchOutcome 处理时漏写 try——M2 plan Task 10 定义 `handle(...) async throws -> DispatchOutcome`（throws 方法必须 try await），调用写 `await output.handle(...)` 编译失败 | Step 6 改为 `let outcome = try await output.handle(...)`；沿用现有 catch 块（catch 已经覆盖 SliceError + 非 SliceError） |
+| **R10-P1-2** @Sendable onCompletion 捕获可变局部变量 | R9 修订加 `onCompletion: @escaping @Sendable (UsageStats) -> Void` 回调写入 `var promptUsage`，但 Swift 6 StrictConcurrency=complete 不允许 @Sendable 闭包捕获并修改 caller 的可变局部 var | PromptExecutor.run 流元素改为 `PromptStreamElement` 枚举（`.chunk(String)` / `.completed(UsageStats)`）；ExecutionEngine 通过 switch element 顶层消费 → promptUsage 是 actor 内 local var 写入，无跨 task 边界，Swift 6 通过 |
+| **R10-P2-1** SliceCore 代码块 placeholder 误导 | R9 修订写 `developerContext_R9_Append` 伪属性 + `return ""` placeholder + `/* 实际新增分支 */` 注释包裹真代码——实施者可能误以为是真新建属性 | 改为 patch-style 实施者操作指引：明确说"在 M1 SliceError.swift:23-58 既有 developerContext switch 末尾插入 2 个 case 分支"，删除伪属性名与 placeholder return |
+
+**未做修订**：无。Round 10 全部 3 条 finding 接受 Codex 修复方案直接落地。
+
+**关键评估（按 Codex Round 10 报告原话）**：
+- "这不是完美主义循环。R10-P1-1 和 R10-P1-2 是机械性编译阻断，不是风格争论"
+- "推荐路径：不再开大轮评审，原地小修 R10-P1-1/P1-2（估计 20 行以内改动），顺手清理 R10-P2-1 placeholder，然后进入 Task 2-13 实施"
+
+**预期**：Round 11 verdict = APPROVED ⭐⭐ 或 CONDITIONAL_APPROVE ⭐——这是 10 轮迭代后真正的收敛点。Codex Round 10 已明确说"做一次轻量 Round 11 只验证这两处编译调用形态，确认通过后进入 Task 2-13 详细 TDD 展开"——本轮修订针对的就是这两处 + placeholder。
+
+#### Round 11（2026-04-26，Round 10 修订后）
+
+**Verdict**: REWORK_REQUIRED（2 P1，全部 R10 修订自引入）→ **用户根本性反馈**："这不是文字和编译的问题，理论上 plan 里面就应该把问题都暴露出来并且有解决方案。我的猜测是大概率你在修复 plan 的时候是头疼医头脚疼医脚，没有全局思维去从根本上修正 plan。所以我选 A，继续修。而且要从根本上去修复。"
+
+**用户判断完全正确**：R5–R11 共 7 个 P1 都是同一种"R-N 修订自引入新 micro 编译错误"模式（@Sendable 闭包捕获 / actor 跨边界缺 await/try / 变量作用域 / IUO / etc）；plan 的 Swift 代码片段从未经过 Swift 6 完整 audit。
+
+**根本性修订（不是局部 patch）**：
+
+| 修订项 | 内容 |
+|---|---|
+| **§C-10 全新章节** | "Swift 6 Actor Isolation 一致性 Audit" —— plan 全局防御性结构。三段子章节：(C-10.1) 所有 12 个 Orchestration / Capabilities 依赖类型 isolation + 方法签名表；(C-10.2) Swift 6 strict concurrency 调用规则 5 条；(C-10.3) Task 4 ExecutionEngine 主流程调用点 audit 清单 9 行；(C-10.4) Task 14 swift build 编译 sanity 校验机械保护 |
+| **Task 4 关键设计点完全重写** | 用一个**完整可编译 Swift 代码块**（260+ 行 ExecutionEngine 实现）替换 R1-R10 累积的 step-by-step 描述；代码块按 §C-10.3 调用点 audit 清单逐行 mental compile 验证；废弃"顶层 var IUO + 内层 do/catch 赋值"的脆弱模式，改用"actor-isolated runMainFlow + finishFailure / finishSuccess / makeReport / estimateCostUSD nonisolated 私有 helper"的稳健模式；变量在 runMainFlow 内 immutable `let`（每个 Step 之间通过 early return 而非 IUO 传递控制流），Swift 6 编译器可以静态验证 |
+| **Task 8 / Task 11 onCompletion 残留清理** | R10 删除了 onCompletion API 改为 PromptStreamElement.completed，但 Task 8 测试说明仍写"验证 onCompletion 被调用一次"——R11 修订改为"验证 stream 中存在 .completed 元素且 stats.inputTokens / outputTokens > 0" |
+| **R10-P1-1 / R10-P1-2 / R11-P1.1 / R11-P1.2 全部在新代码块中正确落地** | output.handle 用 try await（R10-P1-1）；PromptStreamElement enum stream（R10-P1-2）；await promptExecutor.run(...) 取 stream（R11-P1.2 actor 跨边界）；Task 8 测试说明对齐（R11-P1.1） |
+
+**未做修订**：无。Round 11 接受用户反馈做根本性重写而非局部 patch；R10/R11 评审中 Codex 列出的所有 P1 都通过本轮"完整代码块 + audit 表"被全局解决。
+
+**关键不再 patch 的承诺**：本轮起，**Task 4 主流程的 Swift 代码以本完整代码块为最终蓝本**——后续若 Codex 发现 micro 问题（缺 await / try / actor isolation），实施者按 §C-10.3 audit 清单回查 + 在代码块中修订；不再用"step 描述 + 一句话 patch"的脆弱模式。
+
+**预期**：Round 12（如果还需）只验证完整代码块的逐行 Swift 6 编译合规；P1 应趋零或仅文档体例级 P3。
+
+#### Round 12（2026-04-26，Round 11 根本性重写后）
+
+**Verdict**: REWORK_REQUIRED（4 P1，全是 R11 重写时**没做 plan-wide audit 的遗漏**）→ 用户"从根本上修复"指示在 R11 落实不彻底——R11 写完整代码块时只看了 plan 内描述，没回头 verify M1 实际类型 / Task 3 与 Task 4 依赖列表一致性 / 各 protocol 完整定义；本轮做 plan-wide audit。
+
+| Finding | 问题 | 修复落地 |
+|---|---|---|
+| **R12-P1.1** tool.permissions 类型冲突 | M1 V2Tool.permissions 是 `[Permission]` 数组（`SliceCore/V2Tool.swift:28` verified），但 finishFailure / makeReport 入参 `declared: Set<Permission>`；plan Task 4 完整代码块 10+ 处直接传 `tool.permissions` 类型不匹配 | Task 4 完整代码块所有 `declared: tool.permissions` 改为 `declared: Set(tool.permissions)`（用 replace_all 批量改 10+ 处） |
+| **R12-P1.2** ExecutionEngine init 8 vs 10 依赖冲突 | Task 3 关键设计点写"init 接受 8 个依赖"，但 Task 4 完整代码块 init 加了 `permissionGraph` + `promptExecutor` 共 10 个；Task 3 / Task 4 内部不一致 | Task 3 关键设计点改为"init 接受 10 个依赖"（含 permissionGraph + promptExecutor）；与 Task 4 + §C-10.1 audit 表一致 |
+| **R12-P1.3** ProviderResolutionError 仅引用未定义 | Task 2 引用 `.notFound(let id)` / `.notImplemented(.capabilityRouting)` 等 case，但未给完整 `enum ProviderResolutionError { ... }` Swift 代码块；实施者照抄会编译失败 | Task 2 关键设计点新增完整 enum 定义代码块（`case notFound(providerId: String)` / `case notImplemented(NotImplementedReason)` + `enum NotImplementedReason`） |
+| **R12-P1.4** ExecutionEngine 缺 import Capabilities | Task 4 完整代码块顶部仅 `import Foundation` / `import SliceCore`，但代码引用 `MCPClientProtocol` / `SkillRegistryProtocol`（在 Capabilities module）→ 编译失败 | Task 4 顶部加 `import Capabilities`；同时 §C-10.1 audit 表的 PermissionBrokerProtocol.gate 签名（line 416）与 Task 6 line 1637 throws 不一致——本轮统一为 `async -> GateOutcome`（non-throwing；与 R5-P1.5 + GateOutcome 4 态表达决策的设计一致） |
+
+**额外 plan-wide audit 修订**（防御性扫描发现）：
+- **§C-10.1 audit 表补 3 行**：ContextProviderRegistry（Codex 评审说漏列）/ ProviderResolutionError / MCPClientError——这些类型 plan 多处引用但未在 audit 表中列出，本轮补齐
+- **Task 6 PermissionBrokerProtocol.gate**：从 `async throws` → `async`（与 §C-10.1 + R5-P1.5 / R7-P1.1 修订一致；GateOutcome 已经用 4 态表达拒绝，不需要再 throw）
+- **Task 2 ProviderResolutionError.notFound 关联值**：从 `.notFound(providerId)` 改为 `.notFound(providerId: providerId)`（命名参数；与 enum 定义一致）
+
+**未做修订**：无。Round 12 全部 4 P1 + 3 plan-wide audit 修订接受落地。
+
+**关键自检承诺**（避免 R13 又 R12 自引入）：本轮修订完毕跑 plan-wide grep 验证：
+- grep `declared: tool.permissions` 不带 `Set(...)` → 0
+- grep `init 接受 8 个依赖` → 仅历史表残留
+- grep `ProviderResolutionError\.\(notFound\|notImplemented\)` 在 Task 2 / Task 4 一致使用
+- grep `import Capabilities` 在 Task 4 ExecutionEngine 代码块顶部存在
+- grep `gate.*async throws` → 仅历史表残留（line 1637 已改）
+
+#### Round 13（2026-04-26，Round 12 修订后）
+
+**Verdict**: REWORK_REQUIRED（1 R12 漏修 + 3 新 P1）→ Codex 给出**关键现实主义判断**："建议本轮直接点修、不再做 full-pass audit。修完后立即进入实施，用 `swift build` 在每个 Task 完成后做真实编译验证——这比继续迭代 plan 文档更高效。"
+
+| Finding | 问题 | 修复落地 |
+|---|---|---|
+| **R12 漏修** catch unlabeled | catch `ProviderResolutionError.notFound(let id)` 没用命名参数 providerId | line 1417 改为 `catch ProviderResolutionError.notFound(let providerId)` |
+| **R13-P1-NEW-1** Package.swift Capabilities 依赖缺失 | R11 加 `import Capabilities` 但 Package.swift Modify 描述未给 `Orchestration` target 加 `Capabilities` 依赖；SPM target 隔离下编译失败 | Task 1 Package.swift Modify 描述：`Orchestration` target deps 加 `Capabilities`；OrchestrationTests testTarget deps 同样加 |
+| **R13-P1-NEW-2** ProviderResolver vs ProviderResolverProtocol 命名 | §C-10.1 / Task 4 用 `ProviderResolverProtocol`，Task 2 字面写 `ProviderResolver`；ExecutionEngine 引用未定义类型 | Task 2 关键设计点改为 `ProviderResolverProtocol`，`DefaultProviderResolver: ProviderResolverProtocol` |
+| **R13-P1-NEW-3** Task 11 try promptExecutor.run 多余 | run 是 actor non-throwing 同步返回 stream；`try promptExecutor.run(...)` 编译错（"no calls to throwing functions occur within 'try' expression"） | Task 11 line 1903 改为 `await promptExecutor.run(...)` 取 stream + 注释说明 throws 在 `for try await element in stream` 处捕获 |
+
+**Codex 工程现实主义建议**（原文摘录）：
+> "这三个 P1 都是**一行或几行精准修改**（不是大段重写），建议本轮直接点修、不再做 full-pass audit。**修完后立即进入实施**，用 `swift build` 在每个 Task 完成后做真实编译验证——这比继续迭代 plan 文档更高效。"
+
+**用户与 Codex 一致信号**：
+- 用户 R11 反馈："plan 里面应该把问题都暴露出来并且有解决方案"
+- Codex R10/R11/R12/R13 累积建议：plan 文档评审已边际收益递减；实施期 swift build 是更高效验证
+
+**未做修订**：无。Round 13 全部 4 项接受落地。**plan 评审至此应停止——下一步是 sync 用户进入 Task 2-13 实施期**（Codex 自身建议 + 13 轮迭代后剩余问题在实施期 swift build 立即暴露）。
+
+修订后 verify：grep `indirect enum ContextError\|indirect case requiredFailed` 至少 1 处 / grep `public struct InvocationReport.*Codable` 1 处 / grep `\[String: any ContextProvider\]` 实例不带 `.Type` 至少 2 处 / grep `permission: Permission, reason\|permission: Permission, uxHint` GateOutcome 签名一致 / grep `usd TEXT NOT NULL` 1 处 / grep `catch SliceError\.` 不带 `let` 前缀至少 3 处 / grep `catch let SliceError\.` 已无残留。
+
+---
+
+## 关键架构约束（M2 不变量，所有 Task 必须满足）
+
+### C-1：v1 + M1 zero-touch（**Round 4 修订：放宽到 SliceCore 纯增**）
+
+> **Round 4 修订背景**：Round 4 评审发现 plan 失败语义引用了 M1 SliceError 不存在的 case（`.context` / `.permission(.undeclared)` / 等）；M1 SliceError 仅 4 顶层 case，覆盖 v1 触发链失败语义但不足以表达 v2 ExecutionEngine 失败语义。这是 M1 spec 设计层的盲区。**用户决策**（2026-04-25）：选择"放宽 zero-touch 边界——SliceCore 允许纯增（新增类型 / 给既有 enum 加 case），严禁修改既有不变量"。
+
+**M2 zero-touch 严格规则**（修订后）：
+
+- **完全不动**：`LLMProviders` / `SelectionCapture` / `HotkeyManager` / `DesignSystem` / `Windowing` / `Permissions` / `SettingsUI` / `SliceAIApp`（git diff 期望 0 行）
+- **SliceCore 允许"纯增"**（**Round 4 新增的边界**）：
+  - ✅ 新增类型（如 `ContextError` / `ToolPermissionError` 新 enum）
+  - ✅ 给既有 enum 加 case（如 SliceError 加 `.context(...)` `.toolPermission(...)`、ConfigurationError 加 `.invalidTool(...)`）
+  - ❌ **严禁** 修改既有 case 的关联值类型 / case 名 / 顺序（Codable 形状破坏）
+  - ❌ **严禁** 修改既有 struct / enum 的字段 / 签名 / 访问控制
+  - ❌ **严禁** 删除既有公共 API
+- **机械验证**：M1 既有测试 341/341 全绿（既有不变量未破坏）+ git diff 既有 case 行只能为新增（手动 review，没有自动工具能完美区分"新增 case 行"vs"改既有 case 行"）
+
+```bash
+# DoD 验证命令（Round 4 修订）
+# 1. 严格 zero-touch 模块（git diff 必须 0）
+git diff origin/main..HEAD -- \
+  SliceAIKit/Sources/LLMProviders \
+  SliceAIKit/Sources/SelectionCapture \
+  SliceAIKit/Sources/HotkeyManager \
+  SliceAIKit/Sources/DesignSystem \
+  SliceAIKit/Sources/Windowing \
+  SliceAIKit/Sources/Permissions \
+  SliceAIKit/Sources/SettingsUI \
+  SliceAIApp \
+  | wc -l
+# 期望: 0
+
+# 2. SliceCore 允许纯增；机械验证用 grep 既有 case 名 / 字段名仍存在
+git show origin/main:SliceAIKit/Sources/SliceCore/SliceError.swift | grep -E "case (selection|provider|configuration|permission)\b" | wc -l
+# 期望: ≥ 4（既有 4 顶层 case 都仍在）
+git show origin/main:SliceAIKit/Sources/SliceCore/SliceError.swift | grep -E "(axUnavailable|axEmpty|clipboardTimeout|textTooLong|unauthorized|rateLimited|fileNotFound|schemaVersionTooNew|invalidJSON|referencedProviderMissing|validationFailed|accessibilityDenied|inputMonitoringDenied)" | wc -l
+# 期望: ≥ 13（既有 13 个子 case 都仍在；新增 case 不影响此 grep）
+
+# 3. M1 既有测试全绿（不变量未破坏的最强 verify）
+cd SliceAIKit && swift test --filter SliceCoreTests
+# 期望: 341/341 pass（M1 PR #1 merge 时基线）
+```
+
+`Package.swift` 的修改也仅限于"删 Orchestration / Capabilities 的 placeholder testTarget 行（如有）+ 新增 Orchestration / Capabilities testTarget 依赖"，不得修改任何已存在的 target 配置。
+
+### C-2：使用 M1 实际落地的 V2* 类型签名
+
+spec §3.4 的伪代码用 `tool: Tool` / `provider: Provider`，M1 命名偏离后 M2 必须用 `V2Tool` / `V2Provider`。`ExecutionEngine.execute` 的真实签名是：
+
+```swift
+public func execute(
+    tool: V2Tool,                       // M1 命名偏离：spec 写的 Tool
+    seed: ExecutionSeed
+) -> AsyncThrowingStream<ExecutionEvent, Error>
+```
+
+OutputBinding 字段类型也是 `PresentationMode`（M1 命名偏离），不是 `DisplayMode`。
+
+### C-3：平铺并发，非 DAG（D-17）
+
+`ContextCollector.resolve(seed:requests:)` 用 `withTaskGroup` 把每个 `ContextRequest` 并发拉取，**不实现 provider-to-provider 的依赖图**。失败的 request 进入 `ResolvedExecutionContext.failures`，可选 request 失败不阻断主流程，必填 request 失败让整个 ExecutionEngine 主流程 `yield .failed(.context(.required(...)))`。
+
+### C-4：PermissionGraph 是纯静态校验（D-24）
+
+`PermissionGraph.compute(tool:)` 只读 `tool.contexts` / `tool.outputBinding.sideEffects` / `tool.kind.agent.mcpAllowlist` 等**静态字段**，不做 I/O、不依赖运行时 seed。`ExecutionEngine` 的 Step 2（PermissionGraph 校验）必须在 Step 3（ContextCollector.resolve）**之前**执行——访问永远不能早于校验。
+
+### C-5：能力下限硬编码于 PermissionBroker 默认实现（D-22）
+
+M2 的 `PermissionBroker` 默认实现允许 `firstParty` 工具 readonly-local 操作直接通过，但 `network-write` / `exec` 永远要求每次确认（无论 provenance）。M2 的"放行"通过 `MockPermissionBroker` 在测试中模拟，生产路径下默认实现产出"待确认"状态——但因为 M2 不接入 app，这条策略仅由 `PermissionBrokerTests` 的 §3.9.2 表覆盖测试矩阵，不会真的弹 UI。
+
+### C-6：OutputDispatcher 仅实现 .window 分支
+
+`PresentationMode` 六态中 M2 只实现 `.window`（落到一个测试用 sink）；`.bubble` / `.replace` / `.file` / `.silent` / `.structured` 全部返回 `.notImplemented` 事件。Phase 2 才填实其他分支。
+
+### C-7：PromptExecutor 是 ToolExecutor 的"复制"而非"替换"
+
+`PromptExecutor.swift` 从 `SliceCore/ToolExecutor.swift` 把"prompt 渲染 + 取 API Key + 调 LLMProvider"逻辑**逐行复制**到 Orchestration/Executors/，但消费 `V2Tool` / `V2Provider` 类型而非 v1 `Tool` / `Provider`。**`SliceCore/ToolExecutor.swift` 原封保留**，M3 rename pass 才删除。两份逻辑短暂共存是 zero-touch 的代价。
+
+### C-8：日志脱敏在 AuditLog 入口统一处理（§3.9.5）
+
+`JSONLAuditLog.append(_:)` 在写入前对所有 string payload 跑一次 `Redaction.scrub(_:)`，落盘的 jsonl **永远不含**：
+- Selection 原文（只写 sha256 + length + language）
+- API Key / Token / Cookie / Secret 等敏感字段（key 名匹配 regex 即替换为 `<redacted>`）
+- promptRendered.preview 超过 200 字符的部分（`… <truncated N chars>`）
+
+Settings → Privacy 的 "记录选区原文" opt-in 由 Phase 2 实现，M2 阶段默认关闭。
+
+### C-9：Capabilities 只放接口 + Mock，不放真实实现
+
+`MCPClientProtocol` / `SkillRegistryProtocol` 仅提供接口签名 + 一个返回固定 mock 数据的实现（用于 OrchestrationTests 注入）。**Phase 1 才实现真实 MCPClient（stdio / SSE）+ SkillRegistry（fs scan）**。M2 做这件事的目的是：让 Phase 1 实施者打开 Capabilities 目录，一眼能看到要做什么；让 ExecutionEngine 的 Agent / Pipeline 分支至少在编译期可参照接口（即便 M2 只展开 .prompt 分支）。
+
+### C-10：Swift 6 Actor Isolation 一致性 Audit（**Round 11 根本性修订**）
+
+> **修订背景**：Round 5–11 共 7 个 P1 都是"修订自引入新 micro 编译错误"模式（@Sendable 闭包捕获 / actor 跨边界缺 await / try / 变量作用域 / IUO / etc）；用户 Round 11 反馈"plan 的 Swift 代码片段从未经过 Swift 6 完整 audit，应该从根本上修而非头痛医头"——本表是 plan **全局防御性结构**，所有 Task 关键设计点的方法签名必须与本表一致；Task 4 的 ExecutionEngine 完整代码块严格按本表 audit。
+
+#### C-10.1 所有 Orchestration / Capabilities 依赖类型 isolation + 方法签名表
+
+| 类型 | 文件 | Isolation | 关键方法签名（含 async / throws / nonisolated） | Task |
+|---|---|---|---|---|
+| `ExecutionEngine` | Orchestration/Engine/ExecutionEngine.swift | `actor` | `public func execute(tool: V2Tool, seed: ExecutionSeed) -> AsyncThrowingStream<ExecutionEvent, Error>`（**注**：actor-isolated 但同步返回 stream；内部 Task 调 actor-isolated 私有 `runMainFlow`） | Task 3 / 4 |
+| `ContextCollector` | Orchestration/Context/ContextCollector.swift | `actor` | `public func resolve(seed: ExecutionSeed, requests: [ContextRequest]) async throws -> ResolvedExecutionContext` | Task 5 |
+| `PermissionBrokerProtocol` | Orchestration/Permissions/PermissionBrokerProtocol.swift | `protocol: Sendable`（默认实现 `actor PermissionBroker`） | `func gate(effective: Set<Permission>, provenance: Provenance, scope: GrantScope, isDryRun: Bool) async -> GateOutcome`（**non-throwing**：用 `GateOutcome` 4 态表达决策结果） | Task 6 |
+| `PermissionGraph` | Orchestration/Permissions/PermissionGraph.swift | `actor` | `public func compute(tool: V2Tool) async throws -> EffectivePermissions`（throw `SliceError.toolPermission(.unknownProvider(id:))`） | Task 7 |
+| `ProviderResolverProtocol` | Orchestration/Engine/ProviderResolver.swift | `protocol: Sendable` | `func resolve(_ selection: ProviderSelection) async throws -> V2Provider`（throw `ProviderResolutionError`） | Task 2 |
+| `PromptExecutor` | Orchestration/Executors/PromptExecutor.swift | `actor` | `public func run(promptTool: PromptTool, resolved: ResolvedExecutionContext, provider: V2Provider) -> AsyncThrowingStream<PromptStreamElement, Error>`（actor-isolated 同步返回 stream；stream closure 内部用 `Task { [self] in ... }` 跨边界访问 actor state） | Task 11 |
+| `OutputDispatcherProtocol` | Orchestration/Output/OutputDispatcherProtocol.swift | `protocol: Sendable`（默认实现 `actor OutputDispatcher`） | `func handle(chunk: String, mode: PresentationMode, invocationId: UUID) async throws -> DispatchOutcome` | Task 10 |
+| `CostAccounting` | Orchestration/Telemetry/CostAccounting.swift | `actor` | `public func record(_ record: CostRecord) async throws` | Task 8 |
+| `AuditLogProtocol` | Orchestration/Telemetry/AuditLogProtocol.swift | `protocol: Sendable`（默认实现 `actor JSONLAuditLog`） | `func append(_ entry: AuditEntry) async throws` / `clear() async throws` / `read(limit:) async throws -> [AuditEntry]` | Task 9 |
+| `MCPClientProtocol` | Capabilities/MCP/MCPClientProtocol.swift | `protocol: Sendable` | `func tools(for: MCPDescriptor) async throws -> [MCPToolRef]` / `func call(ref: MCPToolRef, args: [String: String]) async throws -> MCPCallResult` | Task 13 |
+| `SkillRegistryProtocol` | Capabilities/Skills/SkillRegistryProtocol.swift | `protocol: Sendable` | `func findSkill(id: String) async throws -> Skill?` / `func allSkills() async throws -> [Skill]` | Task 13 |
+| `KeychainAccessing` | SliceCore（M1 已就绪） | `protocol: Sendable` | M1 既有签名（PromptExecutor 内部使用） | — |
+| `ContextProviderRegistry` | Orchestration/Context/ContextCollector.swift（同文件 struct） | `Sendable struct` | `public struct ContextProviderRegistry: Sendable { let providers: [String: any ContextProvider] }`（**Round 12 修订**：之前从 §C-10.1 漏列；ContextCollector 与 PermissionGraph 共享同一 registry 实例） | Task 5（创建）/ Task 7（消费） |
+| `ProviderResolutionError` | Orchestration/Engine/ProviderResolutionError.swift | `enum: Error, Sendable, Equatable` | `case notFound(providerId: String)` / `case notImplemented(NotImplementedReason)`；`enum NotImplementedReason: String { case capabilityRouting; case cascadeRouting }` | Task 2 |
+| `MCPClientError` | Capabilities/MCP/MCPClientProtocol.swift（同文件） | `enum: Error, Sendable, Equatable` | `case toolNotFound(ref: MCPToolRef)` / `case transportFailed(reason: String)` / `case decodingFailed(reason: String)` | Task 13 |
+
+#### C-10.2 Swift 6 strict concurrency 调用规则（plan 中所有跨 actor 调用必须满足）
+
+1. **跨 actor 调用必须 `await`**：从一个 actor / nonisolated 上下文调另一 actor 的方法，包括同步签名的 `actor.method()`，调用方仍要 `await`（编译器自动 actor hop）；唯一例外是被调方法标 `nonisolated`
+2. **`throws` 方法必须 `try`**：与 async 正交；`async throws` 调用是 `try await`
+3. **同步返回 Stream 的 actor 方法**：跨 actor 取 stream 仍需 `await`（如 `let stream = await promptExecutor.run(...)`）；取到 stream 后的 `for try await element in stream` 是 nonisolated 异步迭代（不需再 await stream 本身）
+4. **`@Sendable` 闭包不能捕获并修改 caller 的可变 var**：所有跨闭包状态共享必须用 actor 自身的 isolated state、immutable value 传递、或枚举 stream（如 `PromptStreamElement.completed(UsageStats)`）；闭包内只能 read immutable 数据或调 actor 方法
+5. **`AsyncThrowingStream` closure 的 isolation**：默认 nonisolated；若需 access 外层 actor state，用 `Task { [weak self] in await self?.method() }` 跨边界
+
+#### C-10.3 Task 4 ExecutionEngine 主流程调用点 audit 清单
+
+| 调用 | 是否 `await` | 是否 `try` | 备注 |
+|---|---|---|---|
+| `permissionGraph.compute(tool:)` | ✓ | ✓ | actor + async throws |
+| `permissionBroker.gate(effective:provenance:scope:isDryRun:)` | ✓ | ✗ | actor + async（**non-throwing**） |
+| `contextCollector.resolve(seed:requests:)` | ✓ | ✓ | actor + async throws |
+| `providerResolver.resolve(_:)` | ✓ | ✓ | protocol + async throws |
+| `promptExecutor.run(promptTool:resolved:provider:)`（取 stream） | ✓ | ✗ | actor 方法同步返回 stream；跨 actor 取本身需 await |
+| `for try await element in stream` | — | ✓ | stream 迭代的 try（throw 在 stream 内部触发） |
+| `output.handle(chunk:mode:invocationId:)` | ✓ | ✓ | protocol + async throws |
+| `costAccounting.record(_:)` | ✓ | ✓ | actor + async throws |
+| `auditLog.append(_:)` | ✓ | ✓ | protocol + async throws |
+
+#### C-10.4 plan 实施验证（C-10 不变量的机械保护）
+
+Task 14 集成验证 step 5.5 已加 `grep default:` 反向断言；本节再加一道 swift build 编译 sanity 校验：实施者跑完每个 Task commit 后必须 `swift build` 通过；如果出现 `'await' expected` / `'try' expected` / `actor-isolated method called from nonisolated context` 等编译错误，**视为 plan 未通过 C-10 audit，禁止"先注释掉报错行让编译过关再修"的规避方式**——必须回到 plan §C-10.1 audit 表对照修正调用点。
+
+---
+
+## 文件清单（File Structure）
+
+### SliceCore 纯增完整 Swift 代码块（**Round 7 R7-P2.1 修订**）
+
+> 实施 Task 4（SliceError modify）/ Task 5（ContextError create）/ Task 7（ToolPermissionError create）时**直接照抄**以下代码——避免文字描述的歧义。
+
+**`SliceError.swift` 既有 enum 追加 case + 既有 switch 补分支**（其余既有内容不动）：
+
+```swift
+public enum SliceError: Error, Sendable, Equatable {
+    case selection(SelectionError)            // 既有
+    case provider(ProviderError)              // 既有
+    case configuration(ConfigurationError)    // 既有
+    case permission(PermissionError)          // 既有：系统权限
+    // Round 4 新增：v2 ExecutionEngine 失败语义
+    case context(ContextError)                // 上下文采集失败
+    case toolPermission(ToolPermissionError)  // 工具权限决策失败
+
+    public var userMessage: String {
+        switch self {
+        case .selection(let e): return e.userMessage      // 既有
+        case .provider(let e): return e.userMessage       // 既有
+        case .configuration(let e): return e.userMessage  // 既有
+        case .permission(let e): return e.userMessage     // 既有
+        // Round 4 新增分支
+        case .context(let e): return e.userMessage
+        case .toolPermission(let e): return e.userMessage
+        }
+    }
+
+    // **R9 修订重要说明（B-NEW-1 P1 修复）**：M1 SliceError.developerContext 是顶层 nested switch（line 24-58），
+    // **不**委托给子 enum 的 .developerContext 属性（M1 SelectionError / ProviderError / PermissionError 没有此 computed property）。
+    // R8 修订错把 plan 写成 `return e.developerContext` 委托模式 → 编译失败（M1 子 enum 无该属性）。
+    // **R9 修订方向**：保留 M1 既有 nested switch 结构，**只追加** 3 处分支（不重写 M1 既有行）：
+    //   (1) .configuration 嵌套 switch 末尾追加 .invalidTool case
+    //   (2) switch self 顶层追加 .context(let e) / .toolPermission(let e) 两个新顶层 case 分支
+    // **严禁** 修改 M1 既有 .selection / .provider / .configuration（既有 5 case）/ .permission 嵌套 switch 中任何分支字符串
+    //   —— 这违反 §C-1 zero-touch（既有 case 行为不变）
+
+    // 在 M1 SliceError.swift:43-52 既有 .configuration 嵌套 switch 末尾追加 1 行：
+    //   case .invalidTool: return "configuration.invalidTool(<redacted>)"
+
+    // **R10 R10-P2-1 修订**：删除 R9 引入的 placeholder 伪属性 `developerContext_R9_Append`（误导实施者）。
+    // 实施者操作指引（patch-style，不是新建属性）：
+    //
+    //   在 M1 SliceError.swift:23-58 既有 `public var developerContext: String { switch self { ... } }`
+    //   的 switch self 末尾（`}` 之前）插入下面 2 个 case 分支（保持 4 既有 case 不动）：
+    //
+    //   case .context(let e):
+    //       switch e {
+    //       case .requiredFailed: return "context.requiredFailed(<redacted>)"   // R9 B-NEW-2：ContextKey.rawValue 也 redact
+    //       case .providerNotFound: return "context.providerNotFound(<redacted>)"
+    //       case .timeout: return "context.timeout(<redacted>)"
+    //       }
+    //   case .toolPermission(let e):
+    //       switch e {
+    //       case .undeclared(let missing): return "toolPermission.undeclared(count=\(missing.count))"
+    //       case .denied: return "toolPermission.denied(<redacted>)"
+    //       case .notGranted: return "toolPermission.notGranted"
+    //       case .unknownProvider: return "toolPermission.unknownProvider(<redacted>)"
+    //       case .sandboxViolation: return "toolPermission.sandboxViolation(<redacted>)"
+    //       }
+}
+
+// ConfigurationError 既有 enum 追加 case + 既有 switch 补分支
+public enum ConfigurationError: Error, Sendable, Equatable {
+    case fileNotFound                          // 既有
+    case schemaVersionTooNew(Int)              // 既有
+    case invalidJSON(String)                   // 既有
+    case referencedProviderMissing(String)     // 既有
+    case validationFailed(String)              // 既有
+    case invalidTool(id: String, reason: String)  // Round 4 新增：tool manifest 错误（如 unknown provider id）
+
+    public var userMessage: String {
+        switch self {
+        // ... 既有 5 case userMessage 不动 ...
+        case .invalidTool(let id, let reason):
+            return "工具 \"\(id)\" 配置错误：\(reason)"
+        }
+    }
+
+    // **R9 修订（B-NEW-1 P1 修复）**：删除 R8 自行新增的 ConfigurationError.developerContext computed 属性。
+    // 原因：M1 SliceError.developerContext 是顶层 nested switch，**不委托** 给 ConfigurationError.developerContext。
+    // R8 修订时新增此属性是基于"e.developerContext 委托模式"的误判；M1 既有 case 的 developerContext 字符串
+    // 由 SliceError 顶层 nested switch 直接处理（M1 SliceError.swift:43-52）。
+    // R9 落地方向：M1 ConfigurationError zero-touch（不加任何 computed 属性）；只在 SliceError.developerContext
+    // 既有 .configuration 嵌套 switch 末尾追加 1 行：`case .invalidTool: return "configuration.invalidTool(<redacted>)"`
+}
+```
+
+**`ContextError.swift`（新建）**：
+
+```swift
+import Foundation
+
+/// v2 上下文采集失败语义；SliceError.context 关联值
+///
+/// **`indirect`**（Round 5 R5-P1.1）：requiredFailed.underlying: SliceError
+/// 让 SliceError → ContextError → SliceError 直接递归，必须 indirect 才能编译。
+public indirect enum ContextError: Error, Sendable, Equatable {
+    case requiredFailed(key: ContextKey, underlying: SliceError)
+    case providerNotFound(id: String)
+    case timeout(key: ContextKey)
+
+    public var userMessage: String {
+        switch self {
+        case .requiredFailed(let key, _): return "必填上下文 \"\(key.rawValue)\" 采集失败。"
+        case .providerNotFound(let id): return "未注册的上下文提供方 \"\(id)\"。"
+        case .timeout(let key): return "上下文 \"\(key.rawValue)\" 采集超时。"
+        }
+    }
+}
+```
+
+**`ToolPermissionError.swift`（新建）**：
+
+```swift
+import Foundation
+
+/// v2 工具权限决策失败语义；SliceError.toolPermission 关联值
+///
+/// 与 SliceCore.PermissionError（系统权限：accessibility / inputMonitoring）独立——
+/// 后者是 macOS 系统权限错误命名空间，本类型是 v2 工具运行时权限决策错误。
+public enum ToolPermissionError: Error, Sendable, Equatable {
+    case undeclared(missing: Set<Permission>)
+    case denied(permission: Permission, reason: String)
+    case notGranted(permission: Permission)
+    case unknownProvider(id: String)
+    case sandboxViolation(path: String)
+
+    public var userMessage: String {
+        switch self {
+        case .undeclared(let missing):
+            return "工具尝试访问未声明的权限（\(missing.count) 项）。"
+        case .denied(_, let reason):
+            return "权限被拒绝：\(reason)"
+        case .notGranted:
+            return "权限未授予，无法执行该工具。"
+        case .unknownProvider(let id):
+            return "未注册的提供方 \"\(id)\"。"
+        case .sandboxViolation:
+            return "路径访问被沙箱拦截。"
+        }
+    }
+}
+```
+
+---
+
+| 类型 | 路径 | 责任 | Task |
+|---|---|---|---|
+| Modify | `SliceAIKit/Package.swift` | 移除 placeholder testTarget 行（如有），新增 OrchestrationTests / CapabilitiesTests 真正的 testTarget 依赖；**Round 13 P1-NEW-1 修订**：给 `Orchestration` library target 加 `Capabilities` 依赖（`.target(name: "Orchestration", dependencies: ["SliceCore", "Capabilities"])`），让 ExecutionEngine `import Capabilities` 在 SPM target 隔离下能编译；同时 OrchestrationTests testTarget 也加 `Capabilities` 依赖（Mock 类型需要） | Task 1 |
+| **Modify** | `SliceAIKit/Sources/SliceCore/SliceError.swift` | **Round 4 修订（C-1 放宽）+ Round 5 R5-P1.1 + Round 7 R7-P2.1 完整化**：纯增 case 表达 v2 ExecutionEngine 失败语义。具体追加：(a) `SliceError.context(ContextError)` 顶层 case + `SliceError.toolPermission(ToolPermissionError)` 顶层 case；(b) `ConfigurationError.invalidTool(id: String, reason: String)` case；(c) **既有 SliceError.userMessage / developerContext exhaustive switch 补 .context / .toolPermission 两 case 分支**。**完整 Swift 代码块见下方 §"SliceCore 纯增完整 Swift 代码块（R7-P2.1）"**。**严禁** 修改既有 4 顶层 case + 13 子 case 的任何字段 / 名字 / 顺序；只追加 case + 在既有 switch 加分支 | Task 4（实施）|
+| **Create** | `SliceAIKit/Sources/SliceCore/ContextError.swift` | **Round 4 新增 + Round 5 R5-P1.1 修订**：`public indirect enum ContextError: Error, Sendable, Equatable { case requiredFailed(key: ContextKey, underlying: SliceError); case providerNotFound(id: String); case timeout(key: ContextKey) }` —— v2 上下文采集失败语义；**关键字 `indirect`**（**Round 5 R5-P1.1**）：因为 SliceError → ContextError → SliceError 是直接递归（非 case 间接递归），必须在 enum 声明加 `indirect` 才能编译。Equatable / Sendable 自动合成对 indirect enum 仍可用。`underlying: SliceError` 也可改用 `indirect case requiredFailed(...)` 单 case indirect（更精细），但整体 indirect 更简单——M2 选择整体 indirect | Task 5（同 ContextCollector 一并落地） |
+| **Create** | `SliceAIKit/Sources/SliceCore/ToolPermissionError.swift` | **Round 4 新增**：`public enum ToolPermissionError: Error, Sendable, Equatable { case undeclared(missing: Set<Permission>); case denied(permission: Permission, reason: String); case notGranted(permission: Permission); case unknownProvider(id: String); case sandboxViolation(path: String) }` —— v2 工具权限决策错误，与 SliceCore.PermissionError（系统权限）独立共存 | Task 7（同 PermissionGraph 一并落地）；**取代 Round 3 的 PermissionDecisionError**（不再独立创建，因为 SliceError.toolPermission 是更 clean 的封装路径）|
+| Delete | `SliceAIKit/Sources/Orchestration/Placeholder.swift` | M1 placeholder（M2 起 Orchestration 有真实代码后删除） | Task 1 |
+| Delete | `SliceAIKit/Sources/Capabilities/Placeholder.swift` | 同上 | Task 12 |
+| Delete | `SliceAIKit/Tests/OrchestrationTests/PlaceholderTests.swift` | M1 placeholder | Task 1 |
+| Delete | `SliceAIKit/Tests/CapabilitiesTests/PlaceholderTests.swift` | 同上 | Task 12 |
+| Keep | `SliceAIKit/Sources/Orchestration/README.md` | M1 留下；M2 内容更新（不改文件名） | Task 14 |
+| Keep | `SliceAIKit/Sources/Capabilities/README.md` | 同上 | Task 14 |
+| Create | `SliceAIKit/Sources/Orchestration/Events/ExecutionEvent.swift` | `ExecutionEvent` enum + `Sendable` | Task 1 |
+| Create | `SliceAIKit/Sources/Orchestration/Events/InvocationReport.swift` | `InvocationReport` struct（含 declared/effective permissions diff） | Task 1 |
+| Create | `SliceAIKit/Sources/Orchestration/Engine/ProviderResolver.swift` | `ProviderResolver` protocol + 默认实现 | Task 2 |
+| Create | `SliceAIKit/Sources/Orchestration/Engine/ProviderResolutionError.swift` | provider lookup 错误 | Task 2 |
+| Create | `SliceAIKit/Sources/Orchestration/Engine/ExecutionEngine.swift` | `ExecutionEngine` actor + dispatch by `ToolKind` | Task 3 / 4 |
+| Create | `SliceAIKit/Sources/Orchestration/Context/ContextCollector.swift` | 平铺并发 resolve | Task 5 |
+| ~~Create~~ | ~~`SliceAIKit/Sources/Orchestration/Context/ContextCollectorError.swift`~~ | **Round 4 + Round 7 R7-P2.3 删除**：用 SliceCore.ContextError，不再独立 Orchestration error 类型 | — |
+| Create | `SliceAIKit/Sources/Orchestration/Permissions/PermissionBrokerProtocol.swift` | broker 接口 + GrantScope / GrantSource | Task 6 |
+| Create | `SliceAIKit/Sources/Orchestration/Permissions/PermissionBroker.swift` | 默认实现 + §3.9.2 下限硬编码 | Task 6 |
+| Create | `SliceAIKit/Sources/Orchestration/Permissions/PermissionGrantStore.swift` | session/persistent grant 存储 | Task 6 |
+| Create | `SliceAIKit/Sources/Orchestration/Permissions/EffectivePermissions.swift` | aggregated permissions struct（spec §3.9.6.5 骨架） | Task 7 |
+| Create | `SliceAIKit/Sources/Orchestration/Permissions/PermissionGraph.swift` | `compute(tool:) -> EffectivePermissions` | Task 7 |
+| ~~Create~~ | ~~`SliceAIKit/Sources/Orchestration/Permissions/PermissionDecisionError.swift`~~ | **Round 4 删除**：Round 3 创建的 PermissionDecisionError 改用 SliceCore 新增的 `ToolPermissionError`（见上）；ExecutionEngine 通过 `SliceError.toolPermission(...)` 封装传递，更 clean 且失败语义直接进 SliceError 命名空间 | — |
+| Create | `SliceAIKit/Sources/Orchestration/Telemetry/CostAccounting.swift` | sqlite append + 查询 | Task 8 |
+| Create | `SliceAIKit/Sources/Orchestration/Telemetry/CostRecord.swift` | 计费记录 struct | Task 8 |
+| Create | `SliceAIKit/Sources/Orchestration/Telemetry/AuditLogProtocol.swift` | append-only 接口 | Task 9 |
+| Create | `SliceAIKit/Sources/Orchestration/Telemetry/JSONLAuditLog.swift` | 默认实现 + 脱敏调用 | Task 9 |
+| Create | `SliceAIKit/Sources/Orchestration/Output/OutputDispatcherProtocol.swift` | dispatch 接口 | Task 10 |
+| Create | `SliceAIKit/Sources/Orchestration/Output/OutputDispatcher.swift` | 默认实现（仅 .window 分支） | Task 10 |
+| Create | `SliceAIKit/Sources/Orchestration/Executors/PromptExecutor.swift` | 从 ToolExecutor 复制；消费 V2Tool/V2Provider | Task 11 |
+| Create | `SliceAIKit/Sources/Orchestration/Internal/Redaction.swift` | `Redaction.scrub(_:)` + key regex | Task 9 |
+| Create | `SliceAIKit/Sources/Capabilities/SecurityKit/PathSandbox.swift` | 路径规范化 + 白名单 + 硬禁止前缀 | Task 12 |
+| Create | `SliceAIKit/Sources/Capabilities/SecurityKit/PathSandboxError.swift` | 硬禁止 / 越界错误 | Task 12 |
+| Create | `SliceAIKit/Sources/Capabilities/MCP/MCPClientProtocol.swift` | MCP client 接口（stdio / SSE） | Task 13 |
+| Create | `SliceAIKit/Sources/Capabilities/MCP/MockMCPClient.swift` | 测试桩 | Task 13 |
+| Create | `SliceAIKit/Sources/Capabilities/Skills/SkillRegistryProtocol.swift` | skill 加载接口 | Task 13 |
+| Create | `SliceAIKit/Sources/Capabilities/Skills/MockSkillRegistry.swift` | 测试桩 | Task 13 |
+| Create | 14 个测试文件 + 3 个 Helpers | 见各 Task 内 | Task 1 – 13 |
+| Create | `docs/Task-detail/2026-04-25-phase-0-m2-orchestration.md` | 实施过程归档 | Task 0 + Task 14 |
+| Modify | `docs/Task_history.md` | 追加 M2 索引行 | Task 0 + Task 14 |
+
+---
+
+## Task 0: 文档初始化（前置；项目规则要求）
+
+> **必须在任何代码 Task 之前执行**——CLAUDE.md "1.2 文档创建时机"明确要求"每一个任务开始执行前，必须创建 docs/Task-detail/xxxxxx.md，并在 Task_history.md 中记录该任务的索引"。
+
+**Files:**
+- Create: `docs/Task-detail/2026-04-25-phase-0-m2-orchestration.md`
+- Modify: `docs/Task_history.md`（在最顶部 `## Task 33 · Phase 0 M1` 之前插入 `## Task 34 · Phase 0 M2`）
+
+**步骤：**
+
+- [ ] **Step 1：检查 Task 编号**
+
+```bash
+# 在主仓库根目录跑（worktree 内也可）
+grep "^## Task " docs/Task_history.md | head -3
+# 期望输出：Task 33 / Task 32 / Task 31（M1 PR #1 merge 后已索引到 Task 33）
+# 下一个可用编号为 34；本 plan 用 Task 34（按"grep 取下一个可用值"原则，不硬编码——若实施时已被其他 commit 占用 34，按实际 +1 取号）
+```
+
+- [ ] **Step 2：创建 Task-detail 骨架文件**
+
+写入 `docs/Task-detail/2026-04-25-phase-0-m2-orchestration.md`：
+
+```markdown
+# Task 34 · Phase 0 M2 · Orchestration + Capabilities 骨架
+
+> **状态**：实施中
+> **plan**：`docs/superpowers/plans/2026-04-25-phase-0-m2-orchestration.md`
+> **基线 commit**：`<填入开始实施时的 main HEAD>`
+> **worktree**：`.worktrees/phase-0-m2/`
+> **分支**：`feature/phase-0-m2-orchestration`
+
+## 1. 任务背景
+
+承接 M1（PR #1 已 merge 入 main，merge commit `5cdf0f7`）。M1 落地了 SliceCore 中的 19 个 V2* + 领域类型 + ConfigMigratorV1ToV2，但 Orchestration / Capabilities 仍是空 placeholder。M2 把这两个 target 填实，但**不接入 app 启动链路**——M3 才做切换。
+
+## 2. 现有问题
+
+无（M1 zero-touch 验证通过；M2 在新 target 中独立实现）。
+
+## 3. 实施方案
+
+见 plan `docs/superpowers/plans/2026-04-25-phase-0-m2-orchestration.md`。
+
+## 4. ToDoList
+
+按 plan 中 Task 1 – Task 14 顺序执行；每个 Task 内勾选项独立追踪。
+
+## 5. 变动文件清单
+
+待实施完成后填充。
+
+## 6. 测试结果
+
+待实施完成后填充。
+```
+
+- [ ] **Step 3：在 Task_history.md 顶部追加索引（Task 34）**
+
+在第 7 行 `## Task 33 · Phase 0 M1 · 核心类型与配置迁移` 之前插入：
+
+```markdown
+## Task 34 · Phase 0 M2 · Orchestration + Capabilities 骨架
+
+- **时间**：2026-04-25
+- **描述**：把 v2.0 spec §3.4 / §3.9 描述的执行引擎 + 权限闭环 + 安全模型骨架落地为 `Orchestration` + `Capabilities` 两个 target 的可独立单测代码；**不接入 app 启动链路**（M3 才切）。10 个 spec 子任务（M2.1 ExecutionEngine / M2.2 ContextCollector / M2.3 PermissionBroker / M2.3a PermissionGraph / M2.4 CostAccounting / M2.5 AuditLog / M2.6 OutputDispatcher / M2.7 PromptExecutor / M2.8 PathSandbox / M2.9 MCP/Skill 接口）拆为 14 个 implementation Task
+- **详情**：[docs/Task-detail/2026-04-25-phase-0-m2-orchestration.md](Task-detail/2026-04-25-phase-0-m2-orchestration.md)
+- **结果**：实施中
+
+---
+```
+
+- [ ] **Step 4：Commit 文档骨架**
+
+```bash
+git add docs/Task-detail/2026-04-25-phase-0-m2-orchestration.md docs/Task_history.md
+git commit -m "$(cat <<'EOF'
+docs(phase-0/m2): seed Task-detail + Task_history index
+
+- Add docs/Task-detail/2026-04-25-phase-0-m2-orchestration.md skeleton
+- Index Task 34 in docs/Task_history.md
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
+## Task 1: M2.1.a · ExecutionEvent + InvocationReport + Package wiring
+
+> 把 spec §3.4 的 `ExecutionEvent` enum 与 `InvocationReport` struct 落地为 `Orchestration/Events/`；同时完成 Package.swift 的真实 testTarget 注册（删除 M1 留下的 PlaceholderTests）。
+>
+> **依赖关系**：本 Task 不消费 Capabilities 任何类型；Task 2 / 3 / 4 都依赖本 Task 输出的 `ExecutionEvent`。
+
+**Files:**
+- Modify: `SliceAIKit/Package.swift`（OrchestrationTests testTarget 加 Helpers / Events / Engine path 配置——但 swift package manager 默认会扫描 `Tests/OrchestrationTests/` 全目录，**实际不需要改 Package.swift 的 testTarget 路径**；只需要确认 `OrchestrationTests` 已声明 `dependencies: ["Orchestration", "SliceCore"]`）
+- Delete: `SliceAIKit/Sources/Orchestration/Placeholder.swift`
+- Delete: `SliceAIKit/Tests/OrchestrationTests/PlaceholderTests.swift`
+- Create: `SliceAIKit/Sources/Orchestration/Events/ExecutionEvent.swift`
+- Create: `SliceAIKit/Sources/Orchestration/Events/InvocationReport.swift`
+- Create: `SliceAIKit/Tests/OrchestrationTests/ExecutionEventTests.swift`
+- Create: `SliceAIKit/Tests/OrchestrationTests/InvocationReportTests.swift`
+
+### 1.1 Step 1: 写第一个 failing test：ExecutionEvent.started 等价
+
+```swift
+// SliceAIKit/Tests/OrchestrationTests/ExecutionEventTests.swift
+import XCTest
+@testable import Orchestration
+
+final class ExecutionEventTests: XCTestCase {
+    func test_executionEvent_started_carriesInvocationId() {
+        let id = UUID()
+        let event = ExecutionEvent.started(invocationId: id)
+        guard case .started(let extracted) = event else {
+            XCTFail("expected .started case")
+            return
+        }
+        XCTAssertEqual(extracted, id)
+    }
+}
+```
+
+- [ ] **Step 2: 跑测试，验证 fail**
+
+```bash
+cd SliceAIKit
+swift test --filter OrchestrationTests.ExecutionEventTests/test_executionEvent_started_carriesInvocationId
+# 期望：编译失败 "no such module 'Orchestration'" 或 "type 'ExecutionEvent' has no member 'started'"
+```
+
+- [ ] **Step 3: 删除 M1 placeholder，写最小 ExecutionEvent**
+
+先删除 placeholder：
+```bash
+rm SliceAIKit/Sources/Orchestration/Placeholder.swift
+rm SliceAIKit/Tests/OrchestrationTests/PlaceholderTests.swift
+```
+
+再创建 `SliceAIKit/Sources/Orchestration/Events/ExecutionEvent.swift`：
+
+```swift
+import Foundation
+import SliceCore
+
+/// `ExecutionEngine.execute(...)` 流式产出的事件。
+///
+/// 每条事件都是不可变值类型；调用方按 `AsyncThrowingStream<ExecutionEvent, Error>`
+/// 顺序消费。事件字段尽量 `Sendable` + 简单 struct，便于跨 actor 流转。
+///
+/// 注意：`promptRendered` 的 `preview` **必须**经过 `Redaction.scrub` 后再传入；
+/// `toolCallProposed` / `toolCallResult` 中的字典也必须脱敏。脱敏责任在事件**生产者**
+/// （PromptExecutor / AgentExecutor），事件本身不再做二次过滤。
+public enum ExecutionEvent: Sendable {
+    /// 主流程已启动；invocationId 用于关联 AuditLog / CostAccounting / 后续事件
+    case started(invocationId: UUID)
+
+    /// ContextCollector 解析出某个 ContextRequest 的结果（仅成功路径产出，
+    /// 失败的请求统一在 `failed` 或最终 report.flags 里体现）
+    case contextResolved(key: ContextKey, valueDescription: String)
+
+    /// 渲染好的 prompt 预览（已截断 + 脱敏）；用于 Playground / DryRun
+    case promptRendered(preview: String)
+
+    /// LLM provider 流式输出片段
+    case llmChunk(delta: String)
+
+    /// Agent loop 提议调用 MCP tool（M2 仅声明，AgentExecutor 由 Phase 1 实现）
+    case toolCallProposed(ref: MCPToolRef, argsDescription: String)
+
+    /// PermissionBroker 同意 tool call
+    case toolCallApproved(id: UUID)
+
+    /// MCP tool 返回（脱敏后的简短摘要，避免污染日志）
+    case toolCallResult(id: UUID, summary: String)
+
+    /// Pipeline 进度（M2 仅声明，PipelineExecutor 由 Phase 5 实现）
+    case stepCompleted(step: Int, total: Int)
+
+    /// OutputBinding.sideEffects 的副作用已触发（含 inferredPermissions 已 gate 通过）
+    case sideEffectTriggered(SideEffect)
+
+    /// 主流程成功结束
+    case finished(report: InvocationReport)
+
+    /// 主流程失败（任何 step 错误统一收敛到此 case）
+    case failed(SliceError)
+
+    /// M2 范围 placeholder：还未实现的 PresentationMode / ToolKind 分支返回此事件
+    case notImplemented(reason: String)
+
+    /// **Round 2 B-2 修订**：dry-run 路径下 PermissionBroker.gate 返回 `.wouldRequireConsent` 时 yield；
+    /// caller 收到此事件后跳过实际执行但**继续主流程**；用于 Playground UI 显示
+    /// "如果实际执行会需要 X 权限"。**严禁** 与 `.approved` 混淆（Round 1 P1-1 修订防回归）
+    case permissionWouldBeRequested(permission: Permission, uxHint: String)
+
+    /// **Round 2 B-2 修订**：Step 7 dry-run 时替代 `.sideEffectTriggered` 的事件，
+    /// 标记该 sideEffect 仅 gate 通过但**未实际执行**；不写 AuditLog（Task 9 audit 仅在真正执行时写）
+    case sideEffectSkippedDryRun(SideEffect)
+}
+```
+
+注意点：
+1. `valueDescription` / `argsDescription` / `summary` 是 **String**——不是 `ContextValue` / `[String: Any]`——是为了让事件本身 Sendable 简单可序列化；具体 ContextValue 由 ResolvedExecutionContext 持有，事件只送描述给 UI。
+2. `MCPToolRef` 来自 `SliceCore`（M1 已就绪）；`SliceError` 同。
+
+- [ ] **Step 4: 跑测试验证 pass**
+
+```bash
+swift test --filter OrchestrationTests.ExecutionEventTests/test_executionEvent_started_carriesInvocationId
+# 期望: PASS
+```
+
+- [ ] **Step 5: 写第二个 test：ExecutionEvent 多 case 模式匹配 + Sendable 验证**
+
+追加到 `ExecutionEventTests.swift`：
+
+```swift
+func test_executionEvent_allCases_canBeBuilt() {
+    let cases: [ExecutionEvent] = [
+        .started(invocationId: UUID()),
+        .contextResolved(key: ContextKey(rawValue: "selection"), valueDescription: "<82 chars>"),
+        .promptRendered(preview: "Translate the following text to English: …"),
+        .llmChunk(delta: "Hello"),
+        .toolCallProposed(
+            ref: MCPToolRef(server: "fs", tool: "read"),
+            argsDescription: "{\"path\":\"~/Documents/foo.md\"}"
+        ),
+        .toolCallApproved(id: UUID()),
+        .toolCallResult(id: UUID(), summary: "<file contents 1234 bytes>"),
+        .stepCompleted(step: 1, total: 3),
+        .sideEffectTriggered(.copyToClipboard),
+        .finished(report: .stub()),
+        .failed(.configuration(.validationFailed("test"))),
+        .notImplemented(reason: "PresentationMode.bubble not in M2 scope")
+    ]
+    XCTAssertEqual(cases.count, 12)
+}
+
+func test_executionEvent_isSendable() {
+    // 编译期检查：ExecutionEvent 必须 Sendable
+    let event: any Sendable = ExecutionEvent.started(invocationId: UUID())
+    _ = event
+}
+```
+
+`InvocationReport.stub()` 是测试 helper，需要在 InvocationReport 实现里加 `#if DEBUG` 段（见下一步）。
+
+- [ ] **Step 6: 写 InvocationReport struct + stub helper**
+
+创建 `SliceAIKit/Sources/Orchestration/Events/InvocationReport.swift`：
+
+```swift
+import Foundation
+import SliceCore
+
+/// 一次 `ExecutionEngine.execute(...)` 的完整审计快照——成功 / 失败 / 被拒都产出。
+///
+/// 由 `ExecutionEngine` 在 Step 9 写入 `AuditLog`；同时作为 `.finished(report:)` 事件
+/// 的 payload 暴露给调用方。
+///
+/// **D-24 闭环字段**：`declaredPermissions` 与 `effectivePermissions` 的 diff
+/// 用于审计实际访问与声明的偏差；即便 ⊆ 校验通过，diff 仍然记录。
+public struct InvocationReport: Sendable, Equatable, Codable {  // **Round 5 R5-P1.2 修订**：加 Codable（AuditEntry.invocationCompleted(InvocationReport) 需要）
+    /// 与 `.started(invocationId:)` 一致
+    public let invocationId: UUID
+
+    /// 触发的 V2Tool 标识（不存原 manifest，避免敏感字段进 AuditLog）
+    public let toolId: String
+
+    /// V2Tool.permissions 静态声明
+    public let declaredPermissions: Set<Permission>
+
+    /// 实际触发（PermissionGraph.compute 聚合后的并集）
+    public let effectivePermissions: Set<Permission>
+
+    /// effective - declared；非空时表示有"未声明的实际访问"，会触发 .permissionUndeclared flag
+    public var undeclaredPermissions: Set<Permission> {
+        effectivePermissions.subtracting(declaredPermissions)
+    }
+
+    /// 关键事件标记：unauthorized access / dry-run / partial-failure / ...
+    public let flags: Set<InvocationFlag>
+
+    /// 起止时间 + 总 token + 估算成本
+    public let startedAt: Date
+    public let finishedAt: Date
+    public let totalTokens: Int
+    public let estimatedCostUSD: Decimal
+
+    /// **Round 2 B-1 修订**：执行结果（success / failed(errorKind:) / dryRunCompleted 三态）
+    /// 让 AuditLog 查询能按 errorKind 过滤；finishFailure / finishSuccess helper 通过此字段区分
+    public let outcome: InvocationOutcome
+
+    public init(
+        invocationId: UUID,
+        toolId: String,
+        declaredPermissions: Set<Permission>,
+        effectivePermissions: Set<Permission>,
+        flags: Set<InvocationFlag>,
+        startedAt: Date,
+        finishedAt: Date,
+        totalTokens: Int,
+        estimatedCostUSD: Decimal,
+        outcome: InvocationOutcome
+    ) {
+        self.invocationId = invocationId
+        self.toolId = toolId
+        self.declaredPermissions = declaredPermissions
+        self.effectivePermissions = effectivePermissions
+        self.flags = flags
+        self.startedAt = startedAt
+        self.finishedAt = finishedAt
+        self.totalTokens = totalTokens
+        self.estimatedCostUSD = estimatedCostUSD
+        self.outcome = outcome
+    }
+}
+
+public enum InvocationFlag: String, Sendable, Codable, Hashable, Equatable {  // **Round 6 R6-P1.1 修订**：加 Hashable（InvocationReport.flags 是 Set<InvocationFlag>，Set 元素必须 Hashable；之前漏写编译失败）
+    case dryRun
+    case permissionUndeclared
+    case partialFailure
+    case sandboxViolation
+}
+
+/// **Round 2 B-1 修订 + Round 4 修订**：InvocationReport 的 outcome 字段类型；
+/// 区分成功 / 失败 / dry-run 完成三种终态。
+///
+/// `failed` case 携带 `errorKind: ErrorKind`——SliceError 各顶层类的简化映射，
+/// 让 AuditLog 按错误类型聚合查询。**不**直接携带 SliceError 因为 SliceError 关联值
+/// 多含敏感字符串、Codable / 脱敏复杂度高，errorKind 抽象层兼顾审计与隐私。
+public enum InvocationOutcome: Sendable, Codable, Equatable {
+    case success
+    case failed(errorKind: ErrorKind)
+    case dryRunCompleted
+
+    /// 错误大类（与 SliceError 6 顶层 case 对齐——**Round 4 修订**：含 v2 新增的 .context / .toolPermission）
+    public enum ErrorKind: String, Sendable, Codable, Equatable {
+        case selection
+        case provider
+        case configuration
+        case permission        // M1 既有：系统权限错误（accessibilityDenied / inputMonitoringDenied）
+        case context           // **Round 4 新增**：v2 上下文采集错误（SliceError.context(ContextError)）
+        case toolPermission    // **Round 4 新增**：v2 工具权限决策错误（SliceError.toolPermission(ToolPermissionError)）
+    }
+}
+
+/// **Round 3 P2.b + Round 4 修订**：完整 ErrorKind.from(_:) extension 代码块
+/// 放在 `Orchestration/Events/InvocationReport.swift` 同文件
+extension InvocationOutcome.ErrorKind {
+    /// 把 SliceError 顶层 case 映射到 InvocationOutcome.ErrorKind
+    /// 用 exhaustive switch（无 default）—— SliceError 加新顶层 case 时编译器强制更新
+    public static func from(_ error: SliceError) -> InvocationOutcome.ErrorKind {
+        switch error {
+        case .selection:      return .selection
+        case .provider:       return .provider
+        case .configuration:  return .configuration
+        case .permission:     return .permission
+        case .context:        return .context
+        case .toolPermission: return .toolPermission
+        }
+    }
+}
+
+#if DEBUG
+extension InvocationReport {
+    /// 单测 / Playground 用——固定 stub 值
+    public static func stub(
+        invocationId: UUID = UUID(),
+        toolId: String = "test.tool",
+        declared: Set<Permission> = [],
+        effective: Set<Permission> = [],
+        flags: Set<InvocationFlag> = [],
+        outcome: InvocationOutcome = .success
+    ) -> InvocationReport {
+        InvocationReport(
+            invocationId: invocationId,
+            toolId: toolId,
+            declaredPermissions: declared,
+            effectivePermissions: effective,
+            flags: flags,
+            startedAt: Date(timeIntervalSince1970: 0),
+            finishedAt: Date(timeIntervalSince1970: 1),
+            totalTokens: 0,
+            estimatedCostUSD: 0,
+            outcome: outcome
+        )
+    }
+}
+#endif
+```
+
+- [ ] **Step 7: 跑两个测试都 pass**
+
+```bash
+swift test --filter OrchestrationTests.ExecutionEventTests
+# 期望: 2 tests, all pass
+```
+
+- [ ] **Step 8: 写 InvocationReport 的独立测试**
+
+`SliceAIKit/Tests/OrchestrationTests/InvocationReportTests.swift`：
+
+```swift
+import XCTest
+import SliceCore
+@testable import Orchestration
+
+final class InvocationReportTests: XCTestCase {
+
+    func test_undeclaredPermissions_returnsEmptySetWhenEffectiveIsSubsetOfDeclared() {
+        let declared: Set<Permission> = [.fileRead(path: "~/Documents/**")]
+        let effective: Set<Permission> = [.fileRead(path: "~/Documents/**")]
+        let report = InvocationReport.stub(declared: declared, effective: effective)
+        XCTAssertTrue(report.undeclaredPermissions.isEmpty)
+    }
+
+    func test_undeclaredPermissions_returnsDifferenceWhenEffectiveExceedsDeclared() {
+        let declared: Set<Permission> = [.fileRead(path: "~/Documents/**")]
+        let effective: Set<Permission> = [
+            .fileRead(path: "~/Documents/**"),
+            .fileWrite(path: "~/Library/Application Support/SliceAI/**")
+        ]
+        let report = InvocationReport.stub(declared: declared, effective: effective)
+        XCTAssertEqual(
+            report.undeclaredPermissions,
+            [.fileWrite(path: "~/Library/Application Support/SliceAI/**")]
+        )
+    }
+
+    func test_invocationFlag_codable_roundtrips() throws {
+        let flag = InvocationFlag.permissionUndeclared
+        let data = try JSONEncoder().encode(flag)
+        let decoded = try JSONDecoder().decode(InvocationFlag.self, from: data)
+        XCTAssertEqual(decoded, flag)
+        XCTAssertEqual(String(data: data, encoding: .utf8), "\"permissionUndeclared\"")
+    }
+}
+```
+
+- [ ] **Step 9: 跑完整 OrchestrationTests，确认 5 tests pass**
+
+```bash
+swift test --filter OrchestrationTests
+# 期望: 5 tests pass（ExecutionEventTests x 2 + InvocationReportTests x 3）
+```
+
+- [ ] **Step 10: 跑 swiftlint --strict，0 violations**
+
+```bash
+# 在主仓库根目录跑
+swiftlint lint --strict --path SliceAIKit/Sources/Orchestration SliceAIKit/Tests/OrchestrationTests
+# 期望: 0 violations / 0 serious
+```
+
+- [ ] **Step 11: Commit**
+
+```bash
+git add SliceAIKit/Sources/Orchestration SliceAIKit/Tests/OrchestrationTests
+git commit -m "$(cat <<'EOF'
+feat(orchestration): add ExecutionEvent + InvocationReport (M2.1.a)
+
+- New: Orchestration/Events/ExecutionEvent.swift (12 cases incl. .notImplemented)
+- New: Orchestration/Events/InvocationReport.swift + InvocationFlag
+- Test: 5 tests cover started case, all-cases construct, Sendable bound,
+        undeclared diff, flag codable round-trip
+- Drop M1 PlaceholderTests + Placeholder.swift in Orchestration target
+
+Refs spec §3.4 (ExecutionEvent) / §3.9.6.5 (declared vs effective permissions diff)
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
+## Task 2: M2.1.b · ProviderResolver protocol + Mock 实现 + ProviderResolutionError
+
+> ExecutionEngine 通过 ProviderResolver 把 `ProviderSelection`（fixed / capability / cascade）解析到具体 V2Provider。M2 实现：fixed 形态走 `V2Configuration.providers` 查找；capability / cascade 形态返回 `.notImplemented`（Phase 1 / Phase 5 才填实）。
+
+**Files:**
+- Create: `SliceAIKit/Sources/Orchestration/Engine/ProviderResolver.swift`
+- Create: `SliceAIKit/Sources/Orchestration/Engine/ProviderResolutionError.swift`
+- Create: `SliceAIKit/Tests/OrchestrationTests/Helpers/MockProvider.swift`
+- Create: `SliceAIKit/Tests/OrchestrationTests/ProviderResolverTests.swift`
+
+**完整 TDD 步骤：待第二轮展开**
+
+**关键设计点（先记录，避免后期偏离）：**
+- **`ProviderResolverProtocol` 是 protocol**（**Round 13 P1-NEW-2 修订**：协议命名加 Protocol 后缀，与 §C-10.1 audit 表 `ProviderResolverProtocol` + ExecutionEngine 代码块 `any ProviderResolverProtocol` 对齐；早期写 `ProviderResolver` 是 R11 §C-10 引入新名时未同步 Task 2）；默认实现 `DefaultProviderResolver: ProviderResolverProtocol` 接受 `() async throws -> V2Configuration` 闭包（不直接持有 V2ConfigurationStore，便于测试注入）
+- `resolve(_ selection: ProviderSelection) async throws -> V2Provider` 签名
+- `.fixed(providerId:, modelId:)` **（Round 2 B-6.1 修订：补 modelId 入参；M1 落地 `case fixed(providerId: String, modelId: String?)` SliceCore/ProviderSelection.swift:9 verified）** → 在 `current().providers` 按 providerId 找 V2Provider；找不到 throw `ProviderResolutionError.notFound(providerId: providerId)`；返回时若 selection 的 `modelId == nil`，回落 `provider.defaultModel`（V2Provider 字段，M1 已就绪）；ProviderResolver 不强制 modelId 必须在 `provider.modelIds` 列表内（v2 spec 允许用户跳出预设模型，由 PromptExecutor 调 LLM 时若 modelId 不被 provider 支持再报错）
+- `.capability(requires:)` → throw `ProviderResolutionError.notImplemented(.capabilityRouting)` (Phase 1)
+- `.cascade(rules:)` → throw `ProviderResolutionError.notImplemented(.cascadeRouting)` (Phase 5)
+- **`ProviderResolutionError` 完整定义**（**Round 12 R12-P1.3 修订**：之前仅 case 引用未给完整 enum 代码块；放在 `Orchestration/Engine/ProviderResolutionError.swift`）：
+  ```swift
+  import Foundation
+
+  /// ProviderResolver 解析 ProviderSelection 失败时抛出
+  public enum ProviderResolutionError: Error, Sendable, Equatable {
+      /// .fixed 形态找不到对应 V2Provider id（与 SliceError.configuration(.referencedProviderMissing) 语义平行；
+      /// ExecutionEngine 在 Step 4 catch 此错误后 wrap 为 SliceError.configuration(.referencedProviderMissing(id))）
+      case notFound(providerId: String)
+      /// .capability / .cascade 形态在 M2 范围未实现
+      case notImplemented(NotImplementedReason)
+
+      public enum NotImplementedReason: String, Sendable, Codable {
+          case capabilityRouting   // Phase 1 实现
+          case cascadeRouting      // Phase 5 实现
+      }
+  }
+  ```
+- `MockProvider` Helpers 提供 `MockProvider.openAIStub` / `.anthropicStub` 便于 Engine 测试注入
+
+---
+
+## Task 3: M2.1.c · ExecutionEngine actor 骨架 + execute 入口签名 + AsyncThrowingStream 框架
+
+> 仅创建 actor + init 装配 + `execute(tool:seed:)` 返回流，**不实现**实际主流程逻辑——主流程逻辑在 Task 4 写。本 Task 完成时，调用 execute 立刻 yield `.notImplemented` + 单测能跑通。
+
+**Files:**
+- Create: `SliceAIKit/Sources/Orchestration/Engine/ExecutionEngine.swift`
+- Create: `SliceAIKit/Tests/OrchestrationTests/ExecutionEngineTests.swift`（先写 init + notImplemented 测试）
+- Create: `SliceAIKit/Tests/OrchestrationTests/Helpers/MockOutputDispatcher.swift`（最小 sink）
+- Create: `SliceAIKit/Tests/OrchestrationTests/Helpers/MockAuditLog.swift`（in-memory）
+- Create: `SliceAIKit/Tests/OrchestrationTests/Helpers/MockPermissionBroker.swift`（默认全放行）
+- Create: `SliceAIKit/Tests/OrchestrationTests/Helpers/MockContextCollector.swift`
+- Create: `SliceAIKit/Tests/OrchestrationTests/Helpers/MockMCPClient.swift`（与 Capabilities Mock 共用接口，但放 OrchestrationTests/Helpers 隔离 import）
+- Create: `SliceAIKit/Tests/OrchestrationTests/Helpers/MockSkillRegistry.swift`
+
+**完整 TDD 步骤：待第二轮展开**
+
+**关键设计点：**
+- `ExecutionEngine` 是 `actor`（满足 spec §3.4 + Swift 6 strict concurrency）
+- init 接受 **10 个依赖**（**Round 12 R12-P1.2 修订**：之前 R1-P3.1 修订写"8 个"，但 R11 完整代码块 init 加了 `permissionGraph` + `promptExecutor` 共 10 个——`contextCollector` / `permissionBroker` / `permissionGraph` / `providerResolver` / `promptExecutor` / `mcpClient` / `skillRegistry` / `costAccounting` / `auditLog` / `output`，全部按 §C-10.1 audit 表的 isolation 类型；M2 阶段除 PermissionGraph / PromptExecutor / CostAccounting / ContextCollector 是 actor 外，其他都是 protocol，便于测试注入 Mock
+- `execute(tool:seed:)` 返回 `AsyncThrowingStream<ExecutionEvent, Error>`；本 Task 内部只 yield `.started` + `.notImplemented` + `.finished(stub)` 三件事，让 ExecutionEngineTests 能验证流框架
+- 主流程的 Step 2 / Step 2.5 / Step 3 / Step 4 / Step 5 在 Task 4 / 6 / 7 才接入
+
+---
+
+## Task 4: M2.1.d · ExecutionEngine 主流程 happy path（PermissionGraph + ContextCollector + PromptExecutor 接入）
+
+> 把 Task 7（PermissionGraph）+ Task 5（ContextCollector）+ Task 11（PromptExecutor）拼成 ExecutionEngine.execute 的真实主流程，覆盖 spec §3.4 Step 1–10。本 Task 是 M2 最大的 task；预计 1.5 人天的核心。
+>
+> **实施顺序约束（Round 5 R5-P1.4 修订）**：本 Task 引用 Task 5（ContextCollector）/ Task 6（PermissionBrokerProtocol）/ Task 7（PermissionGraph）/ Task 11（PromptExecutor）的类型与 protocol；Task 编号保留按 spec M2.1.d 为 Task 4，但**实际执行序列建议为 Task 1 → 2 → 3 → 5 → 6 → 7 → 8 → 9 → 10 → 11 → 4 → 12 → 13 → 14**（即 Task 4 的集成步骤排在 Task 11 之后）。Task 3（ExecutionEngine actor 骨架）在原序位（Task 3 仅 init 装配 + execute 入口签名 + AsyncThrowingStream 框架，可独立编译，依赖的 protocol 可用 Mock）；Task 4 的"主流程集成"才需要 Task 5/6/7/11 的具体类型。**实施 worker 在 Task 3 完成后跳到 Task 5 起开始；Task 4 留到第 11 位实施**。Codex evaluator 评审顺序按编号即可（评审是平面的）。
+
+**Files:**
+- Modify: `SliceAIKit/Sources/Orchestration/Engine/ExecutionEngine.swift`（替换 Task 3 的占位 yield 为真实 step 编排）
+- Modify: `SliceAIKit/Tests/OrchestrationTests/ExecutionEngineTests.swift`（追加 4 条主路径测试）
+
+**完整 TDD 步骤：待第二轮展开**
+
+**关键设计点（Round 11 根本性重写：替换 R1-R10 累积的 step-by-step 描述为完整可编译 Swift 代码块；严格按 §C-10 audit 表的 isolation + await/try 规则）：**
+
+按 §C-10 ExecutionEngine 是 actor，execute 同步返回 AsyncThrowingStream，内部 Task 调 actor-isolated 私有 `runMainFlow`；所有跨 actor 调用按 §C-10.3 调用点 audit 清单严格使用 await/try。`runMainFlow` / `finishFailure` / `finishSuccess` / `makeReport` 都是 actor-isolated，避免 R6-R11 反复出现的"Step 间变量作用域 + IUO + @Sendable + 缺 await/try"等 micro 问题。
+
+**完整可编译 ExecutionEngine 实现代码块**（实施者直接照抄；每个 await/try/actor hop 已经过 Swift 6 mental compile 验证）：
+
+```swift
+import Foundation
+import SliceCore
+import Capabilities  // Round 12 R12-P1.4 修订：MCPClientProtocol / SkillRegistryProtocol / MCPCallResult / MCPClientError 在 Capabilities module
+
+public actor ExecutionEngine {
+    private let contextCollector: ContextCollector
+    private let permissionBroker: any PermissionBrokerProtocol
+    private let permissionGraph: PermissionGraph
+    private let providerResolver: any ProviderResolverProtocol
+    private let promptExecutor: PromptExecutor
+    private let mcpClient: any MCPClientProtocol
+    private let skillRegistry: any SkillRegistryProtocol
+    private let costAccounting: CostAccounting
+    private let auditLog: any AuditLogProtocol
+    private let output: any OutputDispatcherProtocol
+
+    public init(
+        contextCollector: ContextCollector,
+        permissionBroker: any PermissionBrokerProtocol,
+        permissionGraph: PermissionGraph,
+        providerResolver: any ProviderResolverProtocol,
+        promptExecutor: PromptExecutor,
+        mcpClient: any MCPClientProtocol,
+        skillRegistry: any SkillRegistryProtocol,
+        costAccounting: CostAccounting,
+        auditLog: any AuditLogProtocol,
+        output: any OutputDispatcherProtocol
+    ) {
+        self.contextCollector = contextCollector
+        self.permissionBroker = permissionBroker
+        self.permissionGraph = permissionGraph
+        self.providerResolver = providerResolver
+        self.promptExecutor = promptExecutor
+        self.mcpClient = mcpClient
+        self.skillRegistry = skillRegistry
+        self.costAccounting = costAccounting
+        self.auditLog = auditLog
+        self.output = output
+    }
+
+    /// 入口；同步返回 stream，主流程在 actor-isolated runMainFlow 中执行
+    public func execute(
+        tool: V2Tool,
+        seed: ExecutionSeed
+    ) -> AsyncThrowingStream<ExecutionEvent, Error> {
+        AsyncThrowingStream { continuation in
+            // continuation 是 Sendable，可跨 actor 边界传递；Task closure 是 nonisolated
+            Task { [weak self] in
+                guard let self else {
+                    continuation.finish(throwing: CancellationError())
+                    return
+                }
+                await self.runMainFlow(tool: tool, seed: seed, continuation: continuation)
+            }
+        }
+    }
+
+    // MARK: - Actor-isolated 主流程
+
+    private func runMainFlow(
+        tool: V2Tool,
+        seed: ExecutionSeed,
+        continuation: AsyncThrowingStream<ExecutionEvent, Error>.Continuation
+    ) async {
+        let invocationId = UUID()
+        let startedAt = Date()
+        continuation.yield(.started(invocationId: invocationId))
+
+        // Step 2：PermissionGraph 静态闭环（D-24）
+        let effective: EffectivePermissions
+        do {
+            effective = try await permissionGraph.compute(tool: tool)
+        } catch SliceError.toolPermission(.unknownProvider(let id)) {
+            await finishFailure(
+                error: .configuration(.invalidTool(id: id, reason: "context provider not registered")),
+                invocationId: invocationId, toolId: tool.id,
+                declared: Set(tool.permissions), effective: [], flags: [],
+                startedAt: startedAt, continuation: continuation
+            )
+            return
+        } catch {
+            await finishFailure(
+                error: .configuration(.validationFailed("PermissionGraph error")),
+                invocationId: invocationId, toolId: tool.id,
+                declared: Set(tool.permissions), effective: [], flags: [],
+                startedAt: startedAt, continuation: continuation
+            )
+            return
+        }
+
+        if !effective.undeclared.isEmpty {
+            await finishFailure(
+                error: .toolPermission(.undeclared(missing: effective.undeclared)),
+                invocationId: invocationId, toolId: tool.id,
+                declared: Set(tool.permissions), effective: effective.union, flags: [],
+                startedAt: startedAt, continuation: continuation
+            )
+            return
+        }
+
+        // Step 2.5：PermissionBroker.gate（按下限 + provenance；§C-10 audit：non-throwing）
+        let gateOutcome = await permissionBroker.gate(
+            effective: effective.union,
+            provenance: tool.provenance,
+            scope: .session,
+            isDryRun: seed.isDryRun
+        )
+        switch gateOutcome {  // 必须无 default（C-3 / R6 B-3 不变量）
+        case .approved:
+            break
+        case .denied(let permission, let reason):
+            await finishFailure(
+                error: .toolPermission(.denied(permission: permission, reason: reason)),
+                invocationId: invocationId, toolId: tool.id,
+                declared: Set(tool.permissions), effective: effective.union, flags: [],
+                startedAt: startedAt, continuation: continuation
+            )
+            return
+        case .requiresUserConsent(let permission, _):
+            await finishFailure(
+                error: .toolPermission(.notGranted(permission: permission)),
+                invocationId: invocationId, toolId: tool.id,
+                declared: Set(tool.permissions), effective: effective.union, flags: [],
+                startedAt: startedAt, continuation: continuation
+            )
+            return
+        case .wouldRequireConsent(let permission, let uxHint):
+            // dry-run 合法终态；yield 提示后继续 Step 3
+            continuation.yield(.permissionWouldBeRequested(permission: permission, uxHint: uxHint))
+        }
+
+        // Step 3：ContextCollector.resolve（先 pattern match tool.kind 取 contexts）
+        let contextRequests: [ContextRequest]
+        switch tool.kind {
+        case .prompt(let p): contextRequests = p.contexts
+        case .agent(let a): contextRequests = a.contexts
+        case .pipeline(let p):
+            contextRequests = p.steps.compactMap { step -> [ContextRequest]? in
+                if case .prompt(let inline, _) = step { return inline.contexts } else { return nil }
+            }.flatMap { $0 }
+        }
+
+        let resolved: ResolvedExecutionContext
+        do {
+            resolved = try await contextCollector.resolve(seed: seed, requests: contextRequests)
+        } catch SliceError.context(.requiredFailed(let key, let underlying)) {
+            await finishFailure(
+                error: .context(.requiredFailed(key: key, underlying: underlying)),
+                invocationId: invocationId, toolId: tool.id,
+                declared: Set(tool.permissions), effective: effective.union, flags: [],
+                startedAt: startedAt, continuation: continuation
+            )
+            return
+        } catch {
+            await finishFailure(
+                error: .context(.requiredFailed(
+                    key: ContextKey(rawValue: "<unknown>"),
+                    underlying: .configuration(.validationFailed("ContextCollector error"))
+                )),
+                invocationId: invocationId, toolId: tool.id,
+                declared: Set(tool.permissions), effective: effective.union, flags: [],
+                startedAt: startedAt, continuation: continuation
+            )
+            return
+        }
+
+        // Step 4：ProviderResolver.resolve
+        let providerSelection: ProviderSelection
+        switch tool.kind {
+        case .prompt(let p): providerSelection = p.provider
+        case .agent(let a): providerSelection = a.provider
+        case .pipeline:
+            providerSelection = .fixed(providerId: "<pipeline-default>", modelId: nil)
+        }
+
+        let provider: V2Provider
+        do {
+            provider = try await providerResolver.resolve(providerSelection)
+        } catch ProviderResolutionError.notFound(let providerId) {  // R13 R12 漏修：用命名参数 providerId 与 enum 定义对齐
+            await finishFailure(
+                error: .configuration(.referencedProviderMissing(id)),
+                invocationId: invocationId, toolId: tool.id,
+                declared: Set(tool.permissions), effective: effective.union, flags: [],
+                startedAt: startedAt, continuation: continuation
+            )
+            return
+        } catch {
+            await finishFailure(
+                error: .configuration(.validationFailed("ProviderResolver error")),
+                invocationId: invocationId, toolId: tool.id,
+                declared: Set(tool.permissions), effective: effective.union, flags: [],
+                startedAt: startedAt, continuation: continuation
+            )
+            return
+        }
+
+        // Step 5：dispatch by tool.kind（M2 仅展开 .prompt）
+        let promptTool: PromptTool
+        switch tool.kind {
+        case .prompt(let p):
+            promptTool = p
+        case .agent, .pipeline:
+            continuation.yield(.notImplemented(reason: "ToolKind not supported in M2 (Phase 1+ for .agent / Phase 5+ for .pipeline)"))
+            let stub = makeReport(
+                invocationId: invocationId, toolId: tool.id,
+                declared: Set(tool.permissions), effective: effective.union,
+                flags: [],
+                startedAt: startedAt, finishedAt: Date(),
+                tokens: 0, costUSD: 0,
+                outcome: .success
+            )
+            await finishSuccess(report: stub, continuation: continuation)
+            return
+        }
+
+        // Step 6：PromptExecutor.run + LLM stream + OutputDispatcher
+        var notImplementedYielded = false
+        var promptUsage: UsageStats = .zero
+        // §C-10 audit：跨 actor 取 stream 必须 await（PromptExecutor 是 actor，run 非 nonisolated）
+        let stream = await promptExecutor.run(
+            promptTool: promptTool,
+            resolved: resolved,
+            provider: provider
+        )
+        do {
+            for try await element in stream {
+                switch element {
+                case .chunk(let chunk):
+                    continuation.yield(.llmChunk(delta: chunk))
+                    // §C-10 audit：output.handle 是 protocol async throws，必须 try await
+                    let dispatchOutcome = try await output.handle(
+                        chunk: chunk,
+                        mode: tool.displayMode,
+                        invocationId: invocationId
+                    )
+                    if case .notImplemented(let reason) = dispatchOutcome, !notImplementedYielded {
+                        continuation.yield(.notImplemented(reason: reason))
+                        notImplementedYielded = true
+                    }
+                case .completed(let stats):
+                    promptUsage = stats  // local var 在 actor-isolated runMainFlow 内，无 @Sendable 闭包跨边界问题
+                }
+            }
+        } catch let error as SliceError {
+            await finishFailure(
+                error: error,
+                invocationId: invocationId, toolId: tool.id,
+                declared: Set(tool.permissions), effective: effective.union, flags: [],
+                startedAt: startedAt, continuation: continuation
+            )
+            return
+        } catch {
+            await finishFailure(
+                error: .provider(.invalidResponse("PromptExecutor stream failed (non-SliceError)")),
+                invocationId: invocationId, toolId: tool.id,
+                declared: Set(tool.permissions), effective: effective.union, flags: [],
+                startedAt: startedAt, continuation: continuation
+            )
+            return
+        }
+
+        // Step 7：sideEffects（dry-run 跳过实际执行；每个 sideEffect 前再 gate）
+        var partialFailure = false
+        for sideEffect in tool.outputBinding?.sideEffects ?? [] {
+            let g = await permissionBroker.gate(
+                effective: Set(sideEffect.inferredPermissions),
+                provenance: tool.provenance,
+                scope: .session,
+                isDryRun: seed.isDryRun
+            )
+            switch g {
+            case .approved:
+                if seed.isDryRun {
+                    continuation.yield(.sideEffectSkippedDryRun(sideEffect))
+                } else {
+                    // Phase 1 才填具体 dispatcher 调用；M2 仅 yield 事件 + audit
+                    continuation.yield(.sideEffectTriggered(sideEffect))
+                    try? await auditLog.append(
+                        .sideEffectTriggered(invocationId: invocationId, sideEffect: sideEffect, executedAt: Date())
+                    )
+                }
+            case .denied:
+                partialFailure = true
+            case .requiresUserConsent:
+                partialFailure = true
+            case .wouldRequireConsent:
+                continuation.yield(.sideEffectSkippedDryRun(sideEffect))
+            }
+        }
+
+        // Step 8：CostAccounting.record（M2 估算 / Phase 1 真实）
+        let costUSD = estimateCostUSD(usage: promptUsage)
+        try? await costAccounting.record(CostRecord(
+            invocationId: invocationId,
+            toolId: tool.id,
+            providerId: provider.id,
+            model: provider.defaultModel,
+            inputTokens: promptUsage.inputTokens,
+            outputTokens: promptUsage.outputTokens,
+            usd: costUSD,
+            recordedAt: Date()
+        ))
+
+        // Step 9：finishSuccess
+        var flags: Set<InvocationFlag> = []
+        if seed.isDryRun { flags.insert(.dryRun) }
+        if partialFailure { flags.insert(.partialFailure) }
+        let report = makeReport(
+            invocationId: invocationId, toolId: tool.id,
+            declared: Set(tool.permissions), effective: effective.union,
+            flags: flags,
+            startedAt: startedAt, finishedAt: Date(),
+            tokens: promptUsage.inputTokens + promptUsage.outputTokens,
+            costUSD: costUSD,
+            outcome: seed.isDryRun ? .dryRunCompleted : .success
+        )
+        await finishSuccess(report: report, continuation: continuation)
+    }
+
+    // MARK: - Actor-isolated helpers
+
+    private func makeReport(
+        invocationId: UUID, toolId: String,
+        declared: Set<Permission>, effective: Set<Permission>,
+        flags: Set<InvocationFlag>,
+        startedAt: Date, finishedAt: Date,
+        tokens: Int, costUSD: Decimal,
+        outcome: InvocationOutcome
+    ) -> InvocationReport {
+        InvocationReport(
+            invocationId: invocationId,
+            toolId: toolId,
+            declaredPermissions: declared,
+            effectivePermissions: effective,
+            flags: flags,
+            startedAt: startedAt, finishedAt: finishedAt,
+            totalTokens: tokens,
+            estimatedCostUSD: costUSD,
+            outcome: outcome
+        )
+    }
+
+    private func finishFailure(
+        error: SliceError, invocationId: UUID, toolId: String,
+        declared: Set<Permission>, effective: Set<Permission>, flags: Set<InvocationFlag>,
+        startedAt: Date,
+        continuation: AsyncThrowingStream<ExecutionEvent, Error>.Continuation
+    ) async {
+        let report = makeReport(
+            invocationId: invocationId, toolId: toolId,
+            declared: declared, effective: effective,
+            flags: flags,
+            startedAt: startedAt, finishedAt: Date(),
+            tokens: 0, costUSD: 0,
+            outcome: .failed(errorKind: InvocationOutcome.ErrorKind.from(error))
+        )
+        try? await auditLog.append(.invocationCompleted(report))
+        continuation.yield(.failed(error))
+        continuation.finish()
+    }
+
+    private func finishSuccess(
+        report: InvocationReport,
+        continuation: AsyncThrowingStream<ExecutionEvent, Error>.Continuation
+    ) async {
+        try? await auditLog.append(.invocationCompleted(report))
+        continuation.yield(.finished(report: report))
+        continuation.finish()
+    }
+
+    /// M2 token-cost 估算 helper（nonisolated 因为不访问 actor state）；Phase 1 切真实 usage 后改为按 provider rate 精算
+    private nonisolated func estimateCostUSD(usage: UsageStats) -> Decimal {
+        // M2 placeholder：极小估算占位让 record 不为 0；Phase 3 Cost Panel 按 provider rate 表精算
+        let totalTokens = Decimal(usage.inputTokens + usage.outputTokens)
+        return totalTokens * Decimal(string: "0.000001")!
+    }
+}
+```
+
+**关键设计要点（继承 R1-R10 全部决议）**：
+
+- **统一审计**（R1 P1-2）：所有路径都通过 `finishFailure` / `finishSuccess` 写 `AuditEntry.invocationCompleted(InvocationReport)` 进 AuditLog（spec §3.9.7 不可绕过）
+- **D-24 静态闭环**：Step 2 `permissionGraph.compute` 必须在 Step 3 `contextCollector.resolve` 之前执行（访问永远不能早于校验）
+- **D-22 / D-25 能力下限**：PermissionBroker.gate 的 lowerBound 仅依赖 tier，与 provenance 无关；详见 Task 6
+- **dry-run 不豁免下限**（R5 P1-1）：Step 2.5 / Step 7 都正常 gate；只在 Step 7 跳过实际执行 + yield `.sideEffectSkippedDryRun`
+- **PromptStreamElement enum**（R10 P1-2）：替代 R9 引入的 @Sendable callback；避免 Swift 6 strict concurrency 闭包捕获 var 编译错
+- **OutputDispatcher .notImplemented 一次性 yield**（R6 B-4）：`notImplementedYielded` 守卫是 runMainFlow 函数内 local var；非 .window 模式 5 chunks 仍调 5 次 output.handle，但只 yield 1 条 .notImplemented ExecutionEvent
+- **未读 effective.union 当 effective ⊄ declared 时**：Step 2 检测到 undeclared 非空时立即 finishFailure（用 effective.undeclared，不是 effective.union），与 spec §3.9.6.5 闭环一致
+
+**测试矩阵覆盖 7 条 prompt-kind 路径**（沿用 R3-R7 累积；全部断言 `mockAuditLog.entries.count == 1` 且 entry case == `.invocationCompleted(_)`）：
+
+1. **happy**: 全 mock 放行 → 流式 yield delta → finished(report)；audit outcome `.success`
+2. **context-fail**: required ContextRequest 失败 → audit outcome `.failed(.context)` → yield `.failed(SliceError.context(.requiredFailed))`
+3. **permission-deny**: PermissionBroker.gate 返回 `.denied` → audit outcome `.failed(.toolPermission)` → yield `.failed(SliceError.toolPermission(.denied(permission:reason:)))`
+4. **permission-undeclared**: PermissionGraph 检测 effective ⊄ declared → audit outcome `.failed(.toolPermission)` → yield `.failed(SliceError.toolPermission(.undeclared))`
+5. **dry-run**: seed.isDryRun=true → Step 2.5 若 `.wouldRequireConsent` yield `.permissionWouldBeRequested`；Step 7 副作用全 yield `.sideEffectSkippedDryRun`；audit outcome `.dryRunCompleted` + flags `.dryRun`；**断言 stream 中不包含 `.sideEffectTriggered`**
+6. **non-dry-run + .requiresUserConsent 对照**: seed.isDryRun=false + Mock 返回 `.requiresUserConsent` → finishFailure(.toolPermission(.notGranted)) → audit outcome `.failed(.toolPermission)` → yield `.failed`
+7. **partial-failure**: 构造 tool 含 2 个 sideEffects；Mock 让第 1 个 `.approved` 第 2 个 `.denied` → finishSuccess + flags `.partialFailure`；audit outcome `.success` flags 含 `.partialFailure`
+
+**OrchestrationTests/Helpers Mock 套件**：MockContextCollector / MockPermissionBroker / MockPermissionGraph / MockProviderResolver / MockPromptExecutor / MockOutputDispatcher / MockAuditLog / MockCostAccounting / MockMCPClient / MockSkillRegistry —— 与 §C-10.1 audit 表 1:1 对应；每个 Mock 必须 `Sendable`（actor / Sendable struct / Sendable class），用 actor 计数器（如 `MockOutputDispatcher.handleCallCount`）支持调用次数验证。
+
+---
+
+## Task 5: M2.2 · ContextCollector 平铺并发实现
+
+> 实现 spec §3.3.3 + §3.4 Step 3 的 ContextCollector：用 `withTaskGroup` 平铺并发拉取所有 ContextRequest，必填失败立刻 throw、可选失败进 failures 列表。**严禁 DAG**（D-17）。
+
+**Files:**
+- Create: `SliceAIKit/Sources/Orchestration/Context/ContextCollector.swift`（**含 ContextProviderRegistry 简单封装**——见关键设计点；Round 4 R4-P2.a 修订）
+- ~~Create: `SliceAIKit/Sources/Orchestration/Context/ContextCollectorError.swift`~~（**Round 4 删除**：用 SliceCore 新增的 `ContextError`（在 SliceCore/ContextError.swift），不再独立 Orchestration error 类型）
+- Create: `SliceAIKit/Tests/OrchestrationTests/Helpers/MockContextProvider.swift`
+- Create: `SliceAIKit/Tests/OrchestrationTests/ContextCollectorTests.swift`
+
+**完整 TDD 步骤：待第二轮展开**
+
+**关键设计点：**
+- **`ContextProviderRegistry` 是 M2 在 ContextCollector.swift 同文件新建的简单封装**（**Round 4 R4-P2.a + Round 5 R5-P1.3 修订**——M1 SliceCore 仅有 `ContextProvider` protocol，没有 Registry）：`public struct ContextProviderRegistry: Sendable { let providers: [String: any ContextProvider] }`（**Round 5 R5-P1.3**：存**实例**而非 metatype `.Type`——因为 ContextCollector 需要调实例方法 `provider.resolve(...)`，metatype 不能调实例方法；PermissionGraph 需要静态方法 inferredPermissions 时通过 `type(of: registry.providers[id]!).inferredPermissions(for: args)` 间接拿到 metatype）；ContextCollector 与 PermissionGraph 共享同一 registry 实例（AppContainer 在 M3 装配时注入；M2 测试期 OrchestrationTests/Helpers 注入 MockProviderRegistry）
+- `ContextCollector(registry: ContextProviderRegistry)` 按 `ContextRequest.provider` 字符串路由（**Round 3 P1**：M1 `SliceCore/Context.swift:11` 字段名是 `provider: String`，**不是** `providerId`）
+- `resolve(seed: ExecutionSeed, requests: [ContextRequest]) async throws -> ResolvedExecutionContext`
+- 每个 request 有独立的 `timeout: Duration`（默认 5s，由 request 自己声明）
+- 必填 `Requiredness.required` 失败 → throw `SliceError.context(.requiredFailed(key: ContextKey, underlying: SliceError))`（**Round 4 R4-P1.a 修订**：从 `ContextCollectorError.requiredFailed` 改为 `SliceError.context(ContextError.requiredFailed)`——SliceCore 新增的 ContextError 是 SliceError.context 的关联值；**Round 2 B-6.2 修订保留**：参数类型 `ContextKey` / `SliceError` 与 M1 `ResolvedExecutionContext.failures` 类型完全对齐——SliceCore/ResolvedExecutionContext.swift:24 verified）
+- 可选 `Requiredness.optional` 失败 → 进 `ResolvedExecutionContext.failures: [ContextKey: SliceError]`，主流程继续
+- registry 找不到 provider id → throw `SliceError.context(.providerNotFound(id: request.provider))`（**Round 4 新增**）
+- request 超时 → throw `SliceError.context(.timeout(key: request.key))`（**Round 4 新增**）
+- 非 SliceError 的底层错误（URLError / IO / Foundation 错误）由 ContextCollector 在 catch 里包装为 `SliceError.context(.requiredFailed(key:, underlying: SliceError.<wrapper>))` 后再 throw / 写入 failures（保持类型边界干净，调用方无需判别 underlying error 类型）
+- 测试矩阵：5 个 mock provider 并发跑、其中 1 个 required 失败 vs 1 个 optional 失败、timeout 触发；optional 失败用例显式断言 `failures[key]` 是 `SliceError.context(...)` case；registry 缺 provider 用例 throw `SliceError.context(.providerNotFound)`
+- ContextProvider 默认实现已在 SliceCore (M1)；此处只编 Collector + Registry
+
+---
+
+## Task 6: M2.3 · PermissionBroker 接口 + 默认实现 + §3.9.2 下限硬编码
+
+> 实现 spec §3.9.2 的能力下限矩阵 + §3.9.1 Provenance UX hint 合并；M2 默认实现走 in-memory grant store，gate 默认按下限要求确认（测试用 MockPermissionBroker 全放行）。
+
+**Files:**
+- Create: `SliceAIKit/Sources/Orchestration/Permissions/PermissionBrokerProtocol.swift`
+- Create: `SliceAIKit/Sources/Orchestration/Permissions/PermissionBroker.swift`
+- Create: `SliceAIKit/Sources/Orchestration/Permissions/PermissionGrantStore.swift`
+- ~~Create: `SliceAIKit/Sources/Orchestration/Permissions/PermissionDecisionError.swift`~~（**Round 4 删除**：用 SliceCore 新增的 `ToolPermissionError`；PermissionBroker 不再需要独立的 error 类型——`GateOutcome` 已经 4 态表达决策结果，PermissionBroker 内部不 throw 自己的 error）
+- Create: `SliceAIKit/Tests/OrchestrationTests/PermissionBrokerTests.swift`
+
+**完整 TDD 步骤：待第二轮展开**
+
+**关键设计点（Round 1 P1-1 + P2-1 修订）：**
+
+- `PermissionBrokerProtocol.gate(effective: Set<Permission>, provenance: Provenance, scope: GrantScope, isDryRun: Bool) async -> GateOutcome` （**Round 12 R12-P1.4 修订**：non-throwing，与 §C-10.1 audit 表一致；用 GateOutcome 4 态表达决策结果而非抛错；调用方只 `await`，不需 `try`）
+- `GateOutcome` 现为 **4 态**（**Round 5 R5-P1.5 修订**：`.denied` / `.requiresUserConsent` / `.wouldRequireConsent` 三态都补上 `permission: Permission` 关联值——之前消费端用 `.denied(let permission, let reason)` / `.wouldRequireConsent(let permission, let uxHint)` 但定义端缺 permission 参数，签名不一致）：
+  - `.approved`：通过（已有 grant 或 tier 不需要确认）
+  - `.denied(permission: Permission, reason: String)`：拒绝某具体 permission（**R5-P1.5 补 permission 参数**）；用户曾经显式拒绝过 / 黑名单等
+  - `.requiresUserConsent(permission: Permission, uxHint: ConsentUXHint)`：需要弹 UI 确认某具体 permission（**R5-P1.5 补 permission**；M2 测试中 MockPermissionBroker 不会返回此态；生产路径 M3 才接 UI）
+  - `.wouldRequireConsent(permission: Permission, uxHint: ConsentUXHint)` **（Round 1 P1-1 新增 + R5-P1.5 补 permission）**：dry-run 路径下，本应弹确认的 permission——给 Playground UI 显示"如果实际执行需要 X 权限"用，**不静默 .approved**；caller 应识别此态后跳过实际副作用执行但继续主流程
+- **`ConsentUXHint` 类型定义**（**Round 7 R7-P1.2 修订**：plan 多处引用但未定义；与 `ExecutionEvent.permissionWouldBeRequested(uxHint: String)` 对齐）：在 `PermissionBrokerProtocol.swift` 顶部加 `public typealias ConsentUXHint = String`——KISS 方案，避免新建 struct；ExecutionEvent 透传时类型一致（typealias 等价 String）
+- 下限决策：把 Permission 映射到 5 个 tier（readonly-local / readonly-network / local-write / network-write / exec），每个 tier 对应 lowerBound policy；**lowerBound 仅依赖 tier，与 provenance 完全无关**（spec §3.9.2 关键性质，D-22）
+- **dry-run 不豁免下限（Round 1 P1-1 修订）**：spec §3.9.2 明确"下限只依赖 tier"，dry-run 仅由 ExecutionEngine Step 7 跳过副作用**实际执行**（P1-2 Step 7 修订对齐），broker 入口必须正常计算 gate：
+  - 对 readonly-local / readonly-network / local-write 的 permission（context resolution / LLM 路径所需）：**仍走完整 gate 流程**，dry-run 不允许跳
+  - 对 network-write / exec 的 permission（仅来自 sideEffect，dry-run 跳过执行）：返回 `.wouldRequireConsent(uxHint:)` 让 Playground 提示，**严禁返回 .approved 静默放行**
+- **§3.9.2 全表测试矩阵 5 tier × 4 provenance = 20 cell 全覆盖（不抽样）（Round 1 P2-1 修订）**——测试代码最低断言数下限：
+  - **D-22 子集**：所有 4 provenance 对 network-write / exec **每次**都返回 `.requiresUserConsent` 或 `.wouldRequireConsent`（共 8 cell），firstParty 也不例外
+  - **D-25 子集**：firstParty 对 readonly-network / local-write **首次**也返回 `.requiresUserConsent`（共 2 cell）—— 不允许跳过首次确认
+  - **readonly-local 子集**：所有 4 provenance 默认 `.approved`（无 grant 也通过）（共 4 cell）
+  - **其余 6 cell**：non-firstParty provenance × non-readonly-local tier 的组合按 spec §3.9.1 表显式断言 UX hint 文案差异
+- `PermissionGrantStore` 是 actor；M2 仅 in-memory 实现，session-scoped grant 持久化到 Phase 1 才做
+
+---
+
+## Task 7: M2.3a · EffectivePermissions + PermissionGraph.compute（D-24 静态闭环）
+
+> 实现 spec §3.9.6.5 的 PermissionGraph：聚合 tool.contexts / outputBinding.sideEffects / kind.agent.mcpAllowlist / kind.agent.builtinCapabilities 的 inferredPermissions，与 tool.permissions 做 ⊆ 校验。
+
+**Files:**
+- Create: `SliceAIKit/Sources/Orchestration/Permissions/EffectivePermissions.swift`
+- Create: `SliceAIKit/Sources/Orchestration/Permissions/PermissionGraph.swift`
+- ~~Modify: `SliceAIKit/Sources/Orchestration/Permissions/PermissionDecisionError.swift`~~（**Round 4 删除**：取代方案见 Files 段顶部 `Create SliceCore/ToolPermissionError.swift`——PermissionGraph 直接 throw `SliceError.toolPermission(.unknownProvider(id:))`，不再需要 Orchestration 内独立 error 类型）
+- Create: `SliceAIKit/Tests/OrchestrationTests/PermissionGraphTests.swift`
+
+**完整 TDD 步骤：待第二轮展开**
+
+**关键设计点（Round 1 P2-2 修订：注入 ContextProviderRegistry + 补 pipeline 测试 + unknownProvider 错误）：**
+
+- 完全照抄 spec §3.9.6.5 的 `EffectivePermissions` struct（fromContexts / fromSideEffects / fromMCP / fromBuiltins / declared / union / undeclared computed）+ **Round 8 B-1 修订**：加 `public static let empty = EffectivePermissions(declared: [], fromContexts: [], fromSideEffects: [], fromMCP: [], fromBuiltins: [])` 静态字段——Task 4 顶部 `var effective: EffectivePermissions = .empty` 默认值用此 sentinel；R7 var 提升时引用了 `.empty` 但漏在 Task 7 加定义，本轮闭合
+- `PermissionGraph(providerRegistry: ContextProviderRegistry)` 构造期注入注册表 **（Round 1 P2-2 新增 + Round 4 R4-P2.a + Round 5 R5-P1.3 修订）**——`ContextProviderRegistry` 是 M2 新建的 `[String: any ContextProvider]` 实例封装（见 Task 5；**Round 5 R5-P1.3**：存实例不存 metatype，PermissionGraph 通过 `type(of: registry.providers[id]!).inferredPermissions(for: args)` 间接拿到静态方法）；**严禁** PermissionGraph 内部硬编码 provider 名字字符串
+- `compute(tool: V2Tool) async throws -> EffectivePermissions`（actor 上的 async 方法但**不做 I/O**）：
+  - 对每个 `ContextRequest` 通过 registry 按 `request.provider` 字符串查 provider type（Round 3 P1：M1 字段名 `provider`，SliceCore/Context.swift:11 verified；**Round 4 R4-P2.a**：registry 是 ContextProviderRegistry —— Task 5 在 ContextCollector.swift 同文件新建，与 ContextCollector 共享）；找不到 → `throw SliceError.toolPermission(.unknownProvider(id: request.provider))`（**Round 4 R4-P1.a 修订**：用 SliceCore 新增的 `SliceError.toolPermission(ToolPermissionError)` 顶层 case；ToolPermissionError 完整 enum 定义见 Files 段顶部 `Create SliceCore/ToolPermissionError.swift`——取代 Round 3 的 PermissionDecisionError 概念）
+  - 找到 → 调静态方法 `providerType.inferredPermissions(for: request.args)` 取 permissions 进 `fromContexts`
+  - 对每个 `SideEffect` 调 `.inferredPermissions` 进 `fromSideEffects`
+  - 对 `tool.kind.agent.mcpAllowlist` 展开为 `[.mcp(server:tools:)]` 进 `fromMCP`
+  - 对 `tool.kind.agent.builtinCapabilities` 映射为 `.shellExec(commands:)` 等进 `fromBuiltins`
+  - 对 `tool.kind.pipeline.steps` 递归聚合每个 step（**Round 1 P2-2 新增**：pipeline step 含 inline `.mcp` / inline prompt with contexts 时同样累积到对应 from* set）
+- 测试矩阵（**Round 1 P2-2 修订**：补 pipeline 与 unknownProvider）：
+  - prompt 工具 + contexts 含 `file.read` 但 tool.permissions 缺 `.fileRead` → undeclared 非空
+  - prompt 工具 + sideEffects 含 `appendToFile` 但 tool.permissions 缺 `.fileWrite` → undeclared 非空
+  - agent 工具 + mcpAllowlist 含 `["fs.read"]` 但 tool.permissions 缺 `.mcp(server:"fs", tools:["fs.read"])` → undeclared 非空
+  - agent 工具 + builtinCapabilities 含 `.shellExec(["git status"])` 但 tool.permissions 缺 `.shellExec(commands:)` → undeclared 非空
+  - **pipeline 工具 + step 含 inline `.callMCP(ref:)` sideEffect 但 tool.permissions 缺 `.mcp(...)` → undeclared 非空**（P2-2 新增）
+  - **pipeline 工具 + step 含 inline prompt with contexts 引用 `file.read` 但 tool.permissions 缺 `.fileRead` → undeclared 非空**（P2-2 新增）
+  - **registry 缺 provider id**（tool.contexts 引用 "nonexistent.foo"，registry 没注册）→ throw `SliceError.toolPermission(.unknownProvider(id: "nonexistent.foo"))`（P2-2 新增；**Round 4 R4-P1.a 修订**：错误类型从 `PermissionDecisionError.unknownProvider` 改为 `SliceError.toolPermission(.unknownProvider)`——SliceCore zero-touch 边界放宽后用 SliceError 命名空间封装更 clean）
+  - 全部声明覆盖（prompt / agent / pipeline 各跑一次） → undeclared 空
+  - empty tool（无 contexts / sideEffects / mcp / builtin） → effective.union 空集
+- ExecutionEngine 在 Step 2 调 `try await permissionGraph.compute(tool: tool)` **（Round 2 B-5：`try await` 不可缺，否则 async throws 编译错误）**；如 `effective.undeclared` 非空 → 走 `finishFailure(.toolPermission(.undeclared(missing: ...)))`（**Round 4 R4-P1.a**：用 SliceError.toolPermission 而非 SliceError.permission），**不进 Step 3**；如 throw `SliceError.toolPermission(.unknownProvider(let id))` → 走 `finishFailure(.configuration(.invalidTool(id: id, reason: "context provider not registered")))`（**Round 5 修订**：caller 用 Swift catch pattern `catch SliceError.toolPermission(.unknownProvider(let id)) { ... }` 直接匹配 case 关联值；`let` 仅放在 case 关联值上，不要在 enum 路径前加多余的 `let`；**严禁** `catch let e as ... where case ... = e`，Swift 不支持 `where + case` 联用）
+
+---
+
+## Task 8: M2.4 · CostAccounting actor + sqlite append + 查询
+
+> 落地 spec §4.4.2 / §4.5.2 隐含的"每次 invocation 写一条 cost record"机制；用 sqlite3 C API（Swift 标准做法）做 append。M2 仅 schema + 写入 + 简单按 toolId 查询；可视化 / Cost Panel 是 Phase 3。
+
+**Files:**
+- Create: `SliceAIKit/Sources/Orchestration/Telemetry/CostAccounting.swift`
+- Create: `SliceAIKit/Sources/Orchestration/Telemetry/CostRecord.swift`
+- Create: `SliceAIKit/Tests/OrchestrationTests/CostAccountingTests.swift`
+
+**完整 TDD 步骤：待第二轮展开**
+
+**关键设计点（Round 4 R4-P2.d 修订：CostRecord 完整 struct 定义 + usage 来源澄清）：**
+
+- `CostAccounting` 是 `actor`；构造时接受 `dbURL: URL`（测试用 `URL(fileURLWithPath: "/tmp/sliceai-cost-test-\(UUID()).db")`）
+- 启动时建 schema（**Round 5 R5-P3.1 修订**：`usd` 列从 `REAL` 改为 `TEXT` 存 decimal string；REAL 是 IEEE 754 浮点对金额有精度损失，TEXT 配合 Foundation `Decimal(string:)` 解码可保留精度）：`CREATE TABLE IF NOT EXISTS cost_records (invocation_id TEXT PRIMARY KEY, tool_id TEXT, provider_id TEXT, model TEXT, input_tokens INTEGER, output_tokens INTEGER, usd TEXT NOT NULL, recorded_at INTEGER)`；写入时 `record.usd.description` 转 string，读取时 `Decimal(string: stringValue)` 恢复
+- **`CostRecord` 完整 struct 定义**（**Round 4 R4-P2.d 修订**——之前只引用未定义）：
+  ```swift
+  public struct CostRecord: Sendable, Equatable, Codable {
+      public let invocationId: UUID
+      public let toolId: String
+      public let providerId: String
+      public let model: String
+      public let inputTokens: Int      // 见下方 usage 来源
+      public let outputTokens: Int
+      public let usd: Decimal          // 估算成本 = inputTokens × providerRate.input + outputTokens × providerRate.output
+      public let recordedAt: Date
+  }
+  ```
+- **usage 来源**（**Round 4 R4-P2.d + Round 9 B-NEW-4 修订**：M1 `ChatChunk` 只含 `delta / finishReason`，没有 usage 字段——M2 阶段如何拿到 token 数？）：
+  - **M2 范围**：PromptExecutor 在 LLM stream 结束后**估算** tokens——按 chunk 累计 char count `/ 4` 粗估（OpenAI 经验值约 3-4 chars/token，中文偏低但 4 是保守值）；估算结果通过 `PromptExecutor.run(...) -> AsyncThrowingStream<PromptStreamElement, Error>` 流式 `.completed(UsageStats)` 元素（**R10-P1-2 修订**：枚举 stream 模式；§C-10 audit）传给 ExecutionEngine Step 8
+  - **Phase 1 改造**：`LLMProvider` protocol 加 usage 字段（OpenAI / Anthropic API 流式响应 last chunk 都含 usage `{prompt_tokens, completion_tokens}`）；CostAccounting.record 切换为精确值；PromptExecutor 内部从估算改为透传 LLM 真实 usage 到 PromptStreamElement.completed
+  - M2 测试用 MockLLMProvider 直接注入估算的 tokens（不走 char count 估算逻辑）；测试 ExecutionEngine 与 PromptExecutor 集成时**验证 stream 中存在 `.completed(let stats)` 元素且 stats.inputTokens / stats.outputTokens > 0**（R11 修订：从"验证 onCompletion 被调用一次"改为"验证 .completed 元素被发出"，与 R10 删除 onCompletion API 对齐）
+- API：`record(_ record: CostRecord) async throws` / `findByToolId(_ toolId: String) async throws -> [CostRecord]` / `totalUSD(since: Date) async throws -> Decimal`
+- 测试用临时 db 文件，每个 test 用 `tearDown` 删除
+- M2 范围内 sqlite 错误统一抛 `SliceError.configuration(.validationFailed(...))`（M2 不为 sqlite 单独建 error case；M3 / Phase 1 再细化）
+
+---
+
+## Task 9: M2.5 · AuditLogProtocol + JSONLAuditLog actor + 脱敏 + logCleared 事件
+
+> 落地 spec §3.9.5 + §3.9.7 的审计要求：append-only jsonl + 自动脱敏 + 清空动作本身写一条 logCleared 事件。
+
+**Files:**
+- Create: `SliceAIKit/Sources/Orchestration/Telemetry/AuditLogProtocol.swift`
+- Create: `SliceAIKit/Sources/Orchestration/Telemetry/JSONLAuditLog.swift`
+- Create: `SliceAIKit/Sources/Orchestration/Internal/Redaction.swift`
+- Create: `SliceAIKit/Tests/OrchestrationTests/JSONLAuditLogTests.swift`
+
+**完整 TDD 步骤：待第二轮展开**
+
+**关键设计点（Round 2 B-6.3 修订：AuditEntry 改为 enum 与 Task 4 接口对齐）：**
+
+- `AuditLogProtocol`：`append(_ entry: AuditEntry) async throws` / `clear() async throws`（清空写 `.logCleared(at:)` 作为新文件第一条）/ `read(limit: Int) async throws -> [AuditEntry]`
+- **`AuditEntry` 是 enum（Round 2 B-6.3 修订）**，三 case 与 Task 4 调用对齐：
+  - `case invocationCompleted(InvocationReport)` —— 成功 / 失败 / dry-run 完成都用此 case；区分由 `report.outcome`（`.success` / `.failed(errorKind:)` / `.dryRunCompleted`）；Task 4 finishFailure / finishSuccess 都通过此 case 写入；这是绝大多数 audit 写入的 case
+  - `case sideEffectTriggered(invocationId: UUID, sideEffect: SideEffect, executedAt: Date)` —— 每个**实际执行**的副作用单独 1 条 entry（dry-run 时 ExecutionEngine yield `ExecutionEvent.sideEffectSkippedDryRun` 但**不**写 audit；Round 2 B-2 修订对齐）
+  - `case logCleared(at: Date)` —— `clear()` 调用时新文件第一条
+- `AuditEntry: Codable` 用单键 discriminator 模板（与 SliceCore 的 ToolKind / Permission 等同款手写 Codable，避免 `_0` 泄漏；模板参考 M1 plan §"Canonical JSON Schema"）
+- `Redaction.scrub(_ s: String) -> String`：API key / token / cookie / authorization 等正则匹配 → `<redacted>`；超过 200 字符截断
+- **scrub 在 `append(_:)` 入口统一调用**（C-8 + Round 2 B-6.3）：先按 entry case 模式匹配遍历所有 String payload（如 InvocationReport.toolId / SideEffect 关联值里的 String 字段）做 scrub；不依赖生产者主动调用——避免遗漏
+- selection 原文**永不**入 jsonl：InvocationReport struct 不带 selectionText 字段（schema 层就不允许）；只通过 `ExecutionSeed.selection` 在内存里持有，audit 层接触不到
+- 测试矩阵：
+  - 1000 条 `.invocationCompleted` 顺序 append + read（FIFO 验证：read 顺序 == append 顺序）
+  - **AuditEntry 三 case 全 round-trip（Round 2 B-6.3 新增）**：构造 `.invocationCompleted(.stub(outcome: .success))` / `.invocationCompleted(.stub(outcome: .failed(errorKind: .permission)))` / `.invocationCompleted(.stub(outcome: .dryRunCompleted))` / `.sideEffectTriggered(invocationId: UUID(), sideEffect: .copyToClipboard, executedAt: Date())` / `.logCleared(at: Date())`，全部 encode → write → read → decode 等价（含 ISO8601 Date 编解码）
+  - 触发 `Redaction.scrub`：构造 entry 含 `toolId = "tool-Bearer-sk-1234567890abcdef"` 类似的 mock API key string → 落盘文件 `XCTAssertFalse(fileContent.contains("sk-1234567890abcdef"))`
+  - `clear()` 清空文件后第一条是 `.logCleared(at:)` 事件
+  - **schema 防泄漏 sanity check**：构造 `InvocationReport.stub(toolId: "test")` 后 append → 通过 `Mirror(reflecting: report).children` 反射断言无 `selectionText` / `selection_text` / `original_text` 等字段名，作为 schema 层防回归
+
+---
+
+## Task 10: M2.6 · OutputDispatcherProtocol + 默认实现（仅 .window 分支）
+
+> 落地 spec §3.3.6 + §3.4 Step 6/7 的 OutputDispatcher：**根据 `V2Tool.displayMode` 派发**到对应 sink（**Round 1 P2-3 修订**——M1 plan R-B / commit `d141c05` 已锁定 `displayMode` 是 primary truth、`outputBinding.primary` 仅作 V2Tool decoder/validate 的一致性校验冗余字段；ExecutionEngine 与 OutputDispatcher **都不读 outputBinding.primary**）。M2 只实现 `.window` 分支（落到 in-memory MockWindowSink），其余 5 个 PresentationMode 直接返回 `.notImplemented`。
+
+**Files:**
+- Create: `SliceAIKit/Sources/Orchestration/Output/OutputDispatcherProtocol.swift`
+- Create: `SliceAIKit/Sources/Orchestration/Output/OutputDispatcher.swift`
+- Create: `SliceAIKit/Tests/OrchestrationTests/OutputDispatcherTests.swift`
+
+**完整 TDD 步骤：待第二轮展开**
+
+**关键设计点（Round 1 P2-3 修订）：**
+
+- `OutputDispatcherProtocol.handle(chunk: String, mode: PresentationMode, invocationId: UUID) async throws -> DispatchOutcome`
+- ExecutionEngine 调用时**始终**传 `tool.displayMode`，**严禁**传 `tool.outputBinding?.primary`（**Round 1 P2-3 修订**——遵循 M1 plan R-B 锁定的"displayMode 是 primary truth"决议；`outputBinding.primary` 在 V2Tool decoder 处已与 displayMode 校验过一致性，运行时只读 displayMode）
+- `DispatchOutcome = .delivered | .notImplemented(reason: String)`
+- `.window` 分支：把 chunk 投递到 `WindowSinkProtocol`（M2 测试用 `InMemoryWindowSink` 收集，生产路径 M3 才接入 ResultPanel）
+- `.bubble` / `.replace` / `.file` / `.silent` / `.structured` 一律返回 `.notImplemented(reason: "...")`，让 ExecutionEngine 把这条事件转发为 `.notImplemented` ExecutionEvent
+- **OutputBinding.sideEffects 处理路径**：仍由 ExecutionEngine Step 7 直接读 `tool.outputBinding?.sideEffects`，与 `tool.displayMode` **完全解耦**——sideEffect 与 displayMode 是正交维度，不依赖 outputBinding.primary 这个冗余字段
+- 测试矩阵：
+  - **`.window` 模式 chunk 顺序与计数（Round 2 B-4 修订）**：driver 推 3 个 chunk `["a", "b", "c"]` → 断言 `InMemoryWindowSink.received == ["a", "b", "c"]`（数量 3 + 顺序一致；用 Array == 而非 Set 比较）
+  - **非 .window 模式只 yield 一次 .notImplemented ExecutionEvent（Round 2 B-4 修订）**：守卫变量 `var notImplementedYielded = false` **必须是 ExecutionEngine.execute(tool:seed:) 函数内的 local var**（**Round 3 P2 修订**：严禁做成 actor field——actor 实例跨 invocation 复用时会污染状态，第二次调用 execute 时第一个 chunk 不再 yield .notImplemented）；driver 推 5 chunks 给 `.bubble` 模式 → OutputDispatcher 被调用 5 次（每次都返回 `.notImplemented`），但 ExecutionEvent stream 只含 1 条 `.notImplemented`；断言 `events.filter { if case .notImplemented = $0 { true } else { false } }.count == 1`；测试矩阵补一条**跨 invocation 隔离验证**：用同一个 ExecutionEngine 实例连续 execute 两次（都是 .bubble 模式 + 各 3 chunks），每次 stream 独立产出 1 条 `.notImplemented`，验证 local var 不跨 invocation 污染
+  - **OutputDispatcher 调用次数验证（Round 2 B-4 修订）**：MockOutputDispatcher 用 actor 计数 `var handleCallCount = 0`；上面"非 .window 5 chunks"用例同时断言 `await mockOutput.handleCallCount == 5`（验证非 .window 模式仍逐 chunk 调用，只是不重复 yield 事件）
+  - 构造 V2Tool 让 `displayMode != outputBinding.primary`（理论上 V2Tool decoder 会拒绝，但单测可绕过 decoder 直接构造）→ OutputDispatcher 仍按 displayMode 派发，验证不会读 outputBinding.primary
+
+---
+
+## Task 11: M2.7 · PromptExecutor（从 ToolExecutor 复制 + 改 V2 类型）
+
+> 把现有 `SliceAIKit/Sources/SliceCore/ToolExecutor.swift` 的 prompt 渲染 + 取 API Key + 调 LLMProvider 流式逻辑**复制**到 `Orchestration/Executors/PromptExecutor.swift`，所有类型改为 V2*。**ToolExecutor.swift 不动**。
+
+**Files:**
+- Create: `SliceAIKit/Sources/Orchestration/Executors/PromptExecutor.swift`
+- Create: `SliceAIKit/Tests/OrchestrationTests/PromptExecutorTests.swift`
+
+**完整 TDD 步骤：待第二轮展开**
+
+**关键设计点（Round 4 R4-P2.e 修订：V2Provider 适配 LLMProviderFactory 的 v1 限制）：**
+
+- `PromptExecutor` 是 `actor`；接受 `keychain: any KeychainAccessing` / `llmProviderFactory: LLMProviderFactory`（**Round 4 R4-P2.e 修订**：从"接受 llmProvider"改为"接受 factory"，因为 LLMProvider 实例是按 provider 配置创建的，PromptExecutor 内部按 V2Provider 字段创建对应的 v1 Provider 视图后调 factory）
+- `run(promptTool: PromptTool, resolved: ResolvedExecutionContext, provider: V2Provider) -> AsyncThrowingStream<PromptStreamElement, Error>`（**注意**：直接接 `PromptTool` 而非 `V2Tool`；**Round 9 B-NEW-4 + Round 10 R10-P1-2 修订**：流元素改为 `PromptStreamElement` 枚举，避免 `@Sendable` 闭包捕获可变局部变量在 Swift 6 strict concurrency 下编译失败；ExecutionEngine 通过 `case .completed(let stats)` 消费 usage，`promptUsage` 是 actor 内 local var 不需 @Sendable）
+- **`PromptStreamElement` enum**（**Round 10 R10-P1-2 新增**，定义在 PromptExecutor.swift 同文件）：
+  ```swift
+  /// PromptExecutor.run 流式输出元素
+  ///
+  /// **设计权衡（R10）**：早期方案用 `onCompletion: @escaping @Sendable (UsageStats) -> Void`
+  /// 回调，但 Swift 6 StrictConcurrency=complete 下，@Sendable 闭包不能捕获并修改 caller 的
+  /// 可变局部变量（execute 函数顶层的 `var promptUsage`）。改用枚举 stream + 顶层 `for try await`
+  /// 顺序消费 → caller 直接读 local var 写入 promptUsage，无跨 task 边界，Swift 6 通过。
+  public enum PromptStreamElement: Sendable {
+      /// LLM 流式输出片段
+      case chunk(String)
+      /// LLM stream 结束时一次性发出，携带最终 usage 估算（M2 估算 / Phase 1 真实）
+      case completed(UsageStats)
+  }
+  ```
+- **`UsageStats` struct**（**Round 9 B-NEW-4 新增**，定义在 PromptExecutor.swift 同文件）：
+  ```swift
+  public struct UsageStats: Sendable, Equatable {
+      public let inputTokens: Int
+      public let outputTokens: Int
+      public static let zero = UsageStats(inputTokens: 0, outputTokens: 0)
+  }
+  ```
+  M2 阶段 PromptExecutor 内部按 chunk 累计 char count `/ 4` 估算（spec §4.4.2 经验值）；Phase 1 接真实 LLMProvider usage 字段后切换
+- **V2Provider → v1 Provider 适配（Round 4 R4-P2.e + Round 5 R5-P2.1 关键修订）**：M1 `LLMProviderFactory` 只接 v1 `Provider` 类型（M1 SliceCore zero-touch 范围内不动）；PromptExecutor 内部用 V2Provider 字段构造一个临时 v1 Provider 视图：
+  ```swift
+  // PromptExecutor 内部 helper（不暴露 public）
+  // Round 5 R5-P2.1 修订：改 throws，非 .openAICompatible kind 抛明确错误；严禁 fatalError / 强解包 !
+  private func toV1Provider(_ v2: V2Provider) throws -> Provider {
+      // M2 仅支持 .openAICompatible；其他 kind（.anthropic / .gemini / .ollama）由 Phase 1+ 真实 native provider 处理
+      guard v2.kind == .openAICompatible else {
+          throw SliceError.configuration(.validationFailed(
+              "PromptExecutor M2 only supports .openAICompatible providers; \(v2.id) is .\(v2.kind)"
+          ))
+      }
+      // V2Provider.baseURL 对 .openAICompatible kind 由 decoder/validate() 保证非 nil（Round 1 P2a 修订）；
+      // 但仍用 guard 而非 ! 兜底（防御性，避免 V2Provider 来源不经 decoder 时崩）
+      guard let baseURL = v2.baseURL else {
+          throw SliceError.configuration(.validationFailed(
+              "V2Provider \(v2.id) (.openAICompatible) has nil baseURL"
+          ))
+      }
+      return Provider(
+          id: v2.id,
+          kind: .openAICompatible,
+          baseURL: baseURL,
+          defaultModel: v2.defaultModel,
+          apiKeyRef: v2.apiKeyRef
+      )
+  }
+  ```
+- ExecutionEngine Step 6 调 `await promptExecutor.run(...)` 取 stream（**Round 13 P1-NEW-3 修订**：`promptExecutor.run` 是 actor non-throwing 同步返回 stream 的方法——跨 actor 取 stream 仅需 `await`，**不需 `try`**；throws 在 `for try await element in stream` 处捕获）；如果 PromptExecutor 内部 `toV1Provider` throw 了 SliceError.configuration(.validationFailed)，会在 stream 第一次 `next()` 时抛出，被 Task 4 Step 6 的 `for try await` + outer catch 走 finishFailure 路径（与 Task 4 失败路径处理一致）
+- **不**修改 LLMProviderFactory（zero-touch）；M3 删 ToolExecutor 时一并把 LLMProviderFactory 升级为接 V2Provider，删除此适配 helper
+- 接受 `tool.kind == .prompt` 形态；其他 kind 在 ExecutionEngine Step 5 已经 dispatch 走 .notImplemented 路径，PromptExecutor.run 不需要防御
+- 渲染 prompt 时使用 `PromptTool.systemPrompt` / `userPrompt` / `variables` / `contexts`（resolved.contexts），**不**走 v1 Tool 扁平字段
+- 复制 ToolExecutor 的 mustache 渲染逻辑（参考 spec §3.3.1 / §3.7）；mustache 模板引擎是 M1 已就绪的（`SliceCore` 内）
+- 测试用 MockLLMProvider 验证流式输出 + API key 取 + retry-after；额外测一条 V2Provider → v1 Provider 适配等价（构造 V2Provider 跑 toV1Provider 后断言 v1 Provider 字段一致）
+
+---
+
+## Task 12: M2.8 · PathSandbox（路径规范化 + 白名单 + 硬禁止）
+
+> 落地 spec §3.9.3 的路径策略；放在 Capabilities 而非 Orchestration（因为 SecurityKit 是跨执行引擎的基础设施）。M2 实现纯静态 API，Phase 1 / 2 才接入 ContextCollector / OutputDispatcher 真实路径输入。
+
+**Files:**
+- Create: `SliceAIKit/Sources/Capabilities/SecurityKit/PathSandbox.swift`
+- Create: `SliceAIKit/Sources/Capabilities/SecurityKit/PathSandboxError.swift`
+- Delete: `SliceAIKit/Sources/Capabilities/Placeholder.swift`
+- Delete: `SliceAIKit/Tests/CapabilitiesTests/PlaceholderTests.swift`
+- Create: `SliceAIKit/Tests/CapabilitiesTests/PathSandboxTests.swift`
+
+**完整 TDD 步骤：待第二轮展开**
+
+**关键设计点（Round 2 B-6.4 修订：Foundation API 真实语义对齐）：**
+
+- `PathSandbox.normalize(_ raw: String, role: AccessRole) throws -> URL`：实现链 `URL(fileURLWithPath: raw).resolvingSymlinksInPath().standardizedFileURL`（**Round 2 B-6.4 修订**：spec §3.9.3:989 措辞 "URL(fileURLWithPath:).standardizedFileURL 消除 .. / symlink" 与 Foundation API 实际行为不符——`standardizedFileURL` **只**消除 `..` 与重复 `/`，**不** resolve symlink；必须先 `resolvingSymlinksInPath()` 后 `standardizedFileURL`，顺序不可换。spec 修订留下一轮 spec 评审）
+- 默认白名单：`~/Documents` `~/Desktop` `~/Downloads` `~/Library/Application Support/SliceAI/**`
+- 硬禁止前缀（永远拒绝，无视用户配置）：`~/Library/Keychains/**` `~/.ssh/**` `~/Library/Cookies/**` `/etc/**` `/var/db/**` `/Library/Keychains/**`
+- 用户附加白名单 = `[String]`，构造时注入；M2 仅静态默认值（用户配置加白名单是 Phase 1 Settings UX）
+- `AccessRole` enum：`.read` / `.write`（write 只允许 `~/Library/Application Support/SliceAI/**` + 用户附加）
+- 测试矩阵（**Round 2 B-6.4 补 symlink 攻击用例**）：
+  - `..` traversal: `~/Documents/../Library/Keychains/foo` → throw `.escapesWhitelist`
+  - **symlink 攻击（Round 2 B-6.4 新增）**：测试用 `FileManager.default.createSymbolicLink(at:withDestinationURL:)` 在临时白名单目录（如 `~/Documents/test-sandbox-\(UUID()).link`）下建一个指向硬禁止前缀（如 `~/Library/Keychains`）的 symlink → `normalize(...)` 应 throw `.escapesWhitelist`（因为 `resolvingSymlinksInPath()` 会展开 symlink 后变成硬禁止前缀，被 prefix 检查拦下）；测试 tearDown 删除 symlink
+  - **symlink resolved 顺序 sanity（Round 2 B-6.4 新增）**：构造一个 symlink 指向白名单内合法路径 → `normalize(...)` 应返回展开后的真实路径而非 symlink 路径本身（验证 resolvingSymlinksInPath 真生效）
+  - 硬禁止前缀直接拒绝（即便加进 user allowlist 也拒绝）
+
+---
+
+## Task 13: M2.9 · MCPClientProtocol + SkillRegistryProtocol + Mock 实现
+
+> 仅落接口签名 + Mock 实现，让 OrchestrationTests 可以注入。**Phase 1 才实现真实 MCPClient（stdio/SSE）+ SkillRegistry（fs scan）**。
+
+**Files:**
+- Create: `SliceAIKit/Sources/Capabilities/MCP/MCPClientProtocol.swift`
+- Create: `SliceAIKit/Sources/Capabilities/MCP/MockMCPClient.swift`
+- Create: `SliceAIKit/Sources/Capabilities/Skills/SkillRegistryProtocol.swift`
+- Create: `SliceAIKit/Sources/Capabilities/Skills/MockSkillRegistry.swift`
+- Create: `SliceAIKit/Tests/CapabilitiesTests/MCPClientProtocolTests.swift`
+- Create: `SliceAIKit/Tests/CapabilitiesTests/SkillRegistryProtocolTests.swift`
+
+**完整 TDD 步骤：待第二轮展开**
+
+**关键设计点（Round 3 P2 修订：MCPCallResult 类型在本 Task 落地，M1 SliceCore 未定义 verified）：**
+
+- `MCPClientProtocol.tools(for descriptor: MCPDescriptor) async throws -> [MCPToolRef]` / `.call(ref: MCPToolRef, args: [String: String]) async throws -> MCPCallResult`
+- **`MCPCallResult` 是新增类型，定义在 `Capabilities/MCP/MCPClientProtocol.swift` 同文件**（**Round 3 P2 修订**：M1 SliceCore 没有 `MCPCallResult`，grep verified；M2 在 Capabilities 层落地）：
+  ```swift
+  public struct MCPCallResult: Sendable, Equatable, Codable {
+      /// 返回内容；MCP 协议允许多块（text / image / blob），M2 仅约定 text，
+      /// Phase 1 真实 MCPClient 才扩展（届时把此 struct 移到 SliceCore 或 expose 更细的 ContentItem enum）
+      public let content: [String]
+      /// 是否 server 端报错（区别于 transport / parse 错误，后者由 client 直接 throw）
+      public let isError: Bool
+      /// MCP server 透传的 metadata（脱敏责任在 server 端；scrub 在 AuditLog 入口兜底）
+      public let meta: [String: String]?
+  }
+  ```
+- `MockMCPClient` 接受构造期注入的 `tools: [MCPToolRef]` / `responses: [MCPToolRef: MCPCallResult]` 字典，按 ref 路由；未命中 ref → throw `MCPClientError.toolNotFound(ref:)`
+- **`MCPClientError` 完整定义**（**Round 4 R4-P3.a 修订**——之前引用未给类型；放在 `Capabilities/MCP/MCPClientProtocol.swift` 同文件）：
+  ```swift
+  public enum MCPClientError: Error, Sendable, Equatable {
+      /// 调用的 tool 不在 server 暴露的 tools 列表里
+      case toolNotFound(ref: MCPToolRef)
+      /// stdio / SSE 传输层失败（连接断 / 子进程 crash 等）；M2 用 underlying String 描述（避免 Equatable 困难）
+      case transportFailed(reason: String)
+      /// MCP server 返回的 JSON-RPC 响应解析失败
+      case decodingFailed(reason: String)
+  }
+  ```
+- `SkillRegistryProtocol.findSkill(id: String) async throws -> Skill?` / `.allSkills() async throws -> [Skill]`
+- `MockSkillRegistry` 接受 `[Skill]` 直接返回
+- 测试覆盖 mock 行为正确（empty registry → nil；populated → 返回；call 错误传播）；MCPCallResult round-trip Codable 测试（encode/decode 等价）
+
+---
+
+## Task 14: 集成验证 + 覆盖率检查 + Task-detail 归档
+
+> 全部 Task 1–13 完成后，跑全套 verification + 写 Task-detail 实施总结 + 更新 Task_history / README / Module 文档。
+
+**Files:**
+- Modify: `docs/Task-detail/2026-04-25-phase-0-m2-orchestration.md`（填充实施过程 + 变动文件清单 + 测试结果）
+- Modify: `SliceAIKit/Sources/Orchestration/README.md`（M1 placeholder 替换为真实组件介绍）
+- Modify: `SliceAIKit/Sources/Capabilities/README.md`（同）
+
+**步骤：**
+
+- [ ] **Step 1: 全套 CI gate（在 worktree 主目录）**
+
+```bash
+cd SliceAIKit && swift build && swift test --parallel --enable-code-coverage
+# 期望: 全 Orchestration / Capabilities / SliceCore / Capabilities Tests + 已有 testTarget 全绿
+# 期望: SliceCore 覆盖率 ≥ 90%（M1 已达成）；Orchestration ≥ 75%；Capabilities ≥ 60%
+```
+
+- [ ] **Step 2: 在主仓库根目录跑 swiftlint**
+
+```bash
+swiftlint lint --strict
+# 期望: 0 violations / 0 serious
+```
+
+- [ ] **Step 3: zero-touch 验证**（**Round 6 R6-P1.4 修订**：从 §C-1 放宽对齐——SliceCore 不在严格 diff=0 列表；改为白名单纯增）
+
+```bash
+# 1. 严格 zero-touch 模块（git diff 必须为 0）—— Round 6 修订：移除 SliceCore，改用白名单 grep 验证
+git diff origin/main..HEAD -- \
+  SliceAIKit/Sources/LLMProviders \
+  SliceAIKit/Sources/SelectionCapture \
+  SliceAIKit/Sources/HotkeyManager \
+  SliceAIKit/Sources/DesignSystem \
+  SliceAIKit/Sources/Windowing \
+  SliceAIKit/Sources/Permissions \
+  SliceAIKit/Sources/SettingsUI \
+  SliceAIApp \
+  | wc -l
+# 期望: 0
+
+# 2. SliceCore 白名单纯增验证（**Round 6 R6-P1.4 + Round 7 R7-P2.2 修订**）
+# Round 7 修订：用 git merge-base 锁定 base，避免 origin/main 后续移动；grep 验证 HEAD 而非 origin/main（验证当前修改后既有 case 仍存在）
+BASE=$(git merge-base HEAD origin/main)
+# 既有 case 名 + 字段名在 HEAD 仍存在（M1 既有不变量未破坏）
+git show HEAD:SliceAIKit/Sources/SliceCore/SliceError.swift | grep -E "case (selection|provider|configuration|permission)\b" | wc -l
+# 期望: ≥ 4（4 既有顶层 case + 可能新增 .context / .toolPermission）
+git show HEAD:SliceAIKit/Sources/SliceCore/SliceError.swift | grep -cE "(axUnavailable|axEmpty|clipboardTimeout|textTooLong|unauthorized|rateLimited|fileNotFound|schemaVersionTooNew|invalidJSON|referencedProviderMissing|validationFailed|accessibilityDenied|inputMonitoringDenied)"
+# 期望: ≥ 13（既有 13 子 case 都在）
+
+# 3. SliceCore 实际改动只限白名单 3 文件（基于 merge-base 不受 main 后续移动影响）
+git diff --name-only "$BASE..HEAD" -- SliceAIKit/Sources/SliceCore | sort -u
+# 期望仅出现:
+#   SliceAIKit/Sources/SliceCore/SliceError.swift
+#   SliceAIKit/Sources/SliceCore/ContextError.swift
+#   SliceAIKit/Sources/SliceCore/ToolPermissionError.swift
+# 任何其他 SliceCore 文件出现都是违规
+
+# 4. M1 既有 SliceCoreTests 全绿（既有不变量未破坏的最强 verify）
+cd SliceAIKit && swift test --filter SliceCoreTests
+# 期望: 341/341 + Round 6 SliceError 新增 case 的测试 pass
+```
+
+- [ ] **Step 4: xcodebuild app 仍能编译**
+
+```bash
+# 在主仓库根目录跑（worktree 不一定有完整 .xcodeproj/xcworkspace 状态，按需切回主目录）
+xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build
+# 期望: BUILD SUCCEEDED
+```
+
+- [ ] **Step 5: 覆盖率详细报告**
+
+```bash
+# Orchestration 覆盖率
+xcrun llvm-cov report .build/debug/SliceAIKitPackageTests.xctest/Contents/MacOS/SliceAIKitPackageTests \
+  -instr-profile=.build/debug/codecov/default.profdata \
+  -ignore-filename-regex=".*Tests.*|.*Mock.*" \
+  SliceAIKit/Sources/Orchestration
+# 期望: Orchestration line coverage ≥ 75%
+```
+
+- [ ] **Step 5.5: GateOutcome / Outcome enum exhaustive switch 反向断言（Round 2 B-3 + Round 3 修订补全）**
+
+```bash
+# 验证 Round 2 B-3 锁定的"无 default"约束在 PermissionBroker / ExecutionEngine 真正落地
+# grep -c 返回 default: 出现次数；期望 0 + 0
+echo "PermissionBroker default count:"
+grep -c "^[[:space:]]*default:" SliceAIKit/Sources/Orchestration/Permissions/PermissionBroker.swift
+echo "ExecutionEngine default count:"
+grep -c "^[[:space:]]*default:" SliceAIKit/Sources/Orchestration/Engine/ExecutionEngine.swift
+# 也包括 ErrorKind.from / Permission tier 计算等 enum 关键 switch
+echo "InvocationReport (ErrorKind.from) default count:"
+grep -c "^[[:space:]]*default:" SliceAIKit/Sources/Orchestration/Events/InvocationReport.swift
+# 期望全部为 0；非零则失败（说明实现里漏了某些 case 用 default 兜底）
+```
+
+- [ ] **Step 6: 填充 Task-detail 实施总结**
+
+完整填 `docs/Task-detail/2026-04-25-phase-0-m2-orchestration.md` 的 §5（变动文件清单）、§6（测试结果含覆盖率）、§7（修改逻辑总结）
+
+- [ ] **Step 7: 更新 README.md 项目修改变动记录**
+
+在 `README.md` 顶部追加 "2026-XX-XX · Phase 0 M2 完成"段落（沿用 M1 merge 后的格式）
+
+- [ ] **Step 8: Commit + push + open PR**
+
+```bash
+git add docs SliceAIKit/Sources/Orchestration/README.md SliceAIKit/Sources/Capabilities/README.md README.md
+git commit -m "docs(phase-0/m2): finalize Task-detail + module README"
+git push -u origin feature/phase-0-m2-orchestration
+gh pr create --base main --head feature/phase-0-m2-orchestration --title "Phase 0 M2: Orchestration + Capabilities 骨架" --body "$(cat <<'EOF'
+## Summary
+
+落地 v2.0 spec §3.4 / §3.9 的执行引擎 + 权限闭环 + 安全模型骨架；新增 ~30 个文件 / ~3000 行；零触及 v1 + M1 v2 类型。
+
+## What's in scope
+
+- Orchestration: ExecutionEngine / ContextCollector / PermissionBroker / PermissionGraph / CostAccounting / JSONLAuditLog / OutputDispatcher / PromptExecutor
+- Capabilities: PathSandbox / MCPClientProtocol + Mock / SkillRegistryProtocol + Mock
+
+## What's NOT in scope
+
+- AppContainer 接入（M3）
+- ToolExecutor 删除（M3）
+- 真实 MCPClient（Phase 1）
+- 真实 SkillRegistry（Phase 2）
+- PresentationMode 非 .window 分支（Phase 2）
+
+## Test plan
+
+- [ ] swift test --parallel --enable-code-coverage 全绿
+- [ ] swiftlint lint --strict 0 violations
+- [ ] Orchestration 覆盖率 ≥ 75%
+- [ ] Capabilities 覆盖率 ≥ 60%
+- [ ] zero-touch 验证（v1 既有类型 git diff = 0 + SliceCore 仅白名单 3 文件 Modify/Create + M1 既有 341 测试全绿；详见 Task 14 Step 3）
+- [ ] xcodebuild app 仍能编译
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+EOF
+)"
+```
+
+---
+
+## Self-Review Checklist（Plan 内置；每完成一轮修订都要重跑）
+
+> 按 superpowers:writing-plans skill 的 Self-Review 段执行。
+
+### 1. Spec 覆盖
+
+- [ ] M2.1 ExecutionEngine 骨架 + ExecutionEvent → Task 1（事件）+ Task 3（actor 骨架）+ Task 4（主流程）
+- [ ] M2.2 ContextCollector → Task 5
+- [ ] M2.3 PermissionBroker → Task 6
+- [ ] M2.3a PermissionGraph → Task 7
+- [ ] M2.4 CostAccounting → Task 8
+- [ ] M2.5 AuditLog → Task 9
+- [ ] M2.6 OutputDispatcher（仅 .window 分支） → Task 10
+- [ ] M2.7 PromptExecutor → Task 11
+- [ ] M2.8 PathSandbox → Task 12
+- [ ] M2.9 MCPClientProtocol / SkillRegistryProtocol → Task 13
+
+### 2. Placeholder 扫描
+
+- [ ] 无 "TBD / TODO / 待补充 / Similar to Task N"——所有 task 都给出 file path + key design points
+- [ ] **第一稿例外**：Task 2–13 的"完整 TDD 步骤：待第二轮展开"是**主动声明**的展开节奏，不算 placeholder（参考 M1 plan 第七轮评审"渐进展开"的 P2-3 处理）
+
+### 3. 类型一致性
+
+- [ ] `V2Tool` / `V2Provider` / `V2Configuration` 全程使用（不写 spec 原始的 `Tool` / `Provider` / `Configuration`）
+- [ ] `PresentationMode` 而非 `DisplayMode`；`SelectionOrigin` 而非 `SelectionSource`
+- [ ] `ExecutionEngine.execute(tool:seed:)` 的签名在 Task 3 / Task 4 一致
+- [ ] `EffectivePermissions` struct 字段在 Task 7 与 spec §3.9.6.5 完全对齐（fromContexts / fromSideEffects / fromMCP / fromBuiltins / declared / union / undeclared）
+
+### 4. 关键不变量复盘
+
+- [ ] **C-1 zero-touch（Round 6 R6-P1.4 修订）**：每个 task 的 Files 段都明确改动限定在 `Sources/Orchestration/` / `Sources/Capabilities/` / `Tests/Orchestration*Tests/` / `Tests/Capabilities*Tests/` / **SliceCore 白名单 3 文件**（`SliceError.swift Modify` + `ContextError.swift Create` + `ToolPermissionError.swift Create`）；无对 `LLMProviders/` `SelectionCapture/` `HotkeyManager/` `DesignSystem/` `Windowing/` `Permissions/` `SettingsUI/` `SliceAIApp/` 的 Modify；M1 既有 341 SliceCoreTests 全绿（既有不变量未破坏）
+- [ ] **C-3 平铺并发**：Task 5 的关键设计点明确 "withTaskGroup 不实现 DAG"
+- [ ] **C-4 PermissionGraph 静态校验**：Task 7 关键设计点明确 "纯函数不做 I/O"，且 Task 4 主流程顺序 Step 2 PermissionGraph → Step 3 ContextCollector
+- [ ] **C-5 firstParty 不能放行 network-write/exec**：Task 6 测试矩阵覆盖此条
+- [ ] **C-6 OutputDispatcher 仅 .window**：Task 10 关键设计点明确其余 5 mode `.notImplemented`
+- [ ] **C-7 PromptExecutor 复制非替换**：Task 11 关键设计点明确 "ToolExecutor.swift 不动"
+- [ ] **C-8 日志脱敏在 AuditLog 入口**：Task 9 关键设计点明确 "Redaction.scrub 在 append 前调用"
+
+---
+
+## 执行选项（Plan 评审通过后填入）
+
+> 按 superpowers:writing-plans skill 的 Execution Handoff 段。
+>
+> 执行前提：本 plan 第一稿过 Codex 评审至少一轮（直到 APPROVED 或 CONDITIONAL_APPROVE 收尾）；评审同时把 Task 2 – Task 13 的"完整 TDD 步骤：待第二轮展开"展开为 M1 同等粒度的 step-by-step。
+
+**选项 1（推荐）：subagent-driven-development**
+- 每个 Task 派发一个 fresh subagent，主对话做 code review checkpoint
+- 优点：快、上下文窗口隔离、并行能力（独立 task 可同时跑）
+- 缺点：subagent 之间无法看到彼此 patch，必须靠 plan 自身规约确保接口一致
+
+**选项 2：executing-plans inline**
+- 主对话顺序执行所有 task，checkpoint 在每个 task 之后
+- 优点：上下文连贯，类型一致性更强
+- 缺点：上下文窗口压力大，到后期 task 时容易触发 compaction
+
+> 默认选 1；M1 用的是 1 + 8 轮 Codex review 跑通的，M2 沿用同模式。
+
+---
+
+## 附录：与 spec §3.4 ExecutionEngine 流程的逐 Step 落地对照
+
+| Step | spec 描述 | M2 落地 Task | 备注 |
+|---|---|---|---|
+| 1 | yield .started(invocationId) | Task 4 | invocationId = UUID() 在 execute 入口生成 |
+| 2 | PermissionGraph.compute + ⊆ 校验 | Task 4 + Task 7 | 失败 → yield .failed(.toolPermission(.undeclared)) |
+| 2.5 | PermissionBroker.gate（按下限 + provenance） | Task 4 + Task 6 | 失败 → yield .failed(.toolPermission(.denied)) |
+| 3 | ContextCollector.resolve | Task 4 + Task 5 | 必填失败 → yield .failed(.context(.required)) |
+| 4 | ProviderResolver.resolve | Task 4 + Task 2 | M2 仅 .fixed 形态；其他 throw .notImplemented |
+| 5 | dispatch by tool.kind | Task 4 + Task 11 | M2 仅 .prompt；.agent / .pipeline → yield .notImplemented + finished |
+| 6 | LLM stream → OutputDispatcher | Task 4 + Task 10 + Task 11 | OutputDispatcher 仅 .window 真实分发 |
+| 7 | sideEffects 触发（每个前再 gate） | Task 4 + Task 6 + Task 10 | 副作用前调 PermissionBroker.gate 走 §3.9.2 下限 |
+| 8 | CostAccounting.record | Task 4 + Task 8 | 入参 = invocationId / toolId / providerId / model / usage / usd |
+| 9 | AuditLog.append(.invocationCompleted(report)) | Task 4 + Task 9 | Round 2 B-6.3：用 enum case 而非 raw report；report 含 declared/effective/diff，进 jsonl |
+| 10 | yield .finished(report) | Task 4 | 流结束 |
+
+---
+
+**第一稿 EOF（Task 2 – Task 13 完整 TDD 步骤待第二轮展开）**

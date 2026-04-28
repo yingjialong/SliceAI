@@ -17,9 +17,9 @@
 |---|---|
 | 最后更新 | 2026-04-25 |
 | 当前 Phase | **Phase 0**（底层重构） |
-| 当前 Milestone | **M1 完成，等 merge**；M2 / M3 未启动 |
-| 下一个动作 | 等 PR #1 merge → 启动 **Phase 0 M2**（Orchestration + Capabilities 骨架）的 brainstorming + writing-plans |
-| 阻塞 | 无（PR #1 已开、CI 可自动跑） |
+| 当前 Milestone | **M1 已 merge 入 main**（merge commit `5cdf0f7`）；M2 准备启动 |
+| 下一个动作 | 启动 **Phase 0 M2**（Orchestration + Capabilities 骨架）的 brainstorming + writing-plans |
+| 阻塞 | 无 |
 
 **Milestone 状态**
 
@@ -27,8 +27,8 @@
 
 | Phase | Milestone | 状态 |
 |---|---|---|
-| 0 | M1 | ✅ 已完成，PR #1 OPEN 待 merge |
-| 0 | M2 | ⏳ 未启动（等 M1 merge） |
+| 0 | M1 | ✅ 已 merge 入 main（merge commit `5cdf0f7`，2026-04-25） |
+| 0 | M2 | ⏳ 准备启动（Entry criteria 中"PR #1 merge + pull main" 已满足） |
 | 0 | M3 | ⏳ 未启动（等 M2 merge） |
 | 1 | — | ⏳ 设计已 Freeze，plan 未写 |
 | 2–5 | — | 🟦 Directional，进入前需重新 spec |
@@ -89,12 +89,12 @@
 - ❌ 换 Provider（仍只 OpenAI 兼容）
 - ✅ 仅做：数据模型升级 + 配置迁移 + 执行引擎骨架
 
-### 3.1 M1：纯数据模型 + 配置迁移 ✅ **已完成，PR #1 待 merge**
+### 3.1 M1：纯数据模型 + 配置迁移 ✅ **已完成并合入 main**
 
-**分支**：`feature/phase-0-m1-core-types`（worktree `.worktrees/phase-0-m1/`）
-**PR**：https://github.com/yingjialong/SliceAI/pull/1（OPEN，50 commits）
+**分支**：`feature/phase-0-m1-core-types`（已删除；worktree 已清理）
+**PR**：[#1](https://github.com/yingjialong/SliceAI/pull/1) MERGED 2026-04-25 06:27 UTC（merge commit `5cdf0f7`，50 commits 普通 merge 保留实施历史）
 **plan**：[docs/superpowers/plans/2026-04-24-phase-0-m1-core-types.md](superpowers/plans/2026-04-24-phase-0-m1-core-types.md)
-**Task-detail**：[docs/Task-detail/2026-04-24-phase-0-m1-core-types.md](Task-detail/) *(在 worktree 里，merge 后才可见)*
+**Task-detail**：[docs/Task-detail/2026-04-24-phase-0-m1-core-types.md](Task-detail/2026-04-24-phase-0-m1-core-types.md)
 
 **Entry criteria**：无（从 v0.1.x 直接开始）
 
@@ -138,11 +138,12 @@
 | `DisplayMode` | `PresentationMode` | v1 `Tool.swift:85` 已有同名 enum（3-case），M1 不得动 v1 |
 | `SelectionSource` | `SelectionOrigin` | v1 `SelectionCapture/SelectionSource.swift` 已有同名 protocol |
 
-**M1 下一步**：
+**M1 收尾**（全部完成 2026-04-25）：
 
-- [ ] 等待 PR #1 的 CI 跑完（GitHub Actions `.github/workflows/ci.yml`）
-- [ ] 确认 PR #1 merge（由你决定何时）
-- [ ] merge 后 `git worktree remove .worktrees/phase-0-m1`（清理）+ 切到 main + `git pull`
+- [x] PR #1 CI 通过（GitHub Actions `.github/workflows/ci.yml`，Build & Test 1m30s pass）
+- [x] PR #1 merge：`gh pr merge 1 --merge --delete-branch`，merge commit `5cdf0f7`，2026-04-25 06:27 UTC
+- [x] 清理：`git worktree remove .worktrees/phase-0-m1` + `git branch -d feature/phase-0-m1-core-types` + `git push origin --delete feature/phase-0-m1-core-types` + `git pull origin main`
+- [x] merge 后 main 上 verification 重测：`swift test --parallel` 341/341 ✅、`swiftlint --strict` 0 violations / 106 files ✅
 
 ---
 
@@ -152,8 +153,8 @@
 
 **Entry criteria（必须全部满足才能启动）**：
 
-- [ ] PR #1 已 merge 到 `origin/main`
-- [ ] 本地 `main` 已 pull 最新（`git pull origin main`）
+- [x] PR #1 已 merge 到 `origin/main`（2026-04-25，merge commit `5cdf0f7`）
+- [x] 本地 `main` 已 pull 最新（`origin/main` HEAD = `5cdf0f7`）
 - [ ] 新建 worktree：`git worktree add .worktrees/phase-0-m2 -b feature/phase-0-m2-orchestration`（参考 superpowers:using-git-worktrees skill）
 - [ ] 确认 M2 **子任务在 spec §4.2.3 M2.1–M2.9 冻结不变（含 M2.3a PermissionGraph，共 10 项）**（如需调整，先在 plan 里记"评审修正"）
 - [ ] 用 superpowers:brainstorming skill 预走一遍 M2（可选——spec 已 freeze，如果没有新问题可直接跳到 writing-plans）
@@ -584,3 +585,21 @@
 - PR：https://github.com/yingjialong/SliceAI/pull/1
 
 **下一步**：等 PR #1 merge → 启动 Phase 0 M2 的 brainstorming + writing-plans。
+
+---
+
+### 2026-04-25（晚） — Phase 0 M1 已 merge 入 main + main 重测全绿
+
+- 在 push 本地 main（领先 `origin/main` 7 个 commit）的过程中把 v2 spec / M1 plan / master todolist / Codex review 文档一并推到远程，让 PR #1 评审上下文公开可见
+- PR #1 通过 `gh pr merge 1 --merge --delete-branch` 合入 main（merge commit `5cdf0f7`，2026-04-25 06:27 UTC，普通 merge 保留 50 commits 实施历史以便 bisect）
+- gh 在 merge 后试图删除本地分支但因 worktree 占用失败；随后手动 `git worktree remove .worktrees/phase-0-m1` + `git branch -d feature/phase-0-m1-core-types` + `git push origin --delete feature/phase-0-m1-core-types` 清理
+- main pull 完成后立即跑 verification 验证 merge 未引入回归：
+  - `swift test --parallel --enable-code-coverage`：**341/341 全过**（含 V2Tool/V2Provider/V2Configuration/Migrator/Permission/ToolKind 等 M1 全部 V2* 类型测试）
+  - `swiftlint lint --strict`：**0 violations / 0 serious / 106 files**
+- M1 实际产出：73 个文件 / +5790 行 / -31 行（M1 plan 顶部 R1–R8 评审修正索引完整保留 commit 链）
+
+**下一步**：启动 **Phase 0 M2**（Orchestration + Capabilities 骨架）—— 按 §8 工作流程 SOP：
+1. 阶段 0：`git worktree add .worktrees/phase-0-m2 -b feature/phase-0-m2-orchestration`
+2. 阶段 1：（可选）用 `superpowers:brainstorming` 过一遍 M2 设计（spec §4.2.3 M2 已 freeze，无新问题可跳过）
+3. 阶段 2：用 `superpowers:writing-plans` 产出 `docs/superpowers/plans/2026-04-XX-phase-0-m2-orchestration.md`，过一轮 Codex 评审到 APPROVED
+4. 阶段 3：subagent-driven-development 实施 M2.1–M2.9 + M2.3a 共 10 个子任务
