@@ -160,15 +160,16 @@ final class ContextCollectorTests: XCTestCase {
 
     /// provider sleep 远超注入 timeout（50ms）→ 触发 timeout
     ///
-    /// 用 SlowProvider sleep 0.1s（>50ms timeout 阈值）+ required 触发 throw。
-    /// 注入 50ms timeout 让测试在数百 ms 内完成，避免拖慢 CI suite。
+    /// 用 SlowProvider sleep 5s（>>50ms timeout 阈值，留两个数量级 margin 抗 CI 调度抖动）
+    /// + required 触发 throw。注入 50ms timeout 让 happy 路径在数百 ms 内完成；
+    /// 仅当 fix 退化（timeout 不触发）时测试才会退到 5s 慢路径（信息量更大）。
     func test_resolve_timeout_throwsTimeoutForRequired() async {
         let key = "slow.req"
         let providers: [String: any ContextProvider] = [
-            "slow": MockSlowProvider(name: "slow", sleepSeconds: 0.1)
+            "slow": MockSlowProvider(name: "slow", sleepSeconds: 5.0)
         ]
         let registry = ContextProviderRegistry(providers: providers)
-        // 注入 50ms timeout（默认 5s）以加速测试；mock sleep 0.1s 保证一定触发 timeout
+        // 注入 50ms timeout（默认 5s）以加速测试；mock sleep 5s 远大于 timeout 保证 race 必胜
         let collector = ContextCollector(registry: registry, defaultTimeoutNanoseconds: 50_000_000)
         let requests = [makeRequest(keyName: key, provider: "slow", requiredness: .required)]
 
@@ -307,10 +308,11 @@ final class ContextCollectorTests: XCTestCase {
     /// **当前实现**：`for try await` 顺序消费 group，等待**所有**子任务完成；optional timeout
     /// 也会等满注入的 timeout 时长。这是 plan 接受的语义（D-17 强调"无 DAG"而非"先完成的尽快返回"），
     /// 因此测试只验证：optional 慢 provider timeout 后进 failures + 快 required 全成功。
-    /// 注入 50ms timeout + 0.1s mock sleep 让测试在数百 ms 内完成。
+    /// 注入 50ms timeout + 5s mock sleep（数量级 margin 抗 CI 调度抖动）让 happy 路径在 ~50ms
+    /// 内完成；仅当 fix 退化时退到 5s 慢路径。
     func test_resolve_optionalSlowProvider_doesNotBlockEarlyButRecordsTimeout() async throws {
         let providers: [String: any ContextProvider] = [
-            "slow": MockSlowProvider(name: "slow", sleepSeconds: 0.1),
+            "slow": MockSlowProvider(name: "slow", sleepSeconds: 5.0),
             "fast1": MockSuccessProvider(name: "fast1", value: .text("a")),
             "fast2": MockSuccessProvider(name: "fast2", value: .text("b"))
         ]
