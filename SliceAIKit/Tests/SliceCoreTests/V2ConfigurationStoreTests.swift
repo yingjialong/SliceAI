@@ -94,6 +94,31 @@ final class V2ConfigurationStoreTests: XCTestCase {
         XCTAssertEqual(cfg.tools.count, 4)  // 4 个内置工具（DefaultV2Configuration）
     }
 
+    /// 两个配置文件都不存在时，load/current 必须返回默认 v2 并只创建 config-v2.json
+    func test_load_withNeither_writesDefaultToV2Path() async throws {
+        let v2URL = tempDir.appendingPathComponent("config-v2.json")
+        let legacyURL = tempDir.appendingPathComponent("config.json")
+        let store = V2ConfigurationStore(fileURL: v2URL, legacyFileURL: legacyURL)
+
+        // 前置条件：全新安装场景下 v1/v2 配置文件都不存在。
+        XCTAssertFalse(FileManager.default.fileExists(atPath: v2URL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacyURL.path))
+
+        let cfg = try await store.current()
+
+        let expected = DefaultV2Configuration.initial()
+        XCTAssertEqual(cfg.providers.map(\.id), expected.providers.map(\.id))
+        XCTAssertEqual(cfg.tools.map(\.id), expected.tools.map(\.id))
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: v2URL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacyURL.path))
+
+        // 校验写出的 v2 文件内容可解码，且与本次返回值一致。
+        let writtenData = try Data(contentsOf: v2URL)
+        let writtenCfg = try JSONDecoder().decode(V2Configuration.self, from: writtenData)
+        XCTAssertEqual(writtenCfg, cfg)
+    }
+
     // MARK: - Write behaviour
 
     func test_save_writesOnlyToV2Path_neverTouchesV1() async throws {

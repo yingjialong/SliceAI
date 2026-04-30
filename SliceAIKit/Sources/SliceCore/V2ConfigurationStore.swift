@@ -13,7 +13,7 @@ private let v2ConfigLog = Logger(subsystem: "com.sliceai.core", category: "V2Con
 /// 规则（对齐 spec §3.7）：
 /// 1. v2 文件存在 → 直接 decode V2Configuration
 /// 2. v2 不存在但 v1 存在 → 读 v1 原文 → `ConfigMigratorV1ToV2.migrate(_:)` → 写 v2 → 返回 v2；**不改 v1**
-/// 3. 两者都不存在 → 返回 `DefaultV2Configuration.initial()`
+/// 3. 两者都不存在 → 写入并返回 `DefaultV2Configuration.initial()`；**不创建 v1**
 /// 4. `save()` 始终写 v2 路径；v1 永不被写
 public actor V2ConfigurationStore {
 
@@ -37,7 +37,7 @@ public actor V2ConfigurationStore {
     /// 告警用户 + 中止启动。严禁回退 DefaultV2Configuration.initial() 覆盖损坏文件——否则
     /// 下次 update() 会把默认值写回原路径，用户原有 providers / tools 永久丢失。
     ///
-    /// "两个文件都不存在"不是错误：`load()` 会直接返回默认配置。
+    /// "两个文件都不存在"不是错误：`load()` 会写入并返回默认 v2 配置。
     ///
     /// **错误不缓存**：throw 时 `cached` 保持 nil，下次调用会重新从磁盘 load——这样用户
     /// 修好 `config-v2.json` 后下一次 `current()` 即可自动恢复，无需重启 app。
@@ -55,7 +55,7 @@ public actor V2ConfigurationStore {
         cached = configuration
     }
 
-    /// 加载配置（按 §3.7 规则）
+    /// 加载配置（按 §3.7 规则；全新安装时会创建默认 v2 配置文件）
     public func load() async throws -> V2Configuration {
         if FileManager.default.fileExists(atPath: fileURL.path) {
             return try loadV2Direct()
@@ -66,8 +66,10 @@ public actor V2ConfigurationStore {
             try writeV2(v2)
             return v2
         }
-        v2ConfigLog.debug("load() neither v2 nor v1 exists, returning DefaultV2Configuration.initial()")
-        return DefaultV2Configuration.initial()
+        v2ConfigLog.debug("load() neither v2 nor v1 exists, writing DefaultV2Configuration.initial() to v2 path")
+        let defaultCfg = DefaultV2Configuration.initial()
+        try writeV2(defaultCfg)
+        return defaultCfg
     }
 
     /// 写 v2；永不碰 v1
