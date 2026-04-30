@@ -10,6 +10,8 @@ public enum SliceError: Error, Sendable, Equatable {
     case context(ContextError)
     /// v2 工具权限决策失败；细分语义见 `ToolPermissionError`
     case toolPermission(ToolPermissionError)
+    /// 执行链非业务错误：not-implemented 边界 / 未分类异常 fallback
+    case execution(ExecutionError)
 
     /// 面向最终用户的友好错误文案
     public var userMessage: String {
@@ -20,6 +22,7 @@ public enum SliceError: Error, Sendable, Equatable {
         case .permission(let e): return e.userMessage
         case .context(let e): return e.userMessage
         case .toolPermission(let e): return e.userMessage
+        case .execution(let e): return e.userMessage
         }
     }
 
@@ -86,6 +89,13 @@ public enum SliceError: Error, Sendable, Equatable {
             case .notGranted: return "toolPermission.notGranted"
             case .unknownProvider: return "toolPermission.unknownProvider(<redacted>)"
             case .sandboxViolation: return "toolPermission.sandboxViolation(<redacted>)"
+            }
+        // 脱敏规则：execution reason 可能来自未实现模式描述或外部 error.localizedDescription，
+        // 统一不写入 developerContext，避免日志泄露用户配置、API 响应或密钥片段。
+        case .execution(let e):
+            switch e {
+            case .notImplemented: return "execution.notImplemented(<redacted>)"
+            case .unknown: return "execution.unknown(<redacted>)"
             }
         }
     }
@@ -189,6 +199,27 @@ public enum PermissionError: Error, Sendable, Equatable {
             return "辅助功能权限未授予，SliceAI 无法读取划词。"
         case .inputMonitoringDenied:
             return "输入监控权限未授予，快捷键可能无法工作。"
+        }
+    }
+}
+
+/// 执行链顶层错误（与 ExecutionEvent 的 notImplemented / catch-all unknown 对接）
+public enum ExecutionError: Error, Sendable, Equatable {
+    /// spec 设计期声明的 not-implemented 边界（如 v0.2 .skill / .agent）
+    case notImplemented(String)
+    /// 非 SliceError / 非 CancellationError 的 catch-all 兜底
+    case unknown(String)
+
+    /// 面向最终用户的友好错误文案。
+    public var userMessage: String {
+        switch self {
+        case .notImplemented(let reason):
+            // notImplemented 的 reason 由调用方提供，面向用户可读；开发日志仍统一脱敏。
+            return "该能力在当前版本（v0.2）尚未实现：\(reason)。请等待后续版本。"
+        case .unknown:
+            // unknown 不回显外部错误描述，避免把 provider / 系统错误中的敏感内容
+            // 展示给用户。
+            return "执行过程中发生未知错误，请稍后重试或联系支持。"
         }
     }
 }

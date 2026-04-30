@@ -64,7 +64,13 @@ final class MenuBarController: NSObject {
     func refreshConfigStateIndicator() {
         Task { @MainActor [weak self] in
             guard let self, let container = self.container else { return }
-            let cfg = await container.configStore.current()
+            let cfg: V2Configuration
+            do {
+                cfg = try await container.configStore.current()
+            } catch {
+                // 配置读取失败时跳过红点刷新；启动阶段的严重错误由 AppDelegate 统一弹窗处理。
+                return
+            }
             let wasUnconfigured = self.isUnconfigured
             self.isUnconfigured = cfg.providers.isEmpty
             // 仅在状态真正变化时重新生成图标，避免闪烁

@@ -31,7 +31,8 @@ status: in_progress
 - [x] M3.1.C-1：新增 `InvocationGate` + `ResultPanelWindowSinkAdapter`。
 - [x] M3.1.C+D：AppContainer additive 装配 + AppDelegate async bootstrap UX 原子提交。
 - [ ] M3.1.E：冒烟验证（自动化部分完成；手工 GUI 触发链 / 启动失败弹窗待人工确认）。
-- [ ] M3.0 Step 1：caller 切换 + ExecutionEventConsumer + SettingsUI binding + tests。
+- [x] M3.0 Step 1：caller 切换 + ExecutionEventConsumer + SettingsUI binding + automated tests/gates。
+- [ ] M3.0 Step 1 手工 smoke：Safari 划词 / 命令面板 / 启动失败弹窗（待人工确认）。
 - [ ] M3.0 Step 2：删除 v1 类型族 + SelectionReader + LLMProviderFactory 升级。
 - [ ] M3.0 Step 3：V2* rename 回 spec 正名。
 - [ ] M3.0 Step 4：PresentationMode → DisplayMode。
@@ -74,6 +75,15 @@ status: in_progress
   - v1 caller 检查确认当前触发链仍走 `container.toolExecutor.execute(...)`。
   - 当前 app support 目录只有既有 `config.json`；因为未启动本次 Debug app，`config-v2.json` / `cost.sqlite` / `audit.jsonl` 创建验证待手工 GUI smoke。
   - 未执行 Safari 划词/命令面板实机流式验证，未执行 chmod 模拟启动失败弹窗验证；原因是这两步会真实操作菜单栏 app / 全局权限 / 用户桌面状态，不能用自动命令伪造通过。
+- 已完成 M3.0 Step 1 代码切换与自动化 gate。
+  - `AppContainer` 移除 v1 `FileConfigurationStore` / `ToolExecutor` 装配，启动链路只暴露 `V2ConfigurationStore`、`ExecutionEngine`、`OutputDispatcher`、`InvocationGate` 与 `ResultPanelWindowSinkAdapter`。
+  - `AppDelegate` 的浮条、命令面板与执行入口改为读取 `V2Configuration`、传递 `V2Tool`，并通过 `ExecutionEngine.execute(seed:tool:)` 消费 `ExecutionEvent` 流。
+  - 新增 `ExecutionEventConsumer` 与 `AppDelegate+Execution`，把 started / llmChunk / failed / finished / sideEffect / permission / notImplemented 等事件翻译为 `ResultPanel` 行为；`.notImplemented` 失败不会再被后续 `.finished` 覆盖。
+  - `SettingsUI` / `Windowing` 改为绑定 V2 类型；Provider 编辑改为 debounce 自动保存，配置加载失败时阻止即时保存覆盖损坏文件；非 prompt 工具只显示基础字段与暂不支持提示，避免可编辑字段 setter no-op。
+  - `SelectionPayload.toExecutionSeed(...)`、`SliceError.execution(...)`、`InvocationOutcome.ErrorKind.execution` 补齐 app caller 所需 API；`OutputDispatcher` 非 window presentation mode 在 Phase 0 统一 fallback 到 window sink，并限制 fallback 日志去重缓存为 128 条。
+  - 新增/补强 `SelectionPayloadTests`、`SliceErrorTests`、`InvocationReportTests`、`OutputDispatcherFallbackTests`、`SingleWriterContractTests`、`ExecutionStreamOrderingTests` 等测试，覆盖 caller seed 映射、错误分类、fallback 行为与 single-writer gating 顺序。
+  - 质量短审提出的 6 个问题已逐项修复：Provider 编辑丢失、notImplemented 被 finished 覆盖、loadError 即时保存防护、非 prompt 编辑器 no-op、fallback 日志无界增长、ordering test sleep/Task 不稳定。
+  - 聚焦复审结论：`APPROVED`；复审仅检查上述 6 个问题及直接相关回归，未发现新的阻塞问题。
 
 ## 变动文件清单
 
@@ -86,6 +96,33 @@ status: in_progress
 - `SliceAIApp/ResultPanelWindowSinkAdapter.swift`
 - `SliceAIApp/AppContainer.swift`
 - `SliceAIApp/AppDelegate.swift`
+- `SliceAIApp/AppDelegate+Execution.swift`
+- `SliceAIApp/ExecutionEventConsumer.swift`
+- `SliceAIApp/MenuBarController.swift`
+- `SliceAIKit/Sources/SliceCore/SelectionPayload.swift`
+- `SliceAIKit/Sources/SliceCore/SliceError.swift`
+- `SliceAIKit/Sources/Orchestration/Events/InvocationReport.swift`
+- `SliceAIKit/Sources/Orchestration/Output/OutputDispatcher.swift`
+- `SliceAIKit/Sources/Orchestration/Output/OutputDispatcherProtocol.swift`
+- `SliceAIKit/Sources/SettingsUI/SettingsViewModel.swift`
+- `SliceAIKit/Sources/SettingsUI/Pages/ProvidersSettingsPage.swift`
+- `SliceAIKit/Sources/SettingsUI/Pages/ToolsSettingsPage.swift`
+- `SliceAIKit/Sources/SettingsUI/Pages/ToolsSettingsPage+Row.swift`
+- `SliceAIKit/Sources/SettingsUI/ProviderEditorView.swift`
+- `SliceAIKit/Sources/SettingsUI/ToolEditorView.swift`
+- `SliceAIKit/Sources/SettingsUI/ToolEditorView+Bindings.swift`
+- `SliceAIKit/Sources/SettingsUI/ToolEditorView+Sections.swift`
+- `SliceAIKit/Sources/SettingsUI/ToolEditorView+Support.swift`
+- `SliceAIKit/Sources/SettingsUI/ToolEditorView+Variables.swift`
+- `SliceAIKit/Sources/Windowing/CommandPalettePanel.swift`
+- `SliceAIKit/Sources/Windowing/FloatingToolbarPanel.swift`
+- `SliceAIKit/Tests/SliceCoreTests/SelectionPayloadTests.swift`
+- `SliceAIKit/Tests/SliceCoreTests/SliceErrorTests.swift`
+- `SliceAIKit/Tests/OrchestrationTests/InvocationReportTests.swift`
+- `SliceAIKit/Tests/OrchestrationTests/OutputDispatcherTests.swift`
+- `SliceAIKit/Tests/OrchestrationTests/Output/OutputDispatcherFallbackTests.swift`
+- `SliceAIKit/Tests/OrchestrationTests/AdapterContractTests/SingleWriterContractTests.swift`
+- `SliceAIKit/Tests/OrchestrationTests/AdapterContractTests/ExecutionStreamOrderingTests.swift`
 
 ## 测试结果
 
@@ -103,3 +140,9 @@ status: in_progress
 - M3.1.C+D：`xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build` 通过。
 - M3.1.C+D：`swiftlint lint --strict` 通过（0 violations / 0 serious）。
 - M3.1.E 自动化 smoke：v1/v2 装配字段 grep 通过；v2 caller grep 0 命中；v1 caller 仍指向 `toolExecutor.execute`。
+- M3.0 Step 1：`swift test --filter 'OrchestrationTests.ExecutionStreamOrderingTests|OrchestrationTests.OutputDispatcherFallbackTests|OrchestrationTests.OutputDispatcherTests|SliceCoreTests.SliceErrorTests|SliceCoreTests.SelectionPayloadTests|OrchestrationTests.InvocationReportTests'` 通过（43 tests）。
+- M3.0 Step 1：`swift test --parallel --enable-code-coverage` 通过（592 tests，退出码 0）。
+- M3.0 Step 1：`xcodebuild -quiet -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build` 通过。
+- M3.0 Step 1：`swiftlint lint --strict` 通过（142 files，0 violations / 0 serious）。
+- M3.0 Step 1：`git diff --check` 通过。
+- M3.0 Step 1：v1 caller 静态残留 grep 在 `SliceAIApp` / `SettingsUI` / `Windowing` 范围内 0 命中；`configStore.current()` 调用均为 `try await`。

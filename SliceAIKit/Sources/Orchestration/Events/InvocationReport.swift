@@ -119,6 +119,8 @@ public enum InvocationOutcome: Sendable, Codable, Equatable {
         case context
         /// v2 工具权限决策错误（SliceError.toolPermission(ToolPermissionError)）
         case toolPermission
+        /// 执行链顶层错误（SliceError.execution(ExecutionError)）
+        case execution
     }
 }
 
@@ -134,6 +136,7 @@ extension InvocationOutcome.ErrorKind {
         case .permission:     return .permission
         case .context:        return .context
         case .toolPermission: return .toolPermission
+        case .execution:      return .execution
         }
     }
 }

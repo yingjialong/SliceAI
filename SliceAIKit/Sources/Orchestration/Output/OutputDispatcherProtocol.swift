@@ -5,12 +5,12 @@ import SliceCore
 ///
 /// 两态模型：
 /// - `.delivered`：chunk 已成功投递到对应 sink
-/// - `.notImplemented(reason:)`：M2 阶段对该 `PresentationMode` 还没接入 sink；
-///   `reason` 必须含模式名称，便于调试 / audit
+/// - `.notImplemented(reason:)`：保留给自定义 dispatcher 或后续真实 sink 缺失场景；
+///   M3.0 默认 OutputDispatcher 对 non-window mode 已 fallback 到 `.window`
 public enum DispatchOutcome: Sendable, Equatable {
     /// chunk 已成功投递到对应 sink
     case delivered
-    /// 该 `PresentationMode` 在 M2 阶段未实现；reason 应含模式名
+    /// 该 `PresentationMode` 未实现；reason 应含模式名，便于调试 / audit
     case notImplemented(reason: String)
 }
 
@@ -31,8 +31,8 @@ public protocol OutputDispatcherProtocol: Sendable {
     ///   - mode: `V2Tool.displayMode` 是 mode 的 primary truth；不读 `outputBinding.primary`
     ///     （`outputBinding.primary` 仅 V2Tool decoder 用作冗余一致性校验字段）
     ///   - invocationId: 当前 invocation 的唯一标识，用于 sink 路由 / 关联 cancel
-    /// - Returns: `DispatchOutcome`；`.delivered` 表示成功投递，`.notImplemented` 表示
-    ///   该模式 M2 未支持，调用方应把这个结果转发为 `.notImplemented` ExecutionEvent
+    /// - Returns: `DispatchOutcome`；默认实现对 6 种 mode 都应返回 `.delivered`。
+    ///   仅自定义 dispatcher 明确无法 fallback 时才返回 `.notImplemented`。
     /// - Throws: 当 sink 自身抛错（如文件 IO 失败）时透传
     func handle(
         chunk: String,

@@ -30,3 +30,55 @@ public struct SelectionPayload: Sendable, Equatable, Codable {
         case clipboardFallback   // 通过模拟 Cmd+C + 剪贴板备份恢复获取
     }
 }
+
+// MARK: - v1 触发层包装 → v2 ExecutionSeed 单一入口
+
+public extension SelectionPayload {
+
+    /// 把触发层 SelectionPayload 翻译为 v2 ExecutionSeed。
+    ///
+    /// - Parameters:
+    ///   - triggerSource: 调用方决定本次执行来自浮条、命令面板或快捷键。
+    ///   - isDryRun: dry-run 模式；v0.2 触发链默认 false。
+    /// - Returns: 可直接传给 ExecutionEngine 的不可变执行种子。
+    func toExecutionSeed(triggerSource: TriggerSource, isDryRun: Bool = false) -> ExecutionSeed {
+        let snapshot = SelectionSnapshot(
+            text: text,
+            source: source.toSelectionOrigin(),
+            length: text.count,
+            language: nil,
+            contentType: nil
+        )
+        let appSnapshot = AppSnapshot(
+            bundleId: appBundleID,
+            name: appName,
+            url: url,
+            windowTitle: nil
+        )
+
+        return ExecutionSeed(
+            invocationId: UUID(),
+            selection: snapshot,
+            frontApp: appSnapshot,
+            screenAnchor: screenPoint,
+            timestamp: timestamp,
+            triggerSource: triggerSource,
+            isDryRun: isDryRun
+        )
+    }
+}
+
+public extension SelectionPayload.Source {
+
+    /// 单方向映射 v1 触发层 source 到 v2 SelectionOrigin。
+    ///
+    /// - Returns: 与当前 SelectionPayload.Source 等价的 v2 来源枚举。
+    func toSelectionOrigin() -> SelectionOrigin {
+        switch self {
+        case .accessibility:
+            return .accessibility
+        case .clipboardFallback:
+            return .clipboardFallback
+        }
+    }
+}

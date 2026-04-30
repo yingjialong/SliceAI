@@ -187,4 +187,19 @@ final class SliceErrorTests: XCTestCase {
             "configuration.referencedProviderMissing(p-id)"
         )
     }
+
+    /// 验证 execution.notImplemented 的用户文案可读、开发日志脱敏。
+    func test_executionNotImplemented_redactsDeveloperContext() {
+        let error = SliceError.execution(.notImplemented("v0.2 不支持 .skill 调用"))
+
+        XCTAssertTrue(error.userMessage.contains("v0.2 不支持"))
+        XCTAssertEqual(error.developerContext, "execution.notImplemented(<redacted>)")
+    }
+
+    /// 验证 execution.unknown 不会把外部错误描述写入开发日志。
+    func test_executionUnknown_redactsDeveloperContext() {
+        let error = SliceError.execution(.unknown("API key abc123 leaked"))
+
+        XCTAssertEqual(error.developerContext, "execution.unknown(<redacted>)")
+    }
 }

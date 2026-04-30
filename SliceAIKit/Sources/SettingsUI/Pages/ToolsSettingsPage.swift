@@ -106,8 +106,8 @@ public struct ToolsSettingsPage: View {
         )
     }
 
-    /// 当前待删除的 Tool 对象，用于 alert 展示真实名称
-    private var pendingDeleteTool: Tool? {
+    /// 当前待删除的 V2Tool 对象，用于 alert 展示真实名称
+    private var pendingDeleteTool: V2Tool? {
         guard let id = pendingDeleteId else { return nil }
         return viewModel.configuration.tools.first { $0.id == id }
     }
@@ -169,10 +169,10 @@ public struct ToolsSettingsPage: View {
     /// 单个工具列表项（行 + 展开编辑区 + drop 接收 + 插入指示线 overlay）
     ///
     /// - Parameters:
-    ///   - binding: Tool 的双向绑定，editor 通过此 binding 修改 configuration
+    ///   - binding: V2Tool 的双向绑定，editor 通过此 binding 修改 configuration
     ///   - index: 当前行在 tools 数组中的索引
     @ViewBuilder
-    private func toolListItem(for binding: Binding<Tool>, index: Int) -> some View {
+    private func toolListItem(for binding: Binding<V2Tool>, index: Int) -> some View {
         let tool = binding.wrappedValue
         let isExpanded = expandedId == tool.id
         let isLast = index == viewModel.configuration.tools.count - 1
@@ -218,7 +218,7 @@ public struct ToolsSettingsPage: View {
     /// - Parameters:
     ///   - tool: 当前行对应的工具（只读快照）
     ///   - isExpanded: 是否当前展开编辑区
-    private func makeToolRow(tool: Tool, isExpanded: Bool) -> ToolRow {
+    private func makeToolRow(tool: V2Tool, isExpanded: Bool) -> ToolRow {
         ToolRow(
             tool: tool,
             isExpanded: isExpanded,
@@ -253,7 +253,7 @@ public struct ToolsSettingsPage: View {
     // MARK: - 内联编辑区
 
     /// 展开的 Tool 编辑区（嵌入 ToolEditorView）
-    private func toolEditor(for binding: Binding<Tool>) -> some View {
+    private func toolEditor(for binding: Binding<V2Tool>) -> some View {
         VStack(spacing: 0) {
             Rectangle().fill(SliceColor.divider).frame(height: 0.5)
             ToolEditorView(
@@ -270,18 +270,30 @@ public struct ToolsSettingsPage: View {
     private func addTool() {
         let newId = "tool-\(Int(Date().timeIntervalSince1970))"
         let providerId = viewModel.configuration.providers.first?.id ?? ""
-        let newTool = Tool(
+        let prompt = PromptTool(
+            systemPrompt: nil,
+            userPrompt: "{{selection}}",
+            contexts: [],
+            provider: .fixed(providerId: providerId, modelId: nil),
+            temperature: 0.7,
+            maxTokens: nil,
+            variables: [:]
+        )
+        let newTool = V2Tool(
             id: newId,
             name: "新工具",
             icon: "wand.and.stars",
             description: nil,
-            systemPrompt: nil,
-            userPrompt: "{{selection}}",
-            providerId: providerId,
-            modelId: nil,
-            temperature: nil,
+            kind: .prompt(prompt),
+            visibleWhen: nil,
             displayMode: .window,
-            variables: [:]
+            outputBinding: nil,
+            permissions: [],
+            provenance: .firstParty,
+            budget: nil,
+            hotkey: nil,
+            labelStyle: .icon,
+            tags: []
         )
         print("[ToolsSettingsPage] addTool: id=\(newId)")
         viewModel.configuration.tools.append(newTool)
@@ -364,8 +376,8 @@ private struct ToolReorderDropDelegate: DropDelegate {
     /// 用于判断光标落在本行上半 / 下半的行高估算值
     let rowHeight: CGFloat
 
-    /// 全局工具数组的 @Binding；delegate 在 performDrop 里 mutate
-    @Binding var tools: [Tool]
+    /// 全局 v2 工具数组的 @Binding；delegate 在 performDrop 里 mutate
+    @Binding var tools: [V2Tool]
 
     /// 当前被拖的 Tool.id；由外层 `.onDrag` 写入，commit 后置 nil
     @Binding var draggedId: String?

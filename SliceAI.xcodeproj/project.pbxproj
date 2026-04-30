@@ -9,8 +9,10 @@
 /* Begin PBXBuildFile section */
 		533BA7882F9695D00078EF4F /* AppContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 533BA7802F9695D00078EF4F /* AppContainer.swift */; };
 		533BA7892F9695D00078EF4F /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 533BA7812F9695D00078EF4F /* AppDelegate.swift */; };
+		533BA7A42F9695D00078EF4F /* AppDelegate+Execution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 533BA7A52F9695D00078EF4F /* AppDelegate+Execution.swift */; };
 		533BA78A2F9695D00078EF4F /* MenuBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 533BA7842F9695D00078EF4F /* MenuBarController.swift */; };
 		533BA7A02F9695D00078EF4F /* ResultPanelWindowSinkAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 533BA7A12F9695D00078EF4F /* ResultPanelWindowSinkAdapter.swift */; };
+		533BA7A22F9695D00078EF4F /* ExecutionEventConsumer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 533BA7A32F9695D00078EF4F /* ExecutionEventConsumer.swift */; };
 		533BA78B2F9695D00078EF4F /* SliceAIApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 533BA7862F9695D00078EF4F /* SliceAIApp.swift */; };
 		533BA78C2F9695D00078EF4F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 533BA7822F9695D00078EF4F /* Assets.xcassets */; };
 		533BA7912F969D310078EF4F /* HotkeyManager in Frameworks */ = {isa = PBXBuildFile; productRef = 533BA7902F969D310078EF4F /* HotkeyManager */; };
@@ -28,9 +30,11 @@
 		533BA76C2F9691D20078EF4F /* SliceAI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SliceAI.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		533BA7802F9695D00078EF4F /* AppContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppContainer.swift; sourceTree = "<group>"; };
 		533BA7812F9695D00078EF4F /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		533BA7A52F9695D00078EF4F /* AppDelegate+Execution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+Execution.swift"; sourceTree = "<group>"; };
 		533BA7822F9695D00078EF4F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		533BA7842F9695D00078EF4F /* MenuBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarController.swift; sourceTree = "<group>"; };
 		533BA7A12F9695D00078EF4F /* ResultPanelWindowSinkAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultPanelWindowSinkAdapter.swift; sourceTree = "<group>"; };
+		533BA7A32F9695D00078EF4F /* ExecutionEventConsumer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExecutionEventConsumer.swift; sourceTree = "<group>"; };
 		533BA7852F9695D00078EF4F /* SliceAI.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SliceAI.entitlements; sourceTree = "<group>"; };
 		533BA7862F9695D00078EF4F /* SliceAIApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SliceAIApp.swift; sourceTree = "<group>"; };
 		533BA78E2F9699C90078EF4F /* SliceAI-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "SliceAI-Info.plist"; sourceTree = "<group>"; };
@@ -79,8 +83,10 @@
 			children = (
 				533BA7802F9695D00078EF4F /* AppContainer.swift */,
 				533BA7812F9695D00078EF4F /* AppDelegate.swift */,
+				533BA7A52F9695D00078EF4F /* AppDelegate+Execution.swift */,
 				533BA7822F9695D00078EF4F /* Assets.xcassets */,
 				533BA7842F9695D00078EF4F /* MenuBarController.swift */,
+				533BA7A32F9695D00078EF4F /* ExecutionEventConsumer.swift */,
 				533BA7852F9695D00078EF4F /* SliceAI.entitlements */,
 				533BA7A12F9695D00078EF4F /* ResultPanelWindowSinkAdapter.swift */,
 				533BA7862F9695D00078EF4F /* SliceAIApp.swift */,
@@ -181,8 +187,10 @@
 			files = (
 				533BA7882F9695D00078EF4F /* AppContainer.swift in Sources */,
 				533BA7892F9695D00078EF4F /* AppDelegate.swift in Sources */,
+				533BA7A42F9695D00078EF4F /* AppDelegate+Execution.swift in Sources */,
 				533BA78A2F9695D00078EF4F /* MenuBarController.swift in Sources */,
 				533BA7A02F9695D00078EF4F /* ResultPanelWindowSinkAdapter.swift in Sources */,
+				533BA7A22F9695D00078EF4F /* ExecutionEventConsumer.swift in Sources */,
 				533BA78B2F9695D00078EF4F /* SliceAIApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

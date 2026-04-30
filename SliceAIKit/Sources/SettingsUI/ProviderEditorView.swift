@@ -3,9 +3,9 @@ import DesignSystem
 import SliceCore
 import SwiftUI
 
-/// 单个 Provider 的编辑表单，含 API Key 的 Keychain 读写入口与连接测试
+/// 单个 V2Provider 的编辑表单，含 API Key 的 Keychain 读写入口与连接测试
 ///
-/// API Key 不存 Configuration，而是通过注入的 `onSaveKey` / `onLoadKey` 回调
+/// API Key 不存 V2Configuration，而是通过注入的 `onSaveKey` / `onLoadKey` 回调
 /// 间接访问 Keychain；连接测试通过 `onTestKey` 回调（通常由 ViewModel 转发到
 /// LLMProviders）。这样本视图无需感知具体存储 / 网络实现，便于预览与单元测试。
 ///
@@ -13,10 +13,10 @@ import SwiftUI
 /// 不使用 Form/Section（FormStyle.grouped 在内联展开场景有额外内边距不适用）。
 public struct ProviderEditorView: View {
 
-    /// 指向 Configuration 中某个 Provider 的双向绑定
-    @Binding public var provider: Provider
+    /// 指向 V2Configuration 中某个 V2Provider 的双向绑定
+    @Binding public var provider: V2Provider
 
-    /// 当前编辑态的 API Key 明文（只在内存中，不写回 Configuration）
+    /// 当前编辑态的 API Key 明文（只在内存中，不写回 V2Configuration）
     @State private var apiKey: String = ""
 
     /// 已从 Keychain 预读的 API Key；Test connection 在 `apiKey` 为空时回退使用
@@ -33,6 +33,9 @@ public struct ProviderEditorView: View {
     /// Test connection 后的状态消息：成功绿/灰、失败红；成功 2 秒自动消失
     @State private var testMessage: ProviderStatusMessage?
 
+    /// Base URL 输入校验提示；非 nil 时展示红色错误文本
+    @State private var baseURLMessage: ProviderStatusMessage?
+
     /// Test 是否进行中；为 true 时禁用按钮 + 显示"测试中…"
     @State private var isTesting: Bool = false
 
@@ -45,14 +48,14 @@ public struct ProviderEditorView: View {
     /// 测试连接的异步回调；签名 (key, baseURL, model)
     private let onTestKey: @Sendable (String, URL, String) async throws -> Void
 
-    /// 构造 Provider 编辑视图
+    /// 构造 V2Provider 编辑视图
     /// - Parameters:
-    ///   - provider: 指向 Configuration 中某个 Provider 的绑定
+    ///   - provider: 指向 V2Configuration 中某个 V2Provider 的绑定
     ///   - onSaveKey: 保存 API Key 的异步回调；抛错会被 UI 转成"保存失败"提示
     ///   - onLoadKey: 读取 API Key 的异步回调；返回 nil 表示槽位为空
     ///   - onTestKey: 测试连接的异步回调；抛错会被 UI 转成"测试失败"提示
     public init(
-        provider: Binding<Provider>,
+        provider: Binding<V2Provider>,
         onSaveKey: @escaping @Sendable (String) async throws -> Void,
         onLoadKey: @escaping @Sendable () async -> String?,
         onTestKey: @escaping @Sendable (String, URL, String) async throws -> Void
@@ -73,7 +76,8 @@ public struct ProviderEditorView: View {
         }
         .task {
             // 视图首次出现时同步 Base URL 字符串态
-            baseURLText = provider.baseURL.absoluteString
+            baseURLText = provider.baseURL?.absoluteString ?? ""
+            validateBaseURLInput(baseURLText)
             // 预读已有 API Key，同时存入 savedKey 供 Test 回退
             if let existing = await onLoadKey() {
                 apiKey = existing
@@ -97,19 +101,19 @@ public struct ProviderEditorView: View {
                     .font(SliceFont.body)
             }
 
-            // Base URL 行：中间态编辑，失焦或回车时尝试解析
+            // Base URL 行：中间态编辑，实时校验；非法值不会悄悄沿用旧 URL。
             SettingsRow("Base URL") {
                 TextField("https://api.openai.com/v1", text: $baseURLText)
                     .textFieldStyle(.plain)
                     .multilineTextAlignment(.trailing)
-                    .foregroundColor(SliceColor.textPrimary)
+                    .foregroundColor(baseURLMessage == nil ? SliceColor.textPrimary : SliceColor.error)
                     .font(SliceFont.body)
                     .onChange(of: baseURLText) { _, newValue in
-                        // 实时解析，仅有效 URL 才回写，避免存入非法值
-                        if let url = URL(string: newValue) {
-                            provider.baseURL = url
-                        }
+                        validateBaseURLInput(newValue)
                     }
+            }
+            if let msg = baseURLMessage {
+                statusLabel(msg)
             }
 
             // 默认模型行（最后一行无分隔线，借助 SettingsRow 内置分隔）
@@ -210,7 +214,16 @@ public struct ProviderEditorView: View {
         isTesting = true
         testMessage = ProviderStatusMessage(text: "测试中…", isError: false)
         do {
-            try await onTestKey(key, provider.baseURL, provider.defaultModel)
+            guard let baseURL = provider.baseURL else {
+                testMessage = ProviderStatusMessage(
+                    text: "测试失败：Base URL 未配置",
+                    isError: true
+                )
+                isTesting = false
+                print("[ProviderEditorView] testKey: baseURL is nil, skip test")
+                return
+            }
+            try await onTestKey(key, baseURL, provider.defaultModel)
             testMessage = ProviderStatusMessage(text: "连接成功", isError: false)
             isTesting = false
             print("[ProviderEditorView] testKey: success")
@@ -232,6 +245,32 @@ public struct ProviderEditorView: View {
             )
             isTesting = false
         }
+    }
+
+    /// 校验 Base URL 文本，并把有效值同步回 provider。
+    ///
+    /// 无效输入会把 `provider.baseURL` 置 nil，避免 UI 文本已经变成坏值时仍静默保留旧 URL；
+    /// `V2ConfigurationStore` 的 validate 会阻止需要 baseURL 的 provider 被错误落盘。
+    /// - Parameter rawValue: 用户在 TextField 中输入的 URL 字符串。
+    private func validateBaseURLInput(_ rawValue: String) {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            provider.baseURL = nil
+            baseURLMessage = providerRequiresBaseURL ? .error("Base URL 不能为空") : nil
+            return
+        }
+        guard let url = URL(string: trimmed), url.scheme != nil else {
+            provider.baseURL = nil
+            baseURLMessage = .error("Base URL 格式无效")
+            return
+        }
+        provider.baseURL = url
+        baseURLMessage = nil
+    }
+
+    /// 当前 Provider 协议族是否要求显式 Base URL。
+    private var providerRequiresBaseURL: Bool {
+        provider.kind == .openAICompatible || provider.kind == .ollama
     }
 
     // MARK: - 辅助视图
@@ -257,4 +296,10 @@ public struct ProviderEditorView: View {
 private struct ProviderStatusMessage: Equatable, Sendable {
     let text: String
     let isError: Bool
+
+    /// 构造错误状态消息。
+    /// - Parameter text: 要展示的错误文案。
+    static func error(_ text: String) -> ProviderStatusMessage {
+        ProviderStatusMessage(text: text, isError: true)
+    }
 }

@@ -16,8 +16,11 @@ import SwiftUI
 ///   - 编辑区：ProviderEditorView 内嵌于 SectionCard；选另一行或空白处收起
 ///
 /// 持久化策略：ProviderEditorView 通过 @Binding 直接修改 configuration，
-/// 编辑收起时调用 viewModel.save() 写回磁盘。
+/// 由 `.onChange(of: providers)` 统一做 debounced save，避免普通编辑静默丢失。
 public struct ProvidersSettingsPage: View {
+
+    /// 写盘前的静默等待时长：用户连续编辑时避免频繁写盘
+    private static let saveDebounceInterval: UInt64 = 600_000_000  // 600 ms
 
     /// 设置视图模型，用于读写 configuration.providers
     @ObservedObject private var viewModel: SettingsViewModel
@@ -27,6 +30,9 @@ public struct ProvidersSettingsPage: View {
 
     /// 待确认删除的 Provider id；非 nil 时弹出删除确认 alert
     @State private var pendingDeleteId: String?
+
+    /// debounced save 的当前 Task；新变动进来就 cancel 重排
+    @State private var saveDebounceTask: Task<Void, Never>?
 
     /// 构造 Providers 设置页
     /// - Parameter viewModel: 宿主注入的设置视图模型
@@ -60,6 +66,9 @@ public struct ProvidersSettingsPage: View {
         } message: { provider in
             Text("确定要删除「\(provider.name)」吗？关联此 Provider 的工具将失效，请先在工具中改绑其他 Provider。")
         }
+        .onChange(of: viewModel.configuration.providers) { _, _ in
+            scheduleDebouncedSave()
+        }
     }
 
     /// 将 pendingDeleteId 适配为 alert 的 Bool 绑定
@@ -70,8 +79,8 @@ public struct ProvidersSettingsPage: View {
         )
     }
 
-    /// 当前待删除的 Provider 对象，用于 alert 展示真实名称
-    private var pendingDeleteProvider: Provider? {
+    /// 当前待删除的 V2Provider 对象，用于 alert 展示真实名称
+    private var pendingDeleteProvider: V2Provider? {
         guard let id = pendingDeleteId else { return nil }
         return viewModel.configuration.providers.first { $0.id == id }
     }
@@ -123,7 +132,7 @@ public struct ProvidersSettingsPage: View {
     ///
     /// 独立为方法以避免 Swift 类型推导超时（providerList ForEach body 过深）。
     @ViewBuilder
-    private func providerListItem(for binding: Binding<Provider>) -> some View {
+    private func providerListItem(for binding: Binding<V2Provider>) -> some View {
         let provider = binding.wrappedValue
         let isExpanded = expandedId == provider.id
         // 提前计算描边颜色，避免在 overlay 闭包里做三目表达式
@@ -167,7 +176,7 @@ public struct ProvidersSettingsPage: View {
     // MARK: - 内联编辑区
 
     /// 展开的 Provider 编辑区（嵌入 ProviderEditorView + 删除按钮）
-    private func providerEditor(for binding: Binding<Provider>) -> some View {
+    private func providerEditor(for binding: Binding<V2Provider>) -> some View {
         VStack(spacing: 0) {
             // 分隔线
             Rectangle()
@@ -202,27 +211,20 @@ public struct ProvidersSettingsPage: View {
         let newId = "provider-\(Int(Date().timeIntervalSince1970))"
         // 硬编码 OpenAI baseURL 字符串是有效 URL，guard 处理仅为避免 force unwrap 告警
         guard let defaultURL = URL(string: "https://api.openai.com/v1") else { return }
-        let newProvider = Provider(
+        let newProvider = V2Provider(
             id: newId,
+            kind: .openAICompatible,
             name: "新 Provider",
             baseURL: defaultURL,
             apiKeyRef: "keychain:\(newId)",
-            defaultModel: "gpt-4o-mini"
+            defaultModel: "gpt-4o-mini",
+            capabilities: []
         )
         print("[ProvidersSettingsPage] addProvider: id=\(newId)")
         viewModel.configuration.providers.append(newProvider)
         // 立即展开新 Provider 的编辑区
         withAnimation(SliceAnimation.standard) {
             expandedId = newId
-        }
-        // 异步持久化
-        Task {
-            do {
-                try await viewModel.save()
-                print("[ProvidersSettingsPage] addProvider: saved OK")
-            } catch {
-                print("[ProvidersSettingsPage] addProvider: save failed – \(error.localizedDescription)")
-            }
         }
     }
 
@@ -236,12 +238,22 @@ public struct ProvidersSettingsPage: View {
                 expandedId = nil
             }
         }
-        Task {
+    }
+
+    /// 安排一次 debounced save（取消上一个挂起 Task 再启新）。
+    ///
+    /// ProviderEditorView 通过 binding 直接修改 `configuration.providers`；所有普通编辑、新增、
+    /// 删除都经 `.onChange(of: providers)` 流到这里，避免用户收起/关闭设置后修改丢失。
+    private func scheduleDebouncedSave() {
+        saveDebounceTask?.cancel()
+        saveDebounceTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: Self.saveDebounceInterval)
+            guard !Task.isCancelled else { return }
             do {
                 try await viewModel.save()
-                print("[ProvidersSettingsPage] performDelete: saved OK")
+                print("[ProvidersSettingsPage] debounced save OK")
             } catch {
-                print("[ProvidersSettingsPage] performDelete: save failed – \(error.localizedDescription)")
+                print("[ProvidersSettingsPage] debounced save failed – \(error.localizedDescription)")
             }
         }
     }
@@ -254,8 +266,8 @@ public struct ProvidersSettingsPage: View {
 /// 作为纯展示组件，点击事件通过 onToggle / onDelete 回调向上传递。
 private struct ProviderRow: View {
 
-    /// 当前行对应的 Provider（只读展示）
-    let provider: Provider
+    /// 当前行对应的 V2Provider（只读展示）
+    let provider: V2Provider
 
     /// 当前行是否展开
     let isExpanded: Bool

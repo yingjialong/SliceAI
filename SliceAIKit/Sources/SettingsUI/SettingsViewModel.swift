@@ -7,9 +7,9 @@ import SwiftUI
 /// 设置界面主视图模型
 ///
 /// 负责：
-///   - 持有当前 `Configuration` 并在 `@Published` 下驱动 SwiftUI 刷新；
-///   - 通过注入的 `ConfigurationProviding` 做加载/持久化；
-///   - 通过注入的 `KeychainAccessing` 读写 API Key，避免把密钥塞进 Configuration；
+///   - 持有当前 `V2Configuration` 并在 `@Published` 下驱动 SwiftUI 刷新；
+///   - 通过注入的 `V2ConfigurationStore` 做加载/持久化；
+///   - 通过注入的 `KeychainAccessing` 读写 API Key，避免把密钥塞进配置文件；
 ///   - 通过 `appearance` 字段单独暴露外观模式，配合 `setAppearance(_:)` 立即持久化。
 ///
 /// 类型被标记为 `@MainActor`，保证 `@Published` 属性读写只发生在主线程，
@@ -17,8 +17,8 @@ import SwiftUI
 @MainActor
 public final class SettingsViewModel: ObservableObject {
 
-    /// 当前正在编辑的完整配置；UI 通过 `$viewModel.configuration.xxx` 做双向绑定
-    @Published public var configuration: Configuration
+    /// 当前正在编辑的完整 v2 配置；UI 通过 `$viewModel.configuration.xxx` 做双向绑定
+    @Published public var configuration: V2Configuration
 
     /// 当前外观模式（从 configuration.appearance 同步），供 AppearanceSettingsPage 绑定
     ///
@@ -26,8 +26,11 @@ public final class SettingsViewModel: ObservableObject {
     /// `setAppearance(_:)` 时同时更新两者。设置该值会立即持久化，无需手动调用 save()。
     @Published public var appearance: AppearanceMode
 
-    /// 配置持久化抽象，生产环境通常注入 `FileConfigurationStore`
-    private let store: any ConfigurationProviding
+    /// 最近一次 reload 失败的配置错误；非 nil 时禁止把默认占位配置覆盖写盘
+    @Published public var loadError: SliceError?
+
+    /// v2 配置持久化 actor，生产环境注入 AppContainer 启动时创建的实例
+    private let store: V2ConfigurationStore
 
     /// Keychain 抽象，生产环境注入 `KeychainStore`
     private let keychain: any KeychainAccessing
@@ -41,16 +44,16 @@ public final class SettingsViewModel: ObservableObject {
 
     /// 构造设置视图模型
     /// - Parameters:
-    ///   - store: 配置读写抽象
+    ///   - store: v2 配置读写 actor
     ///   - keychain: Keychain 读写抽象
     ///
     /// 初始化时先塞入内存态的默认配置占位，随后异步 reload 真实磁盘值。
     /// 这样可避免首次渲染出现空白，也无需在调用方处理 async init。
-    public init(store: any ConfigurationProviding, keychain: any KeychainAccessing) {
+    public init(store: V2ConfigurationStore, keychain: any KeychainAccessing) {
         self.store = store
         self.keychain = keychain
         // 先用默认值占位，reload() 异步完成后更新为真实磁盘值
-        let initial = DefaultConfiguration.initial()
+        let initial = DefaultV2Configuration.initial()
         self.configuration = initial
         self.appearance = initial.appearance
         // 使用 [weak self] 捕获弱引用，避免在 Swift 6 严格并发下 self 在 init
@@ -71,6 +74,7 @@ public final class SettingsViewModel: ObservableObject {
         appearance = mode
         // 写回磁盘；IO 失败不阻断 UI（下次启动 reload 会以磁盘为准）
         do {
+            try ensureCanPersist(operation: "setAppearance")
             try await store.update(configuration)
         } catch {
             // 记录日志方便调试，不向上抛错（UI 已切换，用户体验优先）
@@ -78,19 +82,32 @@ public final class SettingsViewModel: ObservableObject {
         }
     }
 
-    /// 从 store 拉取最新 Configuration 覆盖当前内存态
+    /// 从 store 拉取最新 V2Configuration 覆盖当前内存态
     ///
-    /// 同时同步 `appearance` 独立属性，保证两处数据一致。
+    /// 同时同步 `appearance` 独立属性，保证两处数据一致；失败时保留当前内存态，
+    /// 只更新 `loadError`，避免把默认占位配置写回覆盖用户损坏的 config-v2.json。
     public func reload() async {
-        let cfg = await store.current()
-        self.configuration = cfg
-        // 同步独立的 appearance 发布属性，使 AppearanceSettingsPage 刷新
-        self.appearance = cfg.appearance
+        do {
+            let cfg = try await store.current()
+            self.configuration = cfg
+            // 同步独立的 appearance 发布属性，使 AppearanceSettingsPage 刷新
+            self.appearance = cfg.appearance
+            self.loadError = nil
+            print("[SettingsViewModel] reload: loaded v2 configuration")
+        } catch let error as SliceError {
+            self.loadError = error
+            print("[SettingsViewModel] reload: failed – \(error.developerContext)")
+        } catch {
+            let redacted = SliceError.configuration(.invalidJSON("<redacted>"))
+            self.loadError = redacted
+            print("[SettingsViewModel] reload: unexpected failure – \(error.localizedDescription)")
+        }
     }
 
-    /// 将当前内存态 Configuration 写回 store
+    /// 将当前内存态 V2Configuration 写回 store
     /// - Throws: 底层 store 的 IO/序列化错误
     public func save() async throws {
+        try ensureCanPersist(operation: "save")
         try await store.update(configuration)
     }
 
@@ -101,6 +118,7 @@ public final class SettingsViewModel: ObservableObject {
     public func saveTriggers() async {
         // 内存态已由调用方更新，直接写回磁盘
         do {
+            try ensureCanPersist(operation: "saveTriggers")
             try await store.update(configuration)
             print("[SettingsViewModel] saveTriggers: persisted OK")
         } catch {
@@ -116,6 +134,7 @@ public final class SettingsViewModel: ObservableObject {
     public func saveHotkeys() async {
         // 内存态已由绑定更新，直接写回磁盘
         do {
+            try ensureCanPersist(operation: "saveHotkeys")
             try await store.update(configuration)
             print("[SettingsViewModel] saveHotkeys: persisted OK")
             // 通知 App 层重新注册热键；若调用方未注入回调则跳过（例如单元测试）
@@ -125,39 +144,38 @@ public final class SettingsViewModel: ObservableObject {
         }
     }
 
-    /// 为指定 Provider 写入 API Key
+    /// 为指定 V2Provider 写入 API Key
     ///
-    /// Keychain 的 account 必须通过 `Provider.keychainAccount` 解析自 `apiKeyRef`，
-    /// 这样写入槽位与 `ToolExecutor.execute` 读取槽位一致，避免出现：
+    /// Keychain 的 account 必须通过 `V2Provider.keychainAccount` 解析自 `apiKeyRef`，
+    /// 这样写入槽位与 v2 `PromptExecutor` 读取槽位一致，避免出现：
     ///   - 导入的配置中 `apiKeyRef = "keychain:shared-key"`，account != provider.id；
     ///   - 重命名 Provider（id 变化）后，旧的 `apiKeyRef` 指向的槽位仍被执行器读取，
     ///     但 UI 层却在新 id 对应的槽位里写键，导致运行时始终拿不到密钥。
     /// - Parameters:
     ///   - key: 明文 API Key；空串语义由调用方决定
-    ///   - provider: 目标 Provider；其 `apiKeyRef` 决定写入的 Keychain account
+    ///   - provider: 目标 V2Provider；其 `apiKeyRef` 决定写入的 Keychain account
     /// - Throws:
     ///   - `SliceError.configuration(.invalidJSON)` 当 `apiKeyRef` 不是 `keychain:` 前缀
     ///     （例如未来规划的 `env:` 方案），UI 层暂不支持写入
     ///   - Keychain 底层的 IO/OSStatus 错误
-    public func setAPIKey(_ key: String, for provider: Provider) async throws {
+    public func setAPIKey(_ key: String, for provider: V2Provider) async throws {
         guard let account = provider.keychainAccount else {
             // apiKeyRef 不是 keychain: 前缀（例如将来的 env: 方案）；UI 层暂不支持写入
-            throw SliceError.configuration(
-                .invalidJSON(
-                    "Provider '\(provider.id)' uses non-keychain apiKeyRef: \(provider.apiKeyRef)"
-                )
-            )
+            print("[SettingsViewModel] setAPIKey: unsupported apiKeyRef for provider '\(provider.id)'")
+            throw SliceError.configuration(.validationFailed(
+                "provider apiKeyRef must use keychain: prefix for Settings UI writes"
+            ))
         }
         try await keychain.writeAPIKey(key, providerId: account)
     }
 
-    /// 读取指定 Provider 的 API Key，不存在或非 keychain 引用时返回 nil
+    /// 读取指定 V2Provider 的 API Key，不存在或非 keychain 引用时返回 nil
     ///
-    /// 与 `setAPIKey(_:for:)` 对称，通过 `Provider.keychainAccount` 解析 account，
+    /// 与 `setAPIKey(_:for:)` 对称，通过 `V2Provider.keychainAccount` 解析 account，
     /// 保证读取槽位与执行器一致。
-    /// - Parameter provider: 目标 Provider；其 `apiKeyRef` 决定读取的 Keychain account
+    /// - Parameter provider: 目标 V2Provider；其 `apiKeyRef` 决定读取的 Keychain account
     /// - Returns: 明文 API Key；槽位为空或 `apiKeyRef` 非 keychain 前缀时返回 nil
-    public func readAPIKey(for provider: Provider) async throws -> String? {
+    public func readAPIKey(for provider: V2Provider) async throws -> String? {
         // apiKeyRef 非 keychain: 前缀时，UI 无处可读，直接返回 nil 让 UI 回退到空态
         guard let account = provider.keychainAccount else { return nil }
         return try await keychain.readAPIKey(providerId: account)
@@ -185,7 +203,7 @@ public final class SettingsViewModel: ObservableObject {
     ///   - 其它由 URLSession / Foundation 抛出的底层错误
     public func testProvider(apiKey: String, baseURL: URL, model: String) async throws {
         // 临时构造一个 OpenAICompatibleProvider 用于探测；
-        // 不影响 Configuration 或 ToolExecutor 持有的真实 provider 实例
+        // 不影响 V2Configuration 或 PromptExecutor 持有的真实 provider 实例
         let probe = OpenAICompatibleProvider(baseURL: baseURL, apiKey: apiKey)
         let request = ChatRequest(
             model: model,
@@ -199,6 +217,21 @@ public final class SettingsViewModel: ObservableObject {
         // URLSession.bytes 任务，避免无谓地继续接收流
         for try await _ in stream {
             break
+        }
+    }
+
+    /// 检查当前内存态是否允许持久化。
+    ///
+    /// reload 失败时，`configuration` 可能仍是默认占位配置。所有写盘入口都必须共用该防线，
+    /// 避免局部即时保存把用户损坏但可修复的 `config-v2.json` 覆盖掉。
+    /// - Parameter operation: 调用方操作名，用于日志定位。
+    /// - Throws: 当最近一次 reload 失败时抛出配置校验错误。
+    private func ensureCanPersist(operation: String) throws {
+        if let err = self.loadError {
+            print("[SettingsViewModel] \(operation): blocked because reload failed – \(err.developerContext)")
+            throw SliceError.configuration(.validationFailed(
+                "config-v2.json load failed; refusing to save default placeholder over broken file"
+            ))
         }
     }
 }

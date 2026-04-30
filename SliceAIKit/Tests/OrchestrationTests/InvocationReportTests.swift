@@ -50,4 +50,21 @@ final class InvocationReportTests: XCTestCase {
         XCTAssertEqual(InvocationOutcome.ErrorKind.from(.configuration(.fileNotFound)), .configuration)
         XCTAssertEqual(InvocationOutcome.ErrorKind.from(.permission(.accessibilityDenied)), .permission)
     }
+
+    /// 验证 SliceError.execution 映射到 InvocationOutcome.ErrorKind.execution。
+    func test_errorKindFrom_execution() {
+        XCTAssertEqual(
+            InvocationOutcome.ErrorKind.from(.execution(.notImplemented("test"))),
+            .execution
+        )
+        XCTAssertEqual(
+            InvocationOutcome.ErrorKind.from(.execution(.unknown("test"))),
+            .execution
+        )
+    }
+
+    /// 验证 ErrorKind.execution 的持久化 rawValue 稳定。
+    func test_errorKindExecution_rawValue() {
+        XCTAssertEqual(InvocationOutcome.ErrorKind.execution.rawValue, "execution")
+    }
 }

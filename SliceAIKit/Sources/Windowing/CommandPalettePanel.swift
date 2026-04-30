@@ -24,7 +24,7 @@ public final class CommandPalettePanel {
     ///   - tools: 可供筛选与选择的工具列表
     ///   - preview: 可选的选区预览文本，若为空则不显示预览行
     ///   - onPick: 用户选中某工具后的回调（在主线程触发）
-    public func show(tools: [Tool], preview: String?, onPick: @escaping (Tool) -> Void) {
+    public func show(tools: [V2Tool], preview: String?, onPick: @escaping @MainActor (V2Tool) -> Void) {
         // 固定面板尺寸 560×420pt，比老版宽 80pt，更接近 Raycast 黄金比例
         let size = CGSize(width: 560, height: 420)
         // 主屏幕可见区为基准；垂直取 minY + height * 0.55 达到"居中偏上 30%"效果
@@ -88,9 +88,9 @@ public final class CommandPalettePanel {
 
 /// 命令面板内部的 SwiftUI 视图：选区预览 + 搜索框 + 结果列表 + footer
 private struct PaletteContent: View {
-    let tools: [Tool]
+    let tools: [V2Tool]
     let preview: String
-    let onPick: (Tool) -> Void
+    let onPick: @MainActor (V2Tool) -> Void
     let onCancel: () -> Void
 
     /// 搜索输入
@@ -255,7 +255,7 @@ private struct PaletteContent: View {
     }
 
     /// 基于 query 进行大小写不敏感的名称 / 描述模糊筛选；query 为空或纯空白则返回全部
-    private var filtered: [Tool] {
+    private var filtered: [V2Tool] {
         // 先 trim 再判空：避免用户输入空格时被视为有效查询
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !trimmedQuery.isEmpty else { return tools }
@@ -270,7 +270,7 @@ private struct PaletteContent: View {
 
 /// 单个工具行：28×28 图标 + 工具名 + 描述 + 选中时显示 ↵ kbd
 private struct PaletteRow: View {
-    let tool: Tool
+    let tool: V2Tool
     let isSelected: Bool
 
     var body: some View {
