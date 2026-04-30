@@ -4,6 +4,15 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 
 ---
 
+## Task 36 · Phase 0 M3 · Switch to V2 implementation
+
+- **时间**：2026-04-30
+- **描述**：按 `docs/superpowers/plans/2026-04-28-phase-0-m3-switch-to-v2.md` 执行 M3 implementation：V2 类型族接入真实启动路径、删除 v1 冲突类型族、完成 rename pass、13 项手工回归与 v0.2.0 unsigned DMG release。
+- **详情**：[docs/Task-detail/2026-04-28-phase-0-m3-implementation.md](Task-detail/2026-04-28-phase-0-m3-implementation.md)
+- **结果**：实施中
+
+---
+
 ## Task 35 · Phase 0 M3 · plan/spec 口径对齐修复
 
 - **时间**：2026-04-29
