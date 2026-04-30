@@ -35,7 +35,7 @@ status: in_progress
 - [ ] M3.0 Step 1 手工 smoke：Safari 划词 / 命令面板 / 启动失败弹窗（待人工确认）。
 - [x] M3.0 Step 2：删除 v1 类型族 + SelectionReader + LLMProviderFactory 升级。
 - [x] M3.0 Step 3：V2* rename 回 spec 正名。
-- [ ] M3.0 Step 4：PresentationMode → DisplayMode。
+- [x] M3.0 Step 4：PresentationMode → DisplayMode。
 - [ ] M3.0 Step 5：SelectionOrigin → SelectionSource。
 - [ ] M3.2/M3.3/M3.4：触发链、配置启动场景、grep validation 验收。
 - [ ] M3.5：13 项手工回归。
@@ -271,3 +271,44 @@ Step 2 已删除 v1 `Tool` / `Provider` / `Configuration` / `ConfigurationStore`
 
 - 仍保留 `ConfigMigratorV1ToV2`、`LegacyConfigV1`、`config-v2.json` 等版本边界命名；这些是迁移 / 文件 schema 语义，不属于 canonical 类型族残留。
 - 提交前必须重建暂存区：此前 index 只记录了 9 个纯 rename，类型替换仍在 unstaged 工作区；最终提交必须用精确 pathspec stage 本轮 tracked 文件，避免漏提替换或误加入历史未跟踪 docs/handoff。
+
+## M3.0 Step 4（Task 10）实施记录
+
+### 背景
+
+Step 3 已把 V2 类型族正名为 `Tool` / `Provider` / `Configuration` / `ConfigurationStore` / `DefaultConfiguration`。Step 4 只处理 M1 临时命名 `PresentationMode`，恢复 spec canonical 名称 `DisplayMode`。本 step 不执行 Step 5，`SelectionOrigin` 与 `SelectionPayload.Source.toSelectionOrigin()` 保持不变；SelectionCapture reader 命名也保持 `SelectionReader` / `AXSelectionSource` / `ClipboardSelectionSource`。
+
+### ToDoList
+
+- [x] 用 `rg -n "\bPresentationMode\b" SliceAIKit/Sources SliceAIKit/Tests SliceAIApp --type swift` 盘点 Swift 精确命中。
+- [x] 用 word-boundary `perl` 把 Swift 类型引用、注释、测试断言从 `PresentationMode` 改为 `DisplayMode`。
+- [x] 同步测试方法名与 SettingsUI helper 命名：`test_presentationMode_*` -> `test_displayMode_*`，`editablePresentationModes` -> `editableDisplayModes`。
+- [x] 手工修正 `OutputBinding.swift` 的历史命名说明，避免 Step 4 后注释仍描述 v1/v2 同名冲突。
+- [x] 执行 Step 4 自查 grep、SwiftPM build、targeted tests、full tests、xcodebuild、swiftlint、`git diff --check`。
+
+### 实施结果
+
+- `OutputBinding.primary` 与 `Tool.displayMode` 类型改为 `DisplayMode`，enum raw values 保持 `window` / `bubble` / `replace` / `file` / `silent` / `structured` 不变。
+- `ConfigMigratorV1ToV2` 仍从 legacy JSON 的 `displayMode` 字符串解码到 canonical `DisplayMode`，未知值 fallback 到 `.window` 的语义不变。
+- `OutputDispatcherProtocol` / `OutputDispatcher` / orchestration mocks 和 fallback tests 改为接收 `DisplayMode`，v0.2 non-window fallback 到 window sink 的行为不变。
+- SettingsUI 的展示模式 Picker 仍只暴露 `.window` / `.bubble` / `.replace` 三个可编辑模式，未暴露 `.file` / `.silent` / `.structured`。
+- JSON wire shape 保持不变：`Tool.displayMode` 字段名未改，`DisplayMode` raw values 未改。
+
+### Step 4 验证结果
+
+- `rg -n "\bPresentationMode\b" SliceAIKit/Sources SliceAIKit/Tests SliceAIApp --type swift`：0 命中。
+- `rg -n "\bSelectionOrigin\b" SliceAIKit/Sources SliceAIKit/Tests SliceAIApp --type swift`：10 行命中，确认 Step 5 未提前执行。
+- `rg -n "\bDisplayMode\b" SliceAIKit/Sources SliceAIKit/Tests SliceAIApp --type swift`：33 行命中。
+- `cd SliceAIKit && swift build`：通过，最后一次复跑 `Build complete! (4.56s)`。
+- Targeted tests：`swift test --filter 'SliceCoreTests.OutputBindingTests|SliceCoreTests.ToolTests|SliceCoreTests.ConfigMigratorV1ToV2Tests|OrchestrationTests.OutputDispatcherTests|OrchestrationTests.OutputDispatcherFallbackTests|OrchestrationTests.PromptExecutorTests|OrchestrationTests.ExecutionEngineTests|OrchestrationTests.ExecutionEventTests'` 通过，104 tests / 0 failures。
+- `cd SliceAIKit && swift test --parallel --enable-code-coverage`：通过，569/569 tests，退出码 0。
+- `xcodebuild -quiet -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`：通过，退出码 0；仅有 Xcode destination 选择 warning。
+- `swiftlint lint --strict`（repo 根目录）：通过，137 files，0 violations / 0 serious；保留既有 `unused_import` analyzer_rules 配置 warning。
+- `git diff --check`：通过。
+- Step 4 spec review：`APPROVED`，无 blocking finding。
+- Step 4 code quality review：`APPROVED`，无 finding；提醒提交时精确 stage tracked 文件，避免混入历史未跟踪 docs/handoff。
+
+### Step 4 残留风险
+
+- Step 5 尚未执行，`SelectionOrigin` 源码和测试命中应继续存在；后续 M3.0 Step 5 再处理。
+- `ConfigMigratorV1ToV2`、`LegacyConfigV1`、`config-v2.json` 仍保留版本边界命名，属于迁移语义，不是 Step 4 残留。

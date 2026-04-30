@@ -68,7 +68,7 @@ final class OutputDispatcherTests: XCTestCase {
         let sut = OutputDispatcher(windowSink: sink)
 
         // 遍历所有非 .window 模式各调一次
-        for mode in PresentationMode.allCases where mode != .window {
+        for mode in DisplayMode.allCases where mode != .window {
             let outcome = try await sut.handle(chunk: "fallback", mode: mode, invocationId: UUID())
             XCTAssertEqual(outcome, .delivered, "\(mode) fallback 成功时应返回 .delivered")
         }
@@ -144,8 +144,8 @@ final class OutputDispatcherTests: XCTestCase {
 
     /// 参数化辅助：对指定 `mode` 断言 fallback 到 window sink 且返回 `.delivered`
     ///
-    /// - Parameter mode: 要测试的非 window `PresentationMode`
-    private func assertFallsBack(mode: PresentationMode) async throws {
+    /// - Parameter mode: 要测试的非 window `DisplayMode`
+    private func assertFallsBack(mode: DisplayMode) async throws {
         let sink = SpyWindowSink()
         let sut = OutputDispatcher(windowSink: sink)
         let invocationId = UUID()

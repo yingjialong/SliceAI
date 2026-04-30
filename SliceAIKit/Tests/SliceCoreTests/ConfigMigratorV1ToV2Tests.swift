@@ -151,7 +151,7 @@ final class ConfigMigratorV1ToV2Tests: XCTestCase {
         }
     }
 
-    func test_migrate_unknownPresentationModeFallsBackToWindow() throws {
+    func test_migrate_unknownDisplayModeFallsBackToWindow() throws {
         // 手工构造一个 v1 结构含非标 displayMode
         let badJSON = #"""
         {

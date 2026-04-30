@@ -170,8 +170,8 @@ final class ToolTests: XCTestCase {
 
     // MARK: - displayMode 与 outputBinding.primary 一致性校验（P2b 修复）
     //
-    // 背景：Tool 同时持有 displayMode: PresentationMode（non-optional）和
-    // outputBinding: OutputBinding?（其 primary 也是 PresentationMode）。同一个 Tool
+    // 背景：Tool 同时持有 displayMode: DisplayMode（non-optional）和
+    // outputBinding: OutputBinding?（其 primary 也是 DisplayMode）。同一个 Tool
     // 可以在 JSON 里声明 displayMode="window" + outputBinding.primary="replace"，未来
     // ExecutionEngine 读谁都会让另一方失效。decoder 必须把这个不一致挡在加载期。
 

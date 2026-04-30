@@ -10,7 +10,7 @@ import SliceCore
 public enum DispatchOutcome: Sendable, Equatable {
     /// chunk 已成功投递到对应 sink
     case delivered
-    /// 该 `PresentationMode` 未实现；reason 应含模式名，便于调试 / audit
+    /// 该 `DisplayMode` 未实现；reason 应含模式名，便于调试 / audit
     case notImplemented(reason: String)
 }
 
@@ -36,7 +36,7 @@ public protocol OutputDispatcherProtocol: Sendable {
     /// - Throws: 当 sink 自身抛错（如文件 IO 失败）时透传
     func handle(
         chunk: String,
-        mode: PresentationMode,
+        mode: DisplayMode,
         invocationId: UUID
     ) async throws -> DispatchOutcome
 }

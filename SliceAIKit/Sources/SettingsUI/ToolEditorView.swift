@@ -25,7 +25,7 @@ public struct ToolEditorView: View {
     @State var newVariableKey = ""
 
     /// v0.2 设置页可编辑的展示模式白名单，避免暴露尚未实现的 file/silent/structured
-    static let editablePresentationModes: [SliceCore.PresentationMode] = [.window, .bubble, .replace]
+    static let editableDisplayModes: [SliceCore.DisplayMode] = [.window, .bubble, .replace]
 
     /// 构造 Tool 编辑视图
     /// - Parameters:

@@ -11,7 +11,7 @@ import SliceCore
 ///
 /// **M3.0 Step 1 范围**：
 /// - `.window` → 调 `windowSink.append(chunk:invocationId:)` 后返回 `.delivered`
-/// - 其他 5 种 `PresentationMode` → v0.2 暂时 fallback 到 `.window` sink，保留用户可见输出
+/// - 其他 5 种 `DisplayMode` → v0.2 暂时 fallback 到 `.window` sink，保留用户可见输出
 /// - 每个 invocation 只在首次 fallback 时写一条日志，避免 stream chunk 高频刷屏
 /// - 日志节流状态固定容量，避免长时间运行时无界增长
 ///
@@ -51,7 +51,7 @@ public actor OutputDispatcher: OutputDispatcherProtocol {
     /// - Throws: `.window` 模式下 sink 抛错时透传
     public func handle(
         chunk: String,
-        mode: PresentationMode,
+        mode: DisplayMode,
         invocationId: UUID
     ) async throws -> DispatchOutcome {
         // 路由策略：单一 switch，6 个 case 显式覆盖。
@@ -71,7 +71,7 @@ public actor OutputDispatcher: OutputDispatcherProtocol {
     /// - Parameters:
     ///   - mode: 当前 fallback 的展示模式。
     ///   - invocationId: 当前 invocation 标识。
-    private func logFallbackIfNeeded(mode: PresentationMode, invocationId: UUID) {
+    private func logFallbackIfNeeded(mode: DisplayMode, invocationId: UUID) {
         guard !loggedInvocations.contains(invocationId) else { return }
         if loggedInvocationOrder.count >= Self.maxLoggedFallbackInvocations,
            let evicted = loggedInvocationOrder.first {

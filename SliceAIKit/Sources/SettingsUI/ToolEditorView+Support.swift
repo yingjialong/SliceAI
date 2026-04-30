@@ -73,7 +73,7 @@ struct PromptTextEditor: View {
 
 // MARK: - Display Labels
 
-extension SliceCore.PresentationMode {
+extension SliceCore.DisplayMode {
     /// 用于 Picker 展示的中文标签。
     var displayLabel: String {
         switch self {

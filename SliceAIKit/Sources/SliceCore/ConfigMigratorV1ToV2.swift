@@ -86,7 +86,7 @@ internal enum ConfigMigratorV1ToV2 {
 
     /// v1 Tool → Tool（.prompt kind + firstParty provenance）
     private static func migrateTool(_ v1t: LegacyConfigV1.Tool) -> Tool {
-        let displayMode = PresentationMode(rawValue: v1t.displayMode) ?? .window
+        let displayMode = DisplayMode(rawValue: v1t.displayMode) ?? .window
         if displayMode.rawValue != v1t.displayMode {
             // 中文日志：非法 displayMode 已回退 window，保留原始值方便定位用户定制的错值
             let rawMode = v1t.displayMode

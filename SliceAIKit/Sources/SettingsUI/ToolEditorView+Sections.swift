@@ -143,7 +143,7 @@ extension ToolEditorView {
 
             SettingsRow("展示模式") {
                 Picker("", selection: $tool.displayMode) {
-                    ForEach(Self.editablePresentationModes, id: \.self) { mode in
+                    ForEach(Self.editableDisplayModes, id: \.self) { mode in
                         Text(mode.displayLabel).tag(mode)
                     }
                 }

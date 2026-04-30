@@ -18,7 +18,7 @@ public struct Tool: Identifiable, Sendable, Codable, Equatable {
     public var description: String?
     public var kind: ToolKind
     public var visibleWhen: ToolMatcher?
-    public var displayMode: PresentationMode
+    public var displayMode: DisplayMode
     public var outputBinding: OutputBinding?
     public var permissions: [Permission]
     public var provenance: Provenance
@@ -35,7 +35,7 @@ public struct Tool: Identifiable, Sendable, Codable, Equatable {
         description: String?,
         kind: ToolKind,
         visibleWhen: ToolMatcher?,
-        displayMode: PresentationMode,
+        displayMode: DisplayMode,
         outputBinding: OutputBinding?,
         permissions: [Permission],
         provenance: Provenance,
@@ -107,7 +107,7 @@ public struct Tool: Identifiable, Sendable, Codable, Equatable {
         self.description = try c.decodeIfPresent(String.self, forKey: .description)
         self.kind = try c.decode(ToolKind.self, forKey: .kind)
         self.visibleWhen = try c.decodeIfPresent(ToolMatcher.self, forKey: .visibleWhen)
-        self.displayMode = try c.decode(PresentationMode.self, forKey: .displayMode)
+        self.displayMode = try c.decode(DisplayMode.self, forKey: .displayMode)
         self.outputBinding = try c.decodeIfPresent(OutputBinding.self, forKey: .outputBinding)
         self.permissions = try c.decode([Permission].self, forKey: .permissions)
         self.provenance = try c.decode(Provenance.self, forKey: .provenance)

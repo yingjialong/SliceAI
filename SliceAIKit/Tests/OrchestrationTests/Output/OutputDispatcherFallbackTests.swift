@@ -76,7 +76,7 @@ final class OutputDispatcherFallbackTests: XCTestCase {
     }
 
     /// 参数化验证 non-window mode 会 fallback 到 windowSink。
-    private func assertFallsBack(mode: PresentationMode) async throws {
+    private func assertFallsBack(mode: DisplayMode) async throws {
         let spy = SpyWindowSink()
         let dispatcher = OutputDispatcher(windowSink: spy)
 
