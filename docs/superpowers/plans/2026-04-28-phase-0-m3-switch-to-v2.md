@@ -12,7 +12,7 @@
 **Tech Stack:** Swift 6 strict concurrency, Xcode 26+, SwiftPM local package, SwiftUI + AppKit + Carbon hotkey, sqlite (via Cost), JSONL (via Audit), Sparkle ❌（v0.2 unsigned DMG 不带更新器）
 
 **Reference Documents:**
-- 已 approve mini-spec：`docs/superpowers/specs/2026-04-28-phase-0-m3-mini-spec.md`（~1032 行；R1~R10 全部 approve）
+- 已 approve mini-spec：`docs/superpowers/specs/2026-04-28-phase-0-m3-mini-spec.md`（~1040 行；R1~R10 approve，R11/R12 alignment 已同步）
 - v2 spec：`docs/superpowers/specs/2026-04-23-sliceai-v2-roadmap.md`（§3.3 / §3.4 / §3.7 / §4.2.x）
 - M1 plan：`docs/superpowers/plans/2026-04-24-phase-0-m1-core-types.md`
 - M2 plan：`docs/superpowers/plans/2026-04-25-phase-0-m2-orchestration.md`
@@ -41,9 +41,11 @@
 
 ### 新增文件（M3.1 + M3.0 Step 2）
 
-- `SliceAIApp/ResultPanelWindowSinkAdapter.swift`（M3.1.C，~50 行）—— 实现 `WindowSinkProtocol` 含 single-flight invocation 隔离契约（F9.2）
+- `SliceAIKit/Sources/Orchestration/Output/InvocationGate.swift`（M3.1.C-1，~50 行）—— single-flight invocation 隔离状态唯一来源（F9.2/F3.4）
+- `SliceAIKit/Tests/OrchestrationTests/Output/InvocationGateTests.swift`（M3.1.C-1，~120 行）—— 直接测试真实 `InvocationGate`，替代 SpyAdapter copy 模式
+- `SliceAIApp/ResultPanelWindowSinkAdapter.swift`（M3.1.C-1，~40 行）—— 实现 `WindowSinkProtocol`，委托 `InvocationGate.gatedAppend(...)`
 - `SliceAIApp/ExecutionEventConsumer.swift`（M3.0 Step 1，~120 行）—— 把 14 个 `ExecutionEvent` case 翻译为 `ResultPanel` API
-- `SliceAIKit/Sources/SelectionCapture/SelectionReader.swift`（M3.0 Step 2，~80 行）—— v1 `protocol SelectionSource` 改名 + 含 `SelectionReadResult` struct + `SelectionSourceError`
+- `SliceAIKit/Sources/SelectionCapture/SelectionReader.swift`（M3.0 Step 2，~80 行）—— v1 `protocol SelectionSource` 改名 + 含 `SelectionReadResult` struct；真实 v1 文件没有额外错误枚举
 - `SliceAIApp/Tests/ExecutionEventConsumerTests.swift`（M3.0 Step 1.spy_tests，~150 行）—— 5 个 spy test 覆盖 D-30/F8.3/F9.2/F3.2
 
 ### 删除文件（M3.0 Step 2 — 同 commit 删 7 + 1 = 8 个文件）
@@ -670,9 +672,10 @@ git commit -m "$(cat <<'EOF'
 feat(orchestration+sliceaiapp): add InvocationGate + ResultPanelWindowSinkAdapter
 
 InvocationGate（@MainActor class，Orchestration target）：单一 single-flight 状态来源；
-含 setActiveInvocation / clearActiveInvocation(ifCurrent:) / shouldAccept(invocationId:) 三个 API。
+含 setActiveInvocation / clearActiveInvocation(ifCurrent:) / shouldAccept(invocationId:) /
+gatedAppend(chunk:invocationId:sink:) 四个 API。
 ResultPanelWindowSinkAdapter（@MainActor class，SliceAIApp）：实现 WindowSinkProtocol；持有
-InvocationGate + 委托；append 仅当 gate.shouldAccept 时 panel.append。
+InvocationGate + 委托；append 通过 gate.gatedAppend 决定是否投递 panel.append。
 InvocationGateTests 直接测真实 gate（含 race regression test）— 替代 R2 SpyAdapter copy 模式。
 
 F9.2 + F2.2 R2 + F3.4 R3 修订；M3.1 Sub-step C-1。M3.0 Step 1 接 chunk 流前不被任何 caller 调用。
@@ -3180,11 +3183,11 @@ mini-spec §M3.2 Exit DoD 列出了三个测试名约束作为单元化验收门
 
 | mini-spec §M3.2 Exit DoD 描述 | 本 plan 落地的真实 test |
 |---|---|
-| "single-flight invocation 契约（重叠 invocation 拒绝陈旧 chunk）" | Task 3 `InvocationGateTests.test_overlapping_olderInvocation_isRejected` + `test_R2_race_regression_clearByOldInvocation_isIgnored` |
+| "single-flight invocation 契约（重叠 invocation 拒绝陈旧 chunk）" | Task 3 `InvocationGateTests.test_overlappingInvocations_dropStale` + `test_staleClearAfterSwitch_doesNotEvictNew` |
 | "ordering invariant（setActive 先于首 chunk）" | Task 7 Iteration I `ExecutionStreamOrderingTests.test_setActiveBeforeFirstChunk_chunkAccepted` |
 | "single writer contract（每 chunk 写入 panel exactly once）" | Task 7 Iteration I `SingleWriterContractTests.test_outputDispatcher_chunkAppendOnce_perChunk` |
 
-> 不动 mini-spec 本体（mini-spec 已 R10 approve 锁定）；本映射写在 plan 内，让 implementer 跑测验收时一眼对得上。
+> mini-spec R11/R12 alignment 已同步；本映射解释 mini-spec 验收描述与 plan 实际落地测试名的差异，让 implementer 跑测验收时一眼对得上。
 
 ### Iteration J: 4 关 CI gate + 单 commit Step 1
 
@@ -3460,9 +3463,9 @@ EOF
 - Modify: `SliceAIKit/Sources/LLMProviders/OpenAIProviderFactory.swift`（V2Provider 字段提取）
 - Modify: `SliceAIKit/Sources/Orchestration/Executors/PromptExecutor.swift`（删 toV1Provider helper + callsite 改）
 - Modify: `SliceAIKit/Sources/SelectionCapture/ClipboardSelectionSource.swift`（implements SelectionReader）
-- Modify: `SliceAIKit/Sources/SelectionCapture/AXSelectionSource.swift`（implements SelectionReader；F1.4 R1 修订真实文件名——v1 没有 PrimarySelectionSource.swift）
+- Modify: `SliceAIKit/Sources/SelectionCapture/AXSelectionSource.swift`（implements SelectionReader；F1.4 R1 修订真实文件名）
 - Modify: `SliceAIKit/Sources/SelectionCapture/SelectionService.swift`（internal type 引用 SelectionSource → SelectionReader）
-- Create: `SliceAIKit/Sources/SelectionCapture/SelectionReader.swift`（含 protocol + struct；不带 SelectionSourceError——v1 真实定义里没有）
+- Create: `SliceAIKit/Sources/SelectionCapture/SelectionReader.swift`（含 protocol + struct；不带额外错误枚举——v1 真实定义里没有）
 
 - [ ] **Step 1: git rm v1 SliceCore 7 文件**
 
@@ -3566,7 +3569,7 @@ cat /tmp/v1_selection_source.swift
 - `public protocol SelectionSource: Sendable { func readSelection() async throws -> SelectionReadResult? }`
 - `public struct SelectionReadResult: Sendable, Equatable` — **6 字段（无 timestamp）**：
   `text / appBundleID / appName / url / screenPoint / source: SelectionPayload.Source`
-- **没有 `SelectionSourceError` enum**（M2 用 `try? await readSelection()` + nil 兜底；不细分错误）
+- **没有额外错误枚举**（M2 用 `try? await readSelection()` + nil 兜底；不细分错误）
 
 写入 `SliceAIKit/Sources/SelectionCapture/SelectionReader.swift`（仅 protocol 改名 + 文件 header；其余字段照搬）：
 
@@ -3617,11 +3620,11 @@ public struct SelectionReadResult: Sendable, Equatable {
 > **note**：
 > - **`async throws` 不是 `async`**——v1 真实签名带 throws；改成 non-throwing 会让 ClipboardSelectionSource / AXSelectionSource 的 `try await readClipboardWithRestore()` 调用编译失败。
 > - **没有 timestamp 字段**——plan 此前误加 timestamp 是错的；timestamp 由 `SelectionService.capture()` 在包装到 `SelectionPayload` 时附加（用 `Date()`），不属于读取层。
-> - **没有 SelectionSourceError enum**——M2 用 nil 兜底；M3 不引入新 error 类型，避免改动 ClipboardSelectionSource / AXSelectionSource 内部错误处理逻辑。
+> - **没有额外错误枚举**——M2 用 nil 兜底；M3 不引入新 error 类型，避免改动 ClipboardSelectionSource / AXSelectionSource 内部错误处理逻辑。
 
 - [ ] **Step 5: 改 ClipboardSelectionSource / AXSelectionSource implements SelectionReader**
 
-⚠️ **F1.4 R1 修订**：真实文件名是 `AXSelectionSource.swift`（不是 plan 此前误写的 `PrimarySelectionSource.swift`）。grep 校验：
+⚠️ **F1.4 R1 修订**：真实文件名是 `AXSelectionSource.swift`（不是旧版 plan 误写的另一个文件名）。grep 校验：
 
 ```bash
 ls SliceAIKit/Sources/SelectionCapture/
@@ -3818,7 +3821,7 @@ Expected: All PASS.
 
 ```bash
 git add -A
-git status   # 检查含 git rm 7+1 文件 + Modify LLMProvider/OpenAIProviderFactory/PromptExecutor + Create SelectionReader.swift + Modify Clipboard/Primary/Service
+git status   # 检查含 git rm 7+1 文件 + Modify LLMProvider/OpenAIProviderFactory/PromptExecutor + Create SelectionReader.swift + Modify Clipboard/AX/Service
 
 git commit -m "$(cat <<'EOF'
 refactor(slicecore): delete v1 7 files + upgrade LLMProviderFactory protocol + add SelectionReader
@@ -3828,8 +3831,8 @@ refactor(slicecore): delete v1 7 files + upgrade LLMProviderFactory protocol + a
 - 删除 v1 SelectionCapture/SelectionSource.swift（protocol 改名）
 - LLMProviderFactory.make protocol 升级接收 V2Provider；OpenAIProviderFactory 内部 V2Provider 字段提取
 - 删除 PromptExecutor.toV1Provider helper（line 280-303）+ callsite line 171/174/197/211 改为直接用 V2Provider
-- 新建 SelectionCapture/SelectionReader.swift：protocol SelectionReader + SelectionReadResult + SelectionSourceError
-- ClipboardSelectionSource / PrimarySelectionSource implements SelectionReader（类型名不变）
+- 新建 SelectionCapture/SelectionReader.swift：protocol SelectionReader + SelectionReadResult（真实 v1 文件没有额外错误枚举）
+- ClipboardSelectionSource / AXSelectionSource implements SelectionReader（类型名不变）
 - SelectionService.swift internal type 引用跟随
 - v1 SelectionPayload.swift 与 SelectionPayloadTests.swift 保留（D-28：触发层包装类型）
 
@@ -4893,4 +4896,4 @@ After 完整 plan 写完，对照 mini-spec 检查覆盖：
 ---
 
 > **本 plan 完成 = Phase 0 M3 真正可以开始 implementation**。
-> ~1700 行；16 个 task；按 mini-spec 已 approve 的 §M3.0~§M3.6 设计逐 task 落地。
+> 约 4800 行；16 个 task；按 mini-spec 已 approve 的 §M3.0~§M3.6 设计逐 task 落地。
