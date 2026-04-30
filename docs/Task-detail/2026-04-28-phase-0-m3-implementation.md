@@ -33,7 +33,7 @@ status: in_progress
 - [ ] M3.1.E：冒烟验证（自动化部分完成；手工 GUI 触发链 / 启动失败弹窗待人工确认）。
 - [x] M3.0 Step 1：caller 切换 + ExecutionEventConsumer + SettingsUI binding + automated tests/gates。
 - [ ] M3.0 Step 1 手工 smoke：Safari 划词 / 命令面板 / 启动失败弹窗（待人工确认）。
-- [ ] M3.0 Step 2：删除 v1 类型族 + SelectionReader + LLMProviderFactory 升级。
+- [x] M3.0 Step 2：删除 v1 类型族 + SelectionReader + LLMProviderFactory 升级。
 - [ ] M3.0 Step 3：V2* rename 回 spec 正名。
 - [ ] M3.0 Step 4：PresentationMode → DisplayMode。
 - [ ] M3.0 Step 5：SelectionOrigin → SelectionSource。
@@ -123,6 +123,30 @@ status: in_progress
 - `SliceAIKit/Tests/OrchestrationTests/Output/OutputDispatcherFallbackTests.swift`
 - `SliceAIKit/Tests/OrchestrationTests/AdapterContractTests/SingleWriterContractTests.swift`
 - `SliceAIKit/Tests/OrchestrationTests/AdapterContractTests/ExecutionStreamOrderingTests.swift`
+- `SliceAIKit/Sources/SliceCore/ConfigurationComponents.swift`
+- `SliceAIKit/Sources/SliceCore/ToolLabelStyle.swift`
+- `SliceAIKit/Package.swift`
+- `SliceAIKit/Sources/SliceCore/LLMProvider.swift`
+- `SliceAIKit/Sources/SliceCore/V2Configuration.swift`
+- `SliceAIKit/Sources/SliceCore/V2ConfigurationStore.swift`
+- `SliceAIKit/Sources/SliceCore/V2Provider.swift`
+- `SliceAIKit/Sources/SliceCore/V2Tool.swift`
+- `SliceAIKit/Sources/SliceCore/SelectionContentType.swift`
+- `SliceAIKit/Sources/LLMProviders/OpenAIProviderFactory.swift`
+- `SliceAIKit/Sources/Orchestration/Executors/PromptExecutor.swift`
+- `SliceAIKit/Sources/SelectionCapture/SelectionReader.swift`
+- `SliceAIKit/Sources/SelectionCapture/AXSelectionSource.swift`
+- `SliceAIKit/Sources/SelectionCapture/ClipboardSelectionSource.swift`
+- `SliceAIKit/Sources/SelectionCapture/SelectionService.swift`
+- `SliceAIKit/Tests/LLMProvidersTests/OpenAIProviderFactoryTests.swift`
+- `SliceAIKit/Tests/OrchestrationTests/Helpers/MockLLMProvider.swift`
+- `SliceAIKit/Tests/OrchestrationTests/PromptExecutorTests.swift`
+- `SliceAIKit/Tests/SelectionCaptureTests/SelectionServiceTests.swift`
+- `SliceAIKit/Tests/SliceCoreTests/ConfigMigratorV1ToV2Tests.swift`
+- `SliceAIKit/Tests/SliceCoreTests/V2ConfigurationStoreTests.swift`
+- `SliceAIKit/Tests/SliceCoreTests/V2ConfigurationTests.swift`
+- 已删除 v1 文件：`SliceAIKit/Sources/SliceCore/Tool.swift`、`Provider.swift`、`Configuration.swift`、`ConfigurationStore.swift`、`ConfigurationProviding.swift`、`DefaultConfiguration.swift`、`ToolExecutor.swift`、`SliceAIKit/Sources/SelectionCapture/SelectionSource.swift`。
+- 已删除 v1-only tests：`ConfigurationAppearanceTests.swift`、`ConfigurationStoreTests.swift`、`ConfigurationTests.swift`、`DefaultConfigurationTests.swift`、`ToolExecutorTests.swift`、`ToolTests.swift`。
 
 ## 测试结果
 
@@ -146,3 +170,53 @@ status: in_progress
 - M3.0 Step 1：`swiftlint lint --strict` 通过（142 files，0 violations / 0 serious）。
 - M3.0 Step 1：`git diff --check` 通过。
 - M3.0 Step 1：v1 caller 静态残留 grep 在 `SliceAIApp` / `SettingsUI` / `Windowing` 范围内 0 命中；`configStore.current()` 调用均为 `try await`。
+
+## M3.0 Step 2（Task 8）实施方案
+
+### 背景
+
+Step 1 已把 app caller 切到 v2 execution engine，但仓库中仍保留 v1 SliceCore 类型族与 SelectionSource 命名，且 `PromptExecutor` 仍通过 `toV1Provider` helper 把 `V2Provider` 降级给 `LLMProviderFactory`。Task 8 的目标是删除 v1 类型族、把 selection 读取抽象改名为 `SelectionReader`，并让 LLM provider 工厂直接消费 `V2Provider`。
+
+### ToDoList
+
+- [x] 先修改保留测试：`MockLLMProviderFactory` 改为捕获 `V2Provider`，`PromptExecutorTests` 改为验证 factory 直接收到 V2Provider；SelectionCapture 测试改用 `SelectionReader`。
+- [x] 迁移 `ToolLabelStyle` 到独立文件，避免删除 v1 `Tool.swift` 后 `V2Tool`/SettingsUI 编译失败。
+- [x] `git rm` 删除 v1 SliceCore 7 文件与 `SelectionSource.swift`，新建 `SelectionReader.swift`，保持 `SelectionReadResult` 真实 v1 字段结构。
+- [x] 修改 `ClipboardSelectionSource` / `AXSelectionSource` / `SelectionService` conformance 与存在类型。
+- [x] 修改 `LLMProviderFactory.make`、`OpenAIProviderFactory.make`、`PromptExecutor.runInternal` 与所有 mock 实现，删除 `PromptExecutor.toV1Provider`。
+- [x] 删除 v1-only 测试文件，修正 V2 tests 中仍依赖 v1 Swift 类型的断言。
+- [x] 执行 `swift build`，可行则继续执行 targeted tests / full tests。
+
+### 初始风险
+
+- `ToolLabelStyle` 当前定义在 v1 `Tool.swift`，必须先迁移，否则 `V2Tool` 与 SettingsUI 会因符号缺失失败。
+- `V2ConfigurationStoreTests` 仍有 v1 `FileConfigurationStore` 隔离断言；删除 v1 store 后需要改为硬编码 legacy JSON 路径级不变量。
+- `PromptExecutorTests` 仍把非 openAI kind / nil baseURL 的失败归因于 executor 内部 adapter；Task 8 后该校验应由 `OpenAIProviderFactory` 承担，测试语义需同步。
+
+### 实施结果
+
+- 已用 `git rm` 删除 v1 SliceCore 7 文件：`Tool.swift`、`Provider.swift`、`Configuration.swift`、`ConfigurationStore.swift`、`ConfigurationProviding.swift`、`DefaultConfiguration.swift`、`ToolExecutor.swift`。
+- 已用 `git rm` 删除 `SelectionCapture/SelectionSource.swift`，新增 `SelectionReader.swift`；`SelectionReadResult` 保持原字段结构，未新增 timestamp 或错误枚举。
+- `ClipboardSelectionSource` / `AXSelectionSource` 改为 conform `SelectionReader`，`SelectionService` 改为持有 `any SelectionReader`。
+- `LLMProviderFactory.make` 改为接收 `V2Provider`；`OpenAIProviderFactory` 只接受 `.openAICompatible` 且 `baseURL != nil`，否则抛固定、不拼接用户配置的 `.configuration(.validationFailed(...))` 诊断文案。
+- `LLMProviderFactory` 新增 `validate(provider:)` preflight；`PromptExecutor` 在读取 Keychain 前先调用该校验，避免 unsupported provider kind 被误报为 API Key 缺失。
+- `PromptExecutor` 删除 `toV1Provider` helper，直接使用 `V2Provider.keychainAccount`、`provider.defaultModel` 和 `llmProviderFactory.make(for: provider, apiKey:)`。
+- `PromptExecutorTests` 增加 production `OpenAIProviderFactory + MockKeychain()` 组合用例，覆盖 unsupported kind / nil baseURL 在空 Keychain 场景下仍返回配置校验错误。
+- `ToolLabelStyle` 从被删除的 v1 `Tool.swift` 迁移到独立 `ToolLabelStyle.swift`；`HotkeyBindings`、`TriggerSettings`、`ToolbarSize`、`TelemetrySettings` 从被删除的 v1 `Configuration.swift` 迁移到独立 `ConfigurationComponents.swift`。
+- 删除 v1-only 测试：`DefaultConfigurationTests.swift`、`ConfigurationStoreTests.swift`、`ToolExecutorTests.swift`、`ToolTests.swift`、`ConfigurationTests.swift`、`ConfigurationAppearanceTests.swift`。
+- `ConfigMigratorV1ToV2Tests` 保持通过，仍通过 `LegacyConfigV1` + fixture / hardcoded JSON 触发迁移，不依赖 v1 Swift 类型。
+
+### Step 2 验证结果
+
+- TDD RED：`swift test --filter 'PromptExecutorTests/test_run_factoryReceivesV2ProviderDirectly|OpenAIProviderFactoryTests|SelectionServiceTests/test_prefersPrimarySourceWhenSuccess'` 初次失败，失败点为 `OpenAIProviderFactory.make` 仍接收 v1 `Provider`、`SelectionReader` 未定义。
+- TDD GREEN：同一 targeted tests 通过，5 tests / 0 failures。
+- Step 2 targeted regression：`swift test --filter 'LLMProvidersTests.OpenAIProviderFactoryTests|OrchestrationTests.PromptExecutorTests|SelectionCaptureTests.SelectionServiceTests|SliceCoreTests.V2ConfigurationStoreTests|SliceCoreTests.V2ConfigurationTests|SliceCoreTests.ConfigMigratorV1ToV2Tests'` 通过，58 tests / 0 failures。
+- Provider preflight targeted regression：`swift test --filter 'OrchestrationTests.PromptExecutorTests/test_run_openAIProviderFactoryUnsupportedKind_validatesBeforeKeychain|OrchestrationTests.PromptExecutorTests/test_run_openAIProviderFactoryNilBaseURL_validatesBeforeKeychain|LLMProvidersTests.OpenAIProviderFactoryTests'` 通过，5 tests / 0 failures。
+- `swift build`：通过，最后一次复跑 `Build complete! (3.94s)`。
+- `swift test --parallel --enable-code-coverage`：通过，569 tests / 0 failures。期间 `ExecutionEngineTests/test_execute_cancellationDuringPermissionGate_skipsAuditAndLLM` 曾出现一次取消时序失败；单独复跑通过，随后全量复跑通过。
+- `xcodebuild -quiet -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`：通过。
+- `git diff --check`：通过。
+- 静态删除检查：v1 7 个 SliceCore 文件与 `SelectionSource.swift` 均不存在；`toV1Provider` / `func make(for provider: Provider` / `capturedProvider: Provider` / `SelectionSource` 关键残留 grep 为 0。
+- `swiftlint lint --strict`（从 worktree 根目录执行）：通过，137 files，0 violations / 0 serious。
+- Step 2 spec review：`APPROVED`，无 blocking finding；提示提交时必须包含新增 `SelectionReader.swift` / `ConfigurationComponents.swift` / `ToolLabelStyle.swift` / `OpenAIProviderFactoryTests.swift`，并排除历史未跟踪 docs/handoff。
+- Step 2 code quality review：先给出 `CHANGES_REQUESTED`，指出 unsupported provider kind 会被 Keychain 状态误报；修复 preflight 后聚焦复审 `APPROVED`。

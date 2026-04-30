@@ -35,9 +35,4 @@ final class V2ConfigurationTests: XCTestCase {
         let decoded = try JSONDecoder().decode(V2Configuration.self, from: data)
         XCTAssertEqual(cfg, decoded)
     }
-
-    // 关键不变量：v1 Configuration 的 currentSchemaVersion 保持为 1
-    func test_v1Configuration_currentSchemaVersion_unchanged() {
-        XCTAssertEqual(Configuration.currentSchemaVersion, 1)
-    }
 }

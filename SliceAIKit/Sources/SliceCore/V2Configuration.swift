@@ -1,11 +1,9 @@
 import Foundation
 
-/// v2 应用配置聚合（独立新类型；现有 `Configuration` 保持 v1 形状，`currentSchemaVersion = 1`）
+/// v2 应用配置聚合；M3.0 Step 3 rename pass 前仍使用 `V2Configuration` 临时命名。
 ///
 /// 由 `ConfigMigratorV1ToV2.migrate(_:)` 产出、由 `V2ConfigurationStore` 读写。
-/// 真实 app 启动路径在 M1 阶段**不消费**此类型（它们仍用 v1 `Configuration`）。
-///
-/// M3 的 rename pass 会把本文件改名为 `Configuration.swift` 并删除旧 v1 `Configuration`。
+/// M3 的 rename pass 会把本文件改名为 `Configuration.swift`，并把类型改名为 `Configuration`。
 public struct V2Configuration: Sendable, Codable, Equatable {
     public let schemaVersion: Int
     public var providers: [V2Provider]

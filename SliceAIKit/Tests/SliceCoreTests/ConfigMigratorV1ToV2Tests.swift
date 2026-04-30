@@ -56,7 +56,7 @@ final class ConfigMigratorV1ToV2Tests: XCTestCase {
         XCTAssertEqual(v2.triggers.commandPaletteEnabled, true)
         XCTAssertEqual(v2.triggers.minimumSelectionLength, 1)
         XCTAssertEqual(v2.triggers.triggerDelayMs, 150)
-        // v1 fixture 未提供这些字段 → 用 DefaultConfiguration 默认
+        // v1 fixture 未提供这些字段 → 用 v2 默认值补齐
         XCTAssertEqual(v2.triggers.floatingToolbarMaxTools, 6)
         XCTAssertEqual(v2.triggers.floatingToolbarSize, .compact)
         XCTAssertEqual(v2.triggers.floatingToolbarAutoDismissSeconds, 5)

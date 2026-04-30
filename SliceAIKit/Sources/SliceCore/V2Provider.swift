@@ -1,8 +1,8 @@
 import Foundation
 
-/// v2 LLM 供应商配置（独立新类型；现有 `Provider` 保持 v1 形状不变）
+/// v2 LLM 供应商配置；M3.0 Step 3 rename pass 前仍使用 `V2Provider` 临时命名。
 ///
-/// 相对 v1 `Provider` 的变化：
+/// 相对旧供应商配置的变化：
 /// - 新增 `kind: ProviderKind`：声明协议族
 /// - 新增 `capabilities: [ProviderCapability]`：声明支持的高级能力（Set 语义 + 稳定顺序；见评审 P2-3）
 /// - `baseURL: URL?`：`.anthropic` / `.gemini` 协议族可 nil
@@ -12,7 +12,7 @@ import Foundation
 /// 本版改为 `[ProviderCapability]`：`init` 中自动去重（保留首次出现顺序）并按 rawValue 排序，
 /// 保证 round-trip 稳定；Set 语义由 init 保证，调用方读到的数组已有序无重复。
 ///
-/// M3 rename pass：删除 Provider.swift，把本文件重命名为 Provider.swift、类型改名为 Provider。
+/// M3 rename pass：把本文件重命名为 Provider.swift、类型改名为 Provider。
 public struct V2Provider: Identifiable, Sendable, Codable, Equatable {
     public let id: String
     public var kind: ProviderKind

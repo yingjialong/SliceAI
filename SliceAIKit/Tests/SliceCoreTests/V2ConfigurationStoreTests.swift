@@ -137,16 +137,16 @@ final class V2ConfigurationStoreTests: XCTestCase {
         XCTAssertEqual(preservedV1, v1Data)
     }
 
-    // 关键不变量：v1 FileConfigurationStore 与 V2ConfigurationStore 完全隔离；
-    // v1 store 的 currentSchemaVersion 仍是 1
-    func test_v1Store_unchanged_stillWritesSchemaVersion1() async throws {
-        let v1URL = tempDir.appendingPathComponent("config-v1-test.json")
-        let v1Store = FileConfigurationStore(fileURL: v1URL)  // 现有 v1 API
-        try await v1Store.save(DefaultConfiguration.initial())
+    /// 关键不变量：V2ConfigurationStore.save 只写 v2 路径，不创建 legacy v1 文件。
+    func test_save_doesNotCreateLegacyFileWhenLegacyMissing() async throws {
+        let v1URL = tempDir.appendingPathComponent("config.json")
+        let v2URL = tempDir.appendingPathComponent("config-v2.json")
+        let store = V2ConfigurationStore(fileURL: v2URL, legacyFileURL: v1URL)
 
-        let data = try Data(contentsOf: v1URL)
-        let json = try XCTUnwrap(String(data: data, encoding: .utf8))
-        XCTAssertTrue(json.contains("\"schemaVersion\" : 1"), "v1 store must write schemaVersion=1; got: \(json)")
+        try await store.save(DefaultV2Configuration.initial())
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: v2URL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: v1URL.path))
     }
 
     // MARK: - current() 抛错语义（P1 修复：禁止吞错回退默认，防止覆盖丢失）

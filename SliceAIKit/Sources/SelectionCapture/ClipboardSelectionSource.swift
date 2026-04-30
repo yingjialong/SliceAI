@@ -29,7 +29,7 @@ public struct FocusInfo: Sendable {
 /// 该类型本身只保存不可变依赖（`any PasteboardProtocol`、`any CopyKeystrokeInvoking`、
 /// 不可变闭包与数值），依赖均已约束为 `Sendable`。使用 `@unchecked Sendable` 是为了
 /// 让编译器接受存在类型（`any`）成员的类在严格并发下被跨 actor 共享。
-public final class ClipboardSelectionSource: SelectionSource, @unchecked Sendable {
+public final class ClipboardSelectionSource: SelectionReader, @unchecked Sendable {
 
     private let pasteboard: any PasteboardProtocol
     private let copyInvoker: any CopyKeystrokeInvoking
@@ -37,7 +37,7 @@ public final class ClipboardSelectionSource: SelectionSource, @unchecked Sendabl
     private let pollInterval: TimeInterval
     private let timeout: TimeInterval
 
-    /// 构造剪贴板回退式 SelectionSource
+    /// 构造剪贴板回退式 SelectionReader
     /// - Parameters:
     ///   - pasteboard: 剪贴板抽象，生产环境注入 `SystemPasteboard()`
     ///   - copyInvoker: ⌘C 注入器，生产环境注入真实 CGEvent 实现

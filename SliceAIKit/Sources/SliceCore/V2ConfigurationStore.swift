@@ -3,12 +3,12 @@ import OSLog
 
 private let v2ConfigLog = Logger(subsystem: "com.sliceai.core", category: "V2ConfigurationStore")
 
-/// v2 配置的读写 actor（独立于现有 `FileConfigurationStore`）
+/// v2 配置的读写 actor。
 ///
 /// 持有 `V2Configuration` 类型；与 v1 store 完全隔离：
-/// - 不继承、不包装 `FileConfigurationStore`
+/// - 不继承、不包装旧配置 store
 /// - 不共享 Configuration Codable
-/// - 仅被 M3 的 AppContainer 启用；M1 的真实 app 启动路径不经过此 store
+/// - app 启动路径只通过本 store 读写 `config-v2.json`
 ///
 /// 规则（对齐 spec §3.7）：
 /// 1. v2 文件存在 → 直接 decode V2Configuration
@@ -107,11 +107,10 @@ public actor V2ConfigurationStore {
         return appSupport.appendingPathComponent("config-v2.json")
     }
 
-    /// v1 旧路径，**仅供参考 / 测试 / M3 迁移使用**
+    /// v1 旧路径，**仅供迁移 / 测试使用**
     ///
-    /// **DO NOT** wire this into AppContainer as the real v1 read path.
-    /// AppContainer 应该继续使用 `FileConfigurationStore.standardFileURL()`；
-    /// 本方法的存在只是让 V2ConfigurationStore 测试能构造 legacyFileURL 参数。
+    /// 本方法只用于构造 `legacyFileURL` 参数，让 v2 store 在首次启动时读取旧 `config.json`
+    /// 并迁移为 `config-v2.json`；app 不会再把旧路径作为主配置写入目标。
     public static func legacyV1FileURL() -> URL {
         // swiftlint:disable:next force_unwrapping
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!

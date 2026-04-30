@@ -1,21 +1,19 @@
 import Foundation
 
-/// v2 工具定义（独立新类型；现有 `Tool` 保持 v1 形状不变）
+/// v2 工具定义；M3.0 Step 3 rename pass 前仍使用 `V2Tool` 临时命名。
 ///
 /// `V2Tool` 是 canonical v2 数据模型：三态 kind（prompt/agent/pipeline）+ provenance +
 /// permissions + outputBinding + visibleWhen + budget + hotkey + tags。
 ///
-/// **不**与 v1 `Tool` 共享 Codable：v1 JSON 由旧 `Tool` 读写、v2 JSON 由 `V2Tool` 读写；
-/// migrator 是唯一的 v1 → v2 转换路径。
+/// **不**与旧配置 JSON 共享 Codable：旧 JSON 由 `LegacyConfigV1` 读取，v2 JSON 由 `V2Tool` 读写；
+/// migrator 是唯一的旧配置 → v2 转换路径。
 ///
-/// **没有** v1 兼容 accessor（systemPrompt / userPrompt / providerId / modelId / temperature / variables）——
-/// ToolEditorView / ToolExecutor 继续消费现有 `Tool` 类型；访问 V2Tool 字段必须通过 `kind` 的
-/// pattern matching 或专用 kind-aware 编辑器（M3+ 引入）。
+/// **没有**旧扁平 accessor（systemPrompt / userPrompt / providerId / modelId / temperature / variables）——
+/// 访问 V2Tool 字段必须通过 `kind` 的 pattern matching 或 kind-aware 编辑器。
 ///
 /// M3 的 rename pass 会：
-/// 1. 删除现有 `Tool.swift`
-/// 2. 把本文件重命名为 `Tool.swift`、类型改名为 `Tool`
-/// 3. 同步改 ToolExecutor / ToolEditorView / DefaultConfiguration 等所有引用
+/// 1. 把本文件重命名为 `Tool.swift`、类型改名为 `Tool`
+/// 2. 同步改 SettingsUI / Windowing / Orchestration 等所有引用
 public struct V2Tool: Identifiable, Sendable, Codable, Equatable {
     public let id: String
     public var name: String

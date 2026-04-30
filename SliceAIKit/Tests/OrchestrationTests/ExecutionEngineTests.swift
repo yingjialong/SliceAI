@@ -643,8 +643,7 @@ final class ExecutionEngineTests: XCTestCase {
     }
 
     /// ProviderSelection.fixed.modelId 必须同时贯穿 LLM ChatRequest.model 与 CostRecord.model——
-    /// 否则"请求模型"与"记账模型"会漂移；与 v1 ToolExecutor 同口径
-    /// （`tool.modelId ?? provider.defaultModel`），M3 切换不应静默换模型。
+    /// 否则"请求模型"与"记账模型"会漂移，M3 切换不应静默换模型。
     /// 直接构造 Engine（不走 makeEngine）以便保留 CostAccounting / MockLLMProviderFactory 句柄做断言。
     func test_execute_modelOverride_propagatesToBothChatRequestAndCostRecord() async throws {
         let llm = MockLLMProvider(chunks: [ChatChunk(delta: "ok", finishReason: .stop)])

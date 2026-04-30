@@ -8,14 +8,14 @@ import SliceCore
 /// 主路径若抛错或返回 nil，都会自动降级到 fallback；两路均空时返回 nil。
 public struct SelectionService: Sendable {
 
-    private let primary: any SelectionSource
-    private let fallback: any SelectionSource
+    private let primary: any SelectionReader
+    private let fallback: any SelectionReader
 
     /// 构造 SelectionService
     /// - Parameters:
     ///   - primary: 主读取路径，通常注入 AXSelectionSource
     ///   - fallback: 备用读取路径，通常注入 ClipboardSelectionSource
-    public init(primary: any SelectionSource, fallback: any SelectionSource) {
+    public init(primary: any SelectionReader, fallback: any SelectionReader) {
         self.primary = primary
         self.fallback = fallback
     }
@@ -53,7 +53,7 @@ public struct SelectionService: Sendable {
     ///
     /// 错误在此处被静默降级：对外层只关心"这条路径能不能拿到结果"，
     /// 而不是具体的失败原因（AX 没权限、CGEvent 失败、超时等均等价于"这条路径没拿到"）。
-    private func tryCapture(from source: any SelectionSource) async -> SelectionPayload? {
+    private func tryCapture(from source: any SelectionReader) async -> SelectionPayload? {
         do {
             if let result = try await source.readSelection() {
                 return SelectionPayload(from: result)

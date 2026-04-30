@@ -1,7 +1,7 @@
 import CoreGraphics
 import Foundation
 
-/// 划词事件的载荷，在 SelectionCapture 与 Windowing / ToolExecutor 之间传递
+/// 划词事件的载荷，在 SelectionCapture 与 app 执行入口之间传递
 public struct SelectionPayload: Sendable, Equatable, Codable {
     public let text: String
     public let appBundleID: String

@@ -81,7 +81,7 @@ final class MockLLMProviderFactory: LLMProviderFactory, @unchecked Sendable {
 
     /// 受锁保护的内部捕获状态
     private struct State {
-        var capturedProvider: Provider?
+        var capturedProvider: V2Provider?
         var capturedAPIKey: String?
     }
 
@@ -92,8 +92,8 @@ final class MockLLMProviderFactory: LLMProviderFactory, @unchecked Sendable {
     /// 锁保护捕获状态
     private let state = OSAllocatedUnfairLock<State>(initialState: .init())
 
-    /// 测试可读：最后一次 make 收到的 v1 Provider
-    var capturedProvider: Provider? {
+    /// 测试可读：最后一次 make 收到的 V2Provider
+    var capturedProvider: V2Provider? {
         state.withLock { $0.capturedProvider }
     }
 
@@ -112,7 +112,7 @@ final class MockLLMProviderFactory: LLMProviderFactory, @unchecked Sendable {
     }
 
     /// LLMProviderFactory 协议方法
-    func make(for provider: Provider, apiKey: String) throws -> any LLMProvider {
+    func make(for provider: V2Provider, apiKey: String) throws -> any LLMProvider {
         state.withLock { state in
             state.capturedProvider = provider
             state.capturedAPIKey = apiKey

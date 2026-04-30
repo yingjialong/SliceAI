@@ -7,7 +7,7 @@ import SliceCore
 /// 通过系统级 `AXUIElementCreateSystemWide()` 定位当前焦点元素，再读取其
 /// `kAXSelectedTextAttribute`。该路径不依赖剪贴板、不会触发 ⌘C，是优先使用的主读取路径；
 /// 但需要 App 获得 Accessibility 权限，且只对提供 AX 的 App（绝大多数原生控件）有效。
-public struct AXSelectionSource: SelectionSource {
+public struct AXSelectionSource: SelectionReader {
 
     /// 默认构造器；本类型无存储属性，创建成本可以忽略
     public init() {}
