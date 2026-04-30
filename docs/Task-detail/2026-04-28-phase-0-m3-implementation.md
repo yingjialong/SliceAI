@@ -36,7 +36,7 @@ status: in_progress
 - [x] M3.0 Step 2：删除 v1 类型族 + SelectionReader + LLMProviderFactory 升级。
 - [x] M3.0 Step 3：V2* rename 回 spec 正名。
 - [x] M3.0 Step 4：PresentationMode → DisplayMode。
-- [ ] M3.0 Step 5：SelectionOrigin → SelectionSource。
+- [x] M3.0 Step 5：SelectionOrigin → SelectionSource。
 - [ ] M3.2/M3.3/M3.4：触发链、配置启动场景、grep validation 验收。
 - [ ] M3.5：13 项手工回归。
 - [ ] M3.6：文档归档 + v0.2.0 release。
@@ -310,5 +310,54 @@ Step 3 已把 V2 类型族正名为 `Tool` / `Provider` / `Configuration` / `Con
 
 ### Step 4 残留风险
 
-- Step 5 尚未执行，`SelectionOrigin` 源码和测试命中应继续存在；后续 M3.0 Step 5 再处理。
+- Step 4 完成时 `SelectionOrigin` 仍作为下一步命名残留存在；该项已在下方 M3.0 Step 5 处理完成。
 - `ConfigMigratorV1ToV2`、`LegacyConfigV1`、`config-v2.json` 仍保留版本边界命名，属于迁移语义，不是 Step 4 残留。
+
+## M3.0 Step 5（Task 11）实施记录
+
+### 背景
+
+Step 4 已把 `PresentationMode` 恢复为 spec canonical `DisplayMode`。Step 5 只处理 M1 临时命名 `SelectionOrigin`，恢复为 spec canonical `SelectionSource`；不修改 `SelectionReader` 读取器协议，不修改 `AXSelectionSource` / `ClipboardSelectionSource` 实现类，也不修改 `SelectionPayload.Source` 内嵌 enum 名称或 JSON/raw values。
+
+### ToDoList
+
+- [x] 用 `rg -n "\bSelectionOrigin\b|\btoSelectionOrigin\b" SliceAIKit/Sources SliceAIKit/Tests SliceAIApp --type swift` 盘点 Swift 精确命中。
+- [x] 按 word-boundary 顺序替换 `toSelectionOrigin` -> `toSelectionSource`，再替换 `SelectionOrigin` -> `SelectionSource`。
+- [x] 手工复查 `SelectionContentType.swift` 命名说明，明确 `SelectionSource` 是 canonical 来源枚举且与 `SelectionReader` 读取器接口正交。
+- [x] 同步测试方法名与注释：`test_toSelectionOrigin_clipboardFallback` -> `test_toSelectionSource_clipboardFallback`，`test_selectionOrigin_rawValues` -> `test_selectionSource_rawValues`。
+- [x] 执行静态 grep、SwiftPM build、targeted tests、full coverage tests、xcodebuild、SwiftLint strict、`git diff --check`。
+
+### 实施结果
+
+- `SelectionSnapshot.source` 字段和 init 参数类型从 `SelectionOrigin` 改为 `SelectionSource`。
+- `SelectionContentType.swift` 中来源枚举定义从 `SelectionOrigin` 改为 `SelectionSource`，保留 raw values：`accessibility` / `clipboardFallback` / `inputBox`。
+- `SelectionPayload.toExecutionSeed(...)` 改为调用 `source.toSelectionSource()`。
+- `SelectionPayload.Source` 内嵌 enum 名称保持不变，仅 mapping helper 从 `toSelectionOrigin()` 改为 `toSelectionSource()`，输出类型改为 `SelectionSource`。
+- `SelectionSnapshotTests` / `SelectionPayloadTests` 同步 canonical 命名断言，继续覆盖 raw values 稳定性与 clipboard fallback 映射。
+- `SelectionReader`、`AXSelectionSource`、`ClipboardSelectionSource` 均保持原名；SelectionCapture 范围未引入 `SelectionSource` 协议/存在类型。
+
+### Step 5 验证结果
+
+- `rg -n "\bSelectionOrigin\b|\btoSelectionOrigin\b" SliceAIKit/Sources SliceAIKit/Tests SliceAIApp --type swift`：0 命中。
+- `rg -n "\bSelectionSource\b|\btoSelectionSource\b" SliceAIKit/Sources SliceAIKit/Tests SliceAIApp --type swift`：有命中，覆盖 `SelectionContentType.swift`、`SelectionSnapshot.swift`、`SelectionPayload.swift`、相关 tests，以及既有 `AppDelegate` 注释。
+- `rg -n "\bSelectionReader\b" SliceAIKit/Sources SliceAIKit/Tests SliceAIApp --type swift`：仍有命中，确认读取器协议保留。
+- `rg -n ":\s*SelectionSource\b|any SelectionSource\b" SliceAIKit/Sources/SelectionCapture SliceAIKit/Tests/SelectionCaptureTests --type swift`：0 命中，确认未把 SelectionCapture reader protocol 改回旧名。
+- `cd SliceAIKit && swift build`：通过，`Build complete! (4.58s)`。
+- Targeted tests：`swift test --filter 'SliceCoreTests.SelectionSnapshotTests|SliceCoreTests.SelectionPayloadTests|SelectionCaptureTests.SelectionServiceTests'` 通过，17 tests / 0 failures。
+- `cd SliceAIKit && swift test --parallel --enable-code-coverage`：通过，569 tests / 0 failures，退出码 0。
+- `xcodebuild -quiet -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`：通过，退出码 0；仅有 Xcode destination 选择 warning。
+- `swiftlint lint --strict`（repo 根目录）：通过，137 files，0 violations / 0 serious；保留既有 `unused_import` analyzer_rules 配置 warning。
+- `git diff --check`：通过。
+
+### Step 5 变动文件
+
+- `SliceAIKit/Sources/SliceCore/SelectionContentType.swift`
+- `SliceAIKit/Sources/SliceCore/SelectionPayload.swift`
+- `SliceAIKit/Sources/SliceCore/SelectionSnapshot.swift`
+- `SliceAIKit/Tests/SliceCoreTests/SelectionPayloadTests.swift`
+- `SliceAIKit/Tests/SliceCoreTests/SelectionSnapshotTests.swift`
+
+### Step 5 残留风险
+
+- 本轮只做 canonical rename，不改变 selection 捕获、payload wire shape、raw values 或业务分支；因此未增加运行时日志，避免为了改名引入无意义行为变化。
+- `SelectionPayload.Source` 仍是 v1 触发层边界类型，按本轮要求保留内嵌 enum 名称；后续若要彻底移除 v1 语义，需要单独设计迁移边界，不能混入本次 rename。

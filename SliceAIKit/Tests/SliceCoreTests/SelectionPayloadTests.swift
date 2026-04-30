@@ -56,10 +56,10 @@ final class SelectionPayloadTests: XCTestCase {
         XCTAssertFalse(seed.isDryRun)
     }
 
-    /// 验证 clipboard fallback 来源映射到 v2 SelectionOrigin。
-    func test_toSelectionOrigin_clipboardFallback() {
+    /// 验证 clipboard fallback 来源映射到 v2 SelectionSource。
+    func test_toSelectionSource_clipboardFallback() {
         let source: SelectionPayload.Source = .clipboardFallback
 
-        XCTAssertEqual(source.toSelectionOrigin(), .clipboardFallback)
+        XCTAssertEqual(source.toSelectionSource(), .clipboardFallback)
     }
 }

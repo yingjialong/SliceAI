@@ -18,7 +18,7 @@ public struct SelectionSnapshot: Sendable, Equatable, Codable {
     /// 选中文字
     public let text: String
     /// 来源渠道（AX / clipboard fallback / 命令面板输入框）
-    public let source: SelectionOrigin
+    public let source: SelectionSource
     /// 字符长度（`text.count`，显式字段便于日志不写原文）
     public let length: Int
     /// BCP-47 语言代码；Phase 0 M1 可为 nil，Phase 1+ 填充
@@ -35,7 +35,7 @@ public struct SelectionSnapshot: Sendable, Equatable, Codable {
     ///   - contentType: 内容类型，未识别传 nil
     public init(
         text: String,
-        source: SelectionOrigin,
+        source: SelectionSource,
         length: Int,
         language: String?,
         contentType: SelectionContentType?

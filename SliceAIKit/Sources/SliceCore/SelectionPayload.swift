@@ -44,7 +44,7 @@ public extension SelectionPayload {
     func toExecutionSeed(triggerSource: TriggerSource, isDryRun: Bool = false) -> ExecutionSeed {
         let snapshot = SelectionSnapshot(
             text: text,
-            source: source.toSelectionOrigin(),
+            source: source.toSelectionSource(),
             length: text.count,
             language: nil,
             contentType: nil
@@ -70,10 +70,10 @@ public extension SelectionPayload {
 
 public extension SelectionPayload.Source {
 
-    /// 单方向映射 v1 触发层 source 到 v2 SelectionOrigin。
+    /// 单方向映射 v1 触发层 source 到 v2 SelectionSource。
     ///
     /// - Returns: 与当前 SelectionPayload.Source 等价的 v2 来源枚举。
-    func toSelectionOrigin() -> SelectionOrigin {
+    func toSelectionSource() -> SelectionSource {
         switch self {
         case .accessibility:
             return .accessibility
