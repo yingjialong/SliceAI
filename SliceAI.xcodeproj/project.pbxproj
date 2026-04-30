@@ -19,6 +19,8 @@
 		533BA7992F969D310078EF4F /* SettingsUI in Frameworks */ = {isa = PBXBuildFile; productRef = 533BA7982F969D310078EF4F /* SettingsUI */; };
 		533BA79C2F969F2D0078EF4F /* SliceCore in Frameworks */ = {isa = PBXBuildFile; productRef = 533BA79B2F969F2D0078EF4F /* SliceCore */; };
 		533BA79E2F969F330078EF4F /* Windowing in Frameworks */ = {isa = PBXBuildFile; productRef = 533BA79D2F969F330078EF4F /* Windowing */; };
+		8115AF702C2F4015A6F27755 /* Orchestration in Frameworks */ = {isa = PBXBuildFile; productRef = 7AE4863FE59E4793B3738E31 /* Orchestration */; };
+		37894532FD1145CAB4EFB3EB /* Capabilities in Frameworks */ = {isa = PBXBuildFile; productRef = E776207AFBC943E0979B858E /* Capabilities */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -44,6 +46,8 @@
 				533BA7972F969D310078EF4F /* SelectionCapture in Frameworks */,
 				533BA7932F969D310078EF4F /* LLMProviders in Frameworks */,
 				533BA79E2F969F330078EF4F /* Windowing in Frameworks */,
+				8115AF702C2F4015A6F27755 /* Orchestration in Frameworks */,
+				37894532FD1145CAB4EFB3EB /* Capabilities in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -112,6 +116,8 @@
 				533BA7982F969D310078EF4F /* SettingsUI */,
 				533BA79B2F969F2D0078EF4F /* SliceCore */,
 				533BA79D2F969F330078EF4F /* Windowing */,
+				7AE4863FE59E4793B3738E31 /* Orchestration */,
+				E776207AFBC943E0979B858E /* Capabilities */,
 			);
 			productName = SliceAI;
 			productReference = 533BA76C2F9691D20078EF4F /* SliceAI.app */;
@@ -456,6 +462,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 533BA78F2F969D310078EF4F /* XCLocalSwiftPackageReference "SliceAIKit" */;
 			productName = Windowing;
+		};
+		7AE4863FE59E4793B3738E31 /* Orchestration */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 533BA78F2F969D310078EF4F /* XCLocalSwiftPackageReference "SliceAIKit" */;
+			productName = Orchestration;
+		};
+		E776207AFBC943E0979B858E /* Capabilities */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 533BA78F2F969D310078EF4F /* XCLocalSwiftPackageReference "SliceAIKit" */;
+			productName = Capabilities;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
