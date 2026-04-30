@@ -37,7 +37,8 @@ status: in_progress
 - [x] M3.0 Step 3：V2* rename 回 spec 正名。
 - [x] M3.0 Step 4：PresentationMode → DisplayMode。
 - [x] M3.0 Step 5：SelectionOrigin → SelectionSource。
-- [ ] M3.2/M3.3/M3.4：触发链、配置启动场景、grep validation 验收。
+- [x] M3.2/M3.3/M3.4：CLI 自动化验收完成（4 关 gate、targeted tests、grep validation）。
+- [ ] M3.2/M3.3：手工 GUI / 真实 LLM / 真实启动场景待人工确认。
 - [ ] M3.5：13 项手工回归。
 - [ ] M3.6：文档归档 + v0.2.0 release。
 
@@ -361,3 +362,42 @@ Step 4 已把 `PresentationMode` 恢复为 spec canonical `DisplayMode`。Step 5
 
 - 本轮只做 canonical rename，不改变 selection 捕获、payload wire shape、raw values 或业务分支；因此未增加运行时日志，避免为了改名引入无意义行为变化。
 - `SelectionPayload.Source` 仍是 v1 触发层边界类型，按本轮要求保留内嵌 enum 名称；后续若要彻底移除 v1 语义，需要单独设计迁移边界，不能混入本次 rename。
+
+## M3.2/M3.3/M3.4 自动化验收记录
+
+### 执行边界
+
+- 本轮只执行 CLI 自动化验收，不运行真实调用 LLM provider 的 GUI 流式操作。
+- 本轮未访问或修改用户真实 `~/Library/Application Support/SliceAI/` 配置文件。
+- 验收开始时执行 `git status --short`，工作区存在既有未跟踪 `docs/Task-detail/codex-loop-phase-0-m3-*.md` 与 `docs/handoffs/...` 文件。按 worker 边界，本轮未触碰这些未跟踪文件。
+
+### M3.4 grep validation
+
+- `grep -rn "\bToolExecutor\b\|\bFileConfigurationStore\b\|\bConfigurationProviding\b\|\bV2Tool\b\|\bV2Provider\b\|\bV2Configuration\b\|\bV2ConfigurationStore\b\|\bDefaultV2Configuration\b\|\bPresentationMode\b\|\bSelectionOrigin\b" SliceAIKit/Sources/ SliceAIKit/Tests/ SliceAIApp/`：输出为空。`grep` 在 0 命中时返回 exit 1，符合本项预期。
+
+### M3.2 Step 6 targeted tests
+
+- `(cd SliceAIKit && swift test --filter "OrchestrationTests.InvocationGateTests")`：8 tests / 0 failures，exit 0。
+- `(cd SliceAIKit && swift test --filter "OrchestrationTests.ExecutionStreamOrderingTests")`：4 tests / 0 failures，exit 0。
+- `(cd SliceAIKit && swift test --filter "OrchestrationTests.OutputDispatcherFallbackTests")`：6 tests / 0 failures，exit 0。
+- `(cd SliceAIKit && swift test --filter "OrchestrationTests.SingleWriterContractTests")`：1 test / 0 failures，exit 0。
+- `(cd SliceAIKit && swift test --filter "SliceCoreTests.SelectionPayloadToExecutionSeedTests")`：exit 0，但 SwiftPM 输出 `warning: No matching test cases were run`，实际 0 tests。当前测试列表中对应真实用例为 `SliceCoreTests.SelectionPayloadTests/test_toExecutionSeed_mapsFields`。
+- 追加核验 `(cd SliceAIKit && swift test --filter "SliceCoreTests.SelectionPayloadTests/test_toExecutionSeed_mapsFields")`：1 test / 0 failures，exit 0。
+- 已同步修正 implementation plan 的 Task 12 Step 6，后续直接运行真实 XCTest filter，避免 0-test 假阳性。
+
+### M3.3 Step 5 targeted tests
+
+- `(cd SliceAIKit && swift test --filter "SliceCoreTests.ConfigurationStoreTests")`：15 tests / 0 failures，exit 0。
+
+### 4 关 gate
+
+- `(cd SliceAIKit && swift build)`：Build complete，exit 0。
+- `(cd SliceAIKit && swift test --parallel --enable-code-coverage)`：测试进度完成到 569/569，exit 0。
+- `xcodebuild -quiet -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`：exit 0；仅输出 Xcode destination 选择 warning。
+- `swiftlint lint --strict`：137 files，0 violations / 0 serious，exit 0；保留既有 `unused_import` analyzer_rules 配置 warning。
+
+### 手工未覆盖项
+
+- M3.2：Safari 划词真实触发链、`⌥Space` 命令面板真实触发、取消流式输出、single-flight stress 未执行。
+- M3.3：启动场景 A-D 涉及真实 app 与真实 config 文件，未执行，避免改动用户真实配置状态。
+- 真实 LLM provider GUI 流式调用未执行，避免产生外部请求和用户环境副作用。

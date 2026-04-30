@@ -4186,7 +4186,7 @@ echo "PASS: cancel 路径未写 audit（与 ExecutionEngine 设计一致）"
 (cd SliceAIKit && swift test --filter "OrchestrationTests.ExecutionStreamOrderingTests")  # F3.4 R3：fake stream + 真实 gate ordering
 (cd SliceAIKit && swift test --filter "OrchestrationTests.OutputDispatcherFallbackTests")
 (cd SliceAIKit && swift test --filter "OrchestrationTests.SingleWriterContractTests")
-(cd SliceAIKit && swift test --filter "SliceCoreTests.SelectionPayloadToExecutionSeedTests")
+(cd SliceAIKit && swift test --filter "SliceCoreTests.SelectionPayloadTests/test_toExecutionSeed_mapsFields")  # 当前真实 XCTest class 内的 seed mapping 用例
 ```
 Expected: 全 PASS
 
