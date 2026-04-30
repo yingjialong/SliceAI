@@ -55,12 +55,12 @@ public final class FloatingToolbarPanel {
     ///   3. 依据测量尺寸重新算 origin（让 panel 贴近选区又不超屏），再 `setFrame`
     ///      到正确 size + origin；测量失败（返回 0 或 NaN）时退回老式公式作为兜底
     public func show(
-        tools: [V2Tool],
+        tools: [Tool],
         anchor: CGPoint,
         maxTools: Int = 6,
         size: ToolbarSize = .compact,
         autoDismissSeconds: Int = 5,
-        onPick: @escaping @MainActor (V2Tool) -> Void
+        onPick: @escaping @MainActor (Tool) -> Void
     ) {
         // 把 autoDismissSeconds 存成实例字段，供 resumeAutoDismiss 回调复用
         // （否则拖动结束后无法恢复成"用户设置的秒数"）
@@ -100,8 +100,8 @@ public final class FloatingToolbarPanel {
 
     /// 直接显示的工具 + 溢出的工具 + 渲染位数的组合
     private struct ToolSplit {
-        let direct: [V2Tool]
-        let overflow: [V2Tool]
+        let direct: [Tool]
+        let overflow: [Tool]
         /// 实际渲染的"按钮位"数（含更多按钮位）
         let itemCount: Int
     }
@@ -153,7 +153,7 @@ public final class FloatingToolbarPanel {
     /// 语义：`maxTools` 指"最多展示多少个工具按钮"，**不含**溢出状态下额外追加的
     /// 「⋯ 更多」按钮。因此当 tools.count > maxTools 时，前 maxTools 个工具直接
     /// 渲染，其余折叠到更多菜单，再在右侧额外放置一个「更多」按钮（itemCount +1）。
-    private func splitTools(_ tools: [V2Tool], maxTools: Int) -> ToolSplit {
+    private func splitTools(_ tools: [Tool], maxTools: Int) -> ToolSplit {
         let clampedMax = max(2, min(20, maxTools))
         let hasOverflow = tools.count > clampedMax
         let direct = hasOverflow ? Array(tools.prefix(clampedMax)) : tools
@@ -193,7 +193,7 @@ public final class FloatingToolbarPanel {
         split: ToolSplit,
         metrics: ToolbarMetrics,
         panel: NSPanel,
-        onPick: @escaping @MainActor (V2Tool) -> Void
+        onPick: @escaping @MainActor (Tool) -> Void
     ) -> ToolbarContent {
         ToolbarContent(
             directTools: split.direct,
@@ -299,13 +299,13 @@ public final class FloatingToolbarPanel {
 /// 浮条内部的 SwiftUI 视图：左侧拖拽把手 + 一排可点击的工具按钮 + 可选"更多"菜单
 private struct ToolbarContent: View {
     /// 直接显示为按钮的工具列表
-    let directTools: [V2Tool]
+    let directTools: [Tool]
     /// 折叠进"更多"菜单的工具列表；为空时不渲染更多按钮
-    let overflowTools: [V2Tool]
+    let overflowTools: [Tool]
     /// 尺寸档位对应的像素参数
     let metrics: FloatingToolbarPanel.ToolbarMetrics
     /// 工具点击回调（含从更多菜单触发）
-    let onPick: @MainActor (V2Tool) -> Void
+    let onPick: @MainActor (Tool) -> Void
     /// 拖动开始时暂停自动关闭计时
     let pauseAutoDismiss: () -> Void
     /// 拖动结束时恢复自动关闭计时
@@ -383,7 +383,7 @@ private struct ToolbarContent: View {
     ///   - .iconAndName → ToolbarItemButton 图标+文字
     /// 拆为独立函数避免 ForEach body 内 switch 嵌套太深触发类型推导超时
     @ViewBuilder
-    private func toolButton(for tool: V2Tool) -> some View {
+    private func toolButton(for tool: Tool) -> some View {
         switch tool.labelStyle {
         case .icon:
             IconButton(text: tool.icon, size: metrics.iconButtonSize, help: tool.name) {

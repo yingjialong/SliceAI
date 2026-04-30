@@ -58,7 +58,7 @@ public struct EffectivePermissions: Sendable, Equatable {
 // MARK: - .empty 静态字段（R8 B-1 修订）
 
 extension EffectivePermissions {
-    /// 全空聚合，便于 `ExecutionEngine` 构造空 V2Tool 测试 fixture / 默认占位
+    /// 全空聚合，便于 `ExecutionEngine` 构造空 Tool 测试 fixture / 默认占位
     public static let empty = EffectivePermissions(
         declared: [],
         fromContexts: [],

@@ -2,14 +2,14 @@ import Capabilities
 import Foundation
 import SliceCore
 
-/// v2 编排主入口：把一次"触发种子 + V2Tool"驱动到 LLM 调用 + 副作用 + 审计落盘。
+/// v2 编排主入口：把一次"触发种子 + Tool"驱动到 LLM 调用 + 副作用 + 审计落盘。
 ///
 /// **流程概览（spec §3.4 Step 1-10）**：
 /// 1. `.started` 事件 + 记录 `startedAt`
 /// 2. PermissionGraph 静态聚合 effective permissions；undeclared 非空直接终止
 /// 3. PermissionBroker.gate 整体 effective 集合（4 态决策）
 /// 4. ContextCollector 平铺并发解析 ContextRequest
-/// 5. ProviderResolver 解析 ProviderSelection 到具体 V2Provider
+/// 5. ProviderResolver 解析 ProviderSelection 到具体 Provider
 /// 6. 按 tool.kind 分派；M2 仅 `.prompt` 走 PromptExecutor，其余 yield `.notImplemented`
 /// 7. PromptExecutor 流：转发 chunk + OutputDispatcher 投递；末尾收 `.completed(UsageStats)`
 /// 8. outputBinding.sideEffects：每条独立 gate；dry-run skip / partial-failure 标记
@@ -109,11 +109,11 @@ public actor ExecutionEngine {
     /// 链路上端到端一致。
     ///
     /// - Parameters:
-    ///   - tool: 要执行的 V2Tool
+    ///   - tool: 要执行的 Tool
     ///   - seed: 本次调用的执行种子（选区 / 前台 App / 锚点等）
     /// - Returns: AsyncThrowingStream 事件序列；按 spec §3.4 顺序产出 Step 1-10 各事件
     public nonisolated func execute(
-        tool: V2Tool,
+        tool: Tool,
         seed: ExecutionSeed
     ) -> AsyncThrowingStream<ExecutionEvent, any Error> {
         // continuation 是 Sendable，可跨 actor 边界安全传递
@@ -142,7 +142,7 @@ public actor ExecutionEngine {
     /// 让本方法控制流极简（仅顺序串接）；所有跨 step 共享的上下文（invocationId / toolId /
     /// declared / startedAt / continuation）打包成 `FlowContext` 引用类型，避免参数爆炸。
     func runMainFlow(
-        tool: V2Tool,
+        tool: Tool,
         seed: ExecutionSeed,
         continuation: AsyncThrowingStream<ExecutionEvent, any Error>.Continuation
     ) async {

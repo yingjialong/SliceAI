@@ -48,7 +48,7 @@ public struct UsageStats: Sendable, Equatable {
 /// **来源**：本类型由 legacy prompt 执行流程**复制并改造**而来。
 /// 关键差异：
 /// 1. 入参类型从 v1 `Tool` / `SelectionPayload` 改为 v2 `PromptTool` / `ResolvedExecutionContext`；
-/// 2. 入参 `provider: V2Provider`，直接传给 `LLMProviderFactory.make(for:apiKey:)`；
+/// 2. 入参 `provider: Provider`，直接传给 `LLMProviderFactory.make(for:apiKey:)`；
 /// 3. 流元素从 `ChatChunk` 改为 `PromptStreamElement`，在 stream 末尾追加一次 `.completed(UsageStats)`。
 ///
 /// **协议族支持范围（M2）**：仅 `.openAICompatible`；其他 kind（`.anthropic` / `.gemini` / `.ollama`）
@@ -62,9 +62,9 @@ public struct UsageStats: Sendable, Equatable {
 ///   跨边界把工作交给 actor-isolated `runInternal`，从而合法访问 `self.keychain` / `self.llmProviderFactory`。
 public actor PromptExecutor {
 
-    /// Keychain 访问协议，按 `V2Provider.keychainAccount` 的 account 名读取 API Key
+    /// Keychain 访问协议，按 `Provider.keychainAccount` 的 account 名读取 API Key
     private let keychain: any KeychainAccessing
-    /// LLM Provider 工厂，直接消费 V2Provider
+    /// LLM Provider 工厂，直接消费 Provider
     private let llmProviderFactory: any LLMProviderFactory
 
     /// 构造 PromptExecutor
@@ -102,12 +102,12 @@ public actor PromptExecutor {
     /// - Parameters:
     ///   - promptTool: PromptTool 配置（systemPrompt / userPrompt / variables / temperature / maxTokens）
     ///   - resolved: ContextCollector 已解析的执行上下文（提供 selection.text / frontApp 用于变量注入）
-    ///   - provider: V2Provider 配置；M2 仅支持 `kind == .openAICompatible`
+    ///   - provider: Provider 配置；M2 仅支持 `kind == .openAICompatible`
     /// - Returns: AsyncThrowingStream of `PromptStreamElement`
     public func run(
         promptTool: PromptTool,
         resolved: ResolvedExecutionContext,
-        provider: V2Provider
+        provider: Provider
     ) -> AsyncThrowingStream<PromptStreamElement, any Error> {
         // 注：stream closure 是 @Sendable 非 actor-isolated；闭包内必须用 Task { [weak self] in ... }
         // 跨边界跳进 actor，才能访问 self.keychain / self.llmProviderFactory（actor state）
@@ -161,7 +161,7 @@ public actor PromptExecutor {
     private func runInternal(
         promptTool: PromptTool,
         resolved: ResolvedExecutionContext,
-        provider: V2Provider,
+        provider: Provider,
         continuation: AsyncThrowingStream<PromptStreamElement, any Error>.Continuation
     ) async throws {
         // 1. provider preflight：先检查协议族 / endpoint，再读 Keychain。
@@ -190,7 +190,7 @@ public actor PromptExecutor {
         //    model 选择：promptTool.provider.fixed.modelId 优先，缺省 fall back provider.defaultModel。
         //    与 legacy 执行器的 `tool.modelId ?? provider.defaultModel` 同口径——
         //    ProviderResolver 当前不消费 modelId（见 ProviderResolverProtocol 文档），由本层解析；
-        //    M3 切换到 V2 链路后用户工具级 modelId 不再被静默换成 provider.defaultModel。
+        //    M3 切换到新执行链路后用户工具级 modelId 不再被静默换成 provider.defaultModel。
         let selectedModel = Self.resolveModel(
             selection: promptTool.provider, fallback: provider.defaultModel
         )

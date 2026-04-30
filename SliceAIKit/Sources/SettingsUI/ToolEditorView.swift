@@ -3,20 +3,20 @@ import DesignSystem
 import SliceCore
 import SwiftUI
 
-/// 单个 V2Tool 的编辑表单
+/// 单个 Tool 的编辑表单
 ///
-/// 输入通过 `@Binding` 直接指向 `V2Configuration.tools[i]`，修改即时反映到 VM。
-/// V2Provider 列表只读展示，用于 Picker 选择关联的供应商。
+/// 输入通过 `@Binding` 直接指向 `Configuration.tools[i]`，修改即时反映到 VM。
+/// Provider 列表只读展示，用于 Picker 选择关联的供应商。
 ///
 /// 样式采用 DesignSystem：SectionCard 分组 + SettingsRow 行布局，
 /// 不使用 Form/Section（FormStyle.grouped 在内联展开场景有额外内边距不适用）。
 public struct ToolEditorView: View {
 
-    /// 正在编辑的 V2Tool 的双向绑定
-    @Binding public var tool: V2Tool
+    /// 正在编辑的 Tool 的双向绑定
+    @Binding public var tool: Tool
 
-    /// 可选的 V2Provider 列表，作为 Picker 数据源
-    public let providers: [V2Provider]
+    /// 可选的 Provider 列表，作为 Picker 数据源
+    public let providers: [Provider]
 
     /// "添加变量"对话框是否展示
     @State var showAddVariableAlert = false
@@ -27,11 +27,11 @@ public struct ToolEditorView: View {
     /// v0.2 设置页可编辑的展示模式白名单，避免暴露尚未实现的 file/silent/structured
     static let editablePresentationModes: [SliceCore.PresentationMode] = [.window, .bubble, .replace]
 
-    /// 构造 V2Tool 编辑视图
+    /// 构造 Tool 编辑视图
     /// - Parameters:
-    ///   - tool: 指向 V2Configuration 中某个 V2Tool 的绑定
-    ///   - providers: 供 Picker 显示的 V2Provider 列表
-    public init(tool: Binding<V2Tool>, providers: [V2Provider]) {
+    ///   - tool: 指向 Configuration 中某个 Tool 的绑定
+    ///   - providers: 供 Picker 显示的 Provider 列表
+    public init(tool: Binding<Tool>, providers: [Provider]) {
         self._tool = tool
         self.providers = providers
     }

@@ -9,7 +9,7 @@ import SliceCore
 ///   `DefaultProviderResolver` 一致用 actor 隔离，避免 `@unchecked Sendable` 锁逃逸；
 /// - **默认行为 = 返回 `MockProvider.openAIStub()`**：让 ExecutionEngineTests 的 happy path
 ///   不需要每条用例都注入 provider；
-/// - **`outcomeOverride` 闭包**：测试可以按 selection 决定返回 V2Provider 或抛
+/// - **`outcomeOverride` 闭包**：测试可以按 selection 决定返回 Provider 或抛
 ///   `ProviderResolutionError`，覆盖 `referencedProviderMissing` / `notImplemented` 路径；
 /// - **`@Sendable` 闭包**：跨 actor 边界存储，Swift 6 严格并发要求 Sendable 标注。
 final actor MockProviderResolver: ProviderResolverProtocol {
@@ -23,21 +23,21 @@ final actor MockProviderResolver: ProviderResolverProtocol {
     private(set) var capturedSelections: [ProviderSelection] = []
 
     /// 注入 selection → 解析结果 / 错误的闭包；nil 时走默认 stub provider
-    private var outcomeOverride: (@Sendable (ProviderSelection) -> Result<V2Provider, ProviderResolutionError>)?
+    private var outcomeOverride: (@Sendable (ProviderSelection) -> Result<Provider, ProviderResolutionError>)?
 
-    /// 默认返回的 V2Provider stub —— `outcomeOverride` 为 nil 时使用
-    private let defaultProvider: V2Provider
+    /// 默认返回的 Provider stub —— `outcomeOverride` 为 nil 时使用
+    private let defaultProvider: Provider
 
     // MARK: - Init
 
     /// 构造 MockProviderResolver
     ///
     /// - Parameters:
-    ///   - defaultProvider: 默认返回的 V2Provider；未传则用 `MockProvider.openAIStub()`
+    ///   - defaultProvider: 默认返回的 Provider；未传则用 `MockProvider.openAIStub()`
     ///   - outcomeOverride: 按 selection 决定返回 / 抛错的闭包；nil 走默认路径
     init(
-        defaultProvider: V2Provider = MockProvider.openAIStub(),
-        outcomeOverride: (@Sendable (ProviderSelection) -> Result<V2Provider, ProviderResolutionError>)? = nil
+        defaultProvider: Provider = MockProvider.openAIStub(),
+        outcomeOverride: (@Sendable (ProviderSelection) -> Result<Provider, ProviderResolutionError>)? = nil
     ) {
         self.defaultProvider = defaultProvider
         self.outcomeOverride = outcomeOverride
@@ -46,7 +46,7 @@ final actor MockProviderResolver: ProviderResolverProtocol {
     // MARK: - ProviderResolverProtocol
 
     /// 解析 selection；按 override / 默认 provider 返回，记录调用现场便于测试断言
-    func resolve(_ selection: ProviderSelection) async throws -> V2Provider {
+    func resolve(_ selection: ProviderSelection) async throws -> Provider {
         resolveCalls += 1
         capturedSelections.append(selection)
         if let override = outcomeOverride {
@@ -64,7 +64,7 @@ final actor MockProviderResolver: ProviderResolverProtocol {
 
     /// 在测试中替换 outcomeOverride（如某条用例临时切换返回 .notFound）
     func setOutcomeOverride(
-        _ override: @escaping @Sendable (ProviderSelection) -> Result<V2Provider, ProviderResolutionError>
+        _ override: @escaping @Sendable (ProviderSelection) -> Result<Provider, ProviderResolutionError>
     ) {
         self.outcomeOverride = override
     }

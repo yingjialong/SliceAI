@@ -1,10 +1,10 @@
 import XCTest
 @testable import SliceCore
 
-final class V2ProviderTests: XCTestCase {
+final class ProviderTests: XCTestCase {
 
     func test_init_anthropic_allowsNilBaseURL() {
-        let p = V2Provider(
+        let p = Provider(
             id: "claude",
             kind: .anthropic,
             name: "Claude",
@@ -19,7 +19,7 @@ final class V2ProviderTests: XCTestCase {
     }
 
     func test_init_openAICompatible_requiresBaseURL() {
-        let p = V2Provider(
+        let p = Provider(
             id: "openai-official",
             kind: .openAICompatible,
             name: "OpenAI",
@@ -46,8 +46,8 @@ final class V2ProviderTests: XCTestCase {
         )
     }
 
-    func test_v2Provider_codable_goldenShape() throws {
-        let p = V2Provider(
+    func test_provider_codable_goldenShape() throws {
+        let p = Provider(
             id: "claude",
             kind: .anthropic,
             name: "Claude",
@@ -64,8 +64,8 @@ final class V2ProviderTests: XCTestCase {
         XCTAssertFalse(json.contains("\"baseURL\""))  // nil 字段不写出
     }
 
-    func test_v2Provider_codable_roundtrip() throws {
-        let p = V2Provider(
+    func test_provider_codable_roundtrip() throws {
+        let p = Provider(
             id: "openai-official",
             kind: .openAICompatible,
             name: "OpenAI",
@@ -75,7 +75,7 @@ final class V2ProviderTests: XCTestCase {
             capabilities: []
         )
         let data = try JSONEncoder().encode(p)
-        let decoded = try JSONDecoder().decode(V2Provider.self, from: data)
+        let decoded = try JSONDecoder().decode(Provider.self, from: data)
         XCTAssertEqual(p, decoded)
     }
 
@@ -84,19 +84,19 @@ final class V2ProviderTests: XCTestCase {
         let json = #"""
         {"id":"x","kind":"anthropic","name":"X","apiKeyRef":"keychain:x","defaultModel":"m","capabilities":["toolCalling","promptCaching","toolCalling","vision","promptCaching"]}
         """#
-        let decoded = try JSONDecoder().decode(V2Provider.self, from: Data(json.utf8))
+        let decoded = try JSONDecoder().decode(Provider.self, from: Data(json.utf8))
         // 预期：去重后按 rawValue 字母序排列
         XCTAssertEqual(decoded.capabilities, [.promptCaching, .toolCalling, .vision])
     }
 
-    func test_v2Provider_keychainAccount() {
-        let p = V2Provider(id: "x", kind: .anthropic, name: "X", baseURL: nil,
+    func test_provider_keychainAccount() {
+        let p = Provider(id: "x", kind: .anthropic, name: "X", baseURL: nil,
                             apiKeyRef: "keychain:custom-account", defaultModel: "m", capabilities: [])
         XCTAssertEqual(p.keychainAccount, "custom-account")
     }
 
-    func test_v2Provider_keychainAccount_nonKeychainPrefix_returnsNil() {
-        let p = V2Provider(id: "x", kind: .anthropic, name: "X", baseURL: nil,
+    func test_provider_keychainAccount_nonKeychainPrefix_returnsNil() {
+        let p = Provider(id: "x", kind: .anthropic, name: "X", baseURL: nil,
                             apiKeyRef: "raw-literal-key", defaultModel: "m", capabilities: [])
         XCTAssertNil(p.keychainAccount)
     }
@@ -113,7 +113,7 @@ final class V2ProviderTests: XCTestCase {
         let json = #"""
         {"id":"x","kind":"openAICompatible","name":"X","baseURL":null,"apiKeyRef":"keychain:x","defaultModel":"gpt-4","capabilities":[]}
         """#
-        XCTAssertThrowsError(try JSONDecoder().decode(V2Provider.self, from: Data(json.utf8))) { error in
+        XCTAssertThrowsError(try JSONDecoder().decode(Provider.self, from: Data(json.utf8))) { error in
             guard case DecodingError.dataCorrupted = error else {
                 XCTFail("expected DecodingError.dataCorrupted, got \(error)")
                 return
@@ -126,7 +126,7 @@ final class V2ProviderTests: XCTestCase {
         let json = #"""
         {"id":"x","kind":"ollama","name":"X","baseURL":null,"apiKeyRef":"keychain:x","defaultModel":"llama3","capabilities":[]}
         """#
-        XCTAssertThrowsError(try JSONDecoder().decode(V2Provider.self, from: Data(json.utf8))) { error in
+        XCTAssertThrowsError(try JSONDecoder().decode(Provider.self, from: Data(json.utf8))) { error in
             guard case DecodingError.dataCorrupted = error else {
                 XCTFail("expected DecodingError.dataCorrupted, got \(error)")
                 return
@@ -139,7 +139,7 @@ final class V2ProviderTests: XCTestCase {
         let json = #"""
         {"id":"x","kind":"anthropic","name":"X","baseURL":null,"apiKeyRef":"keychain:x","defaultModel":"claude-sonnet-4","capabilities":[]}
         """#
-        let decoded = try JSONDecoder().decode(V2Provider.self, from: Data(json.utf8))
+        let decoded = try JSONDecoder().decode(Provider.self, from: Data(json.utf8))
         XCTAssertEqual(decoded.kind, .anthropic)
         XCTAssertNil(decoded.baseURL)
     }
@@ -149,7 +149,7 @@ final class V2ProviderTests: XCTestCase {
         let json = #"""
         {"id":"x","kind":"gemini","name":"X","baseURL":null,"apiKeyRef":"keychain:x","defaultModel":"gemini-2","capabilities":[]}
         """#
-        let decoded = try JSONDecoder().decode(V2Provider.self, from: Data(json.utf8))
+        let decoded = try JSONDecoder().decode(Provider.self, from: Data(json.utf8))
         XCTAssertEqual(decoded.kind, .gemini)
         XCTAssertNil(decoded.baseURL)
     }
@@ -158,12 +158,12 @@ final class V2ProviderTests: XCTestCase {
     //
     // 背景：decoder 侧已校验 baseURL；但 `init(id:...)` 非 throws、允许代码侧
     // 构造非法对象（典型场景：测试 fixture、默认值、migrator 输出）。M3 接入后
-    // 这些对象会通过 `V2ConfigurationStore.save()` 落盘——因此 save() 必须在
+    // 这些对象会通过 `ConfigurationStore.save()` 落盘——因此 save() 必须在
     // 写盘前调用 `p.validate()` 拦截。本组测试锁定 validate() 本身的契约。
 
     /// openAICompatible 协议族 + nil baseURL → validate() 必须 throw .validationFailed
     func test_validate_throwsForOpenAICompatibleWithNilBaseURL() {
-        let p = V2Provider(
+        let p = Provider(
             id: "broken",
             kind: .openAICompatible,
             name: "Broken",
@@ -185,7 +185,7 @@ final class V2ProviderTests: XCTestCase {
 
     /// anthropic 协议族 + nil baseURL 合法 → validate() 必须不 throw
     func test_validate_passesForAnthropicWithNilBaseURL() {
-        let p = V2Provider(
+        let p = Provider(
             id: "claude",
             kind: .anthropic,
             name: "Claude",

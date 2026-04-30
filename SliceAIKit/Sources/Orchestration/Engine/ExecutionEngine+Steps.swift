@@ -12,7 +12,7 @@ import SliceCore
 final class FlowContext {
     /// 本次 invocation 的 ID（与 `.started` / `.finished` / audit / cost 路由一致）
     let invocationId: UUID
-    /// 触发的 V2Tool id；audit / report 透传
+    /// 触发的 Tool id；audit / report 透传
     let toolId: String
     /// `tool.permissions` 静态声明集合（去重后的 Set）
     let declared: Set<Permission>
@@ -28,7 +28,7 @@ final class FlowContext {
     /// 构造 FlowContext —— effective / flags 初始为空，由各 step 写入
     /// - Parameters:
     ///   - invocationId: 本次 invocation 唯一标识
-    ///   - toolId: V2Tool.id 透传
+    ///   - toolId: Tool.id 透传
     ///   - declared: 静态 declared 权限集合
     ///   - startedAt: 主流程启动时刻
     ///   - continuation: 事件流 continuation（actor 隔离内传递）
@@ -58,7 +58,7 @@ extension ExecutionEngine {
     /// 返回 nil 表示已 finishFailure 或被取消。每条 catch + happy 分支都先查 `Task.isCancelled`
     /// 静默退出，防止 cancel 后仍走 finishFailure 写"取消但记 .failed" 歧义 audit。
     func runPermissionGraph(
-        tool: V2Tool,
+        tool: Tool,
         context: FlowContext
     ) async -> EffectivePermissions? {
         let effective: EffectivePermissions
@@ -101,7 +101,7 @@ extension ExecutionEngine {
     /// `.wouldRequireConsent` 在 dry-run 路径下 yield 占位事件后继续主流程。
     /// gate await 后查 `Task.isCancelled`，防止取消后仍写 .failed audit / yield 多余事件。
     func runPermissionGate(
-        tool: V2Tool,
+        tool: Tool,
         effective: EffectivePermissions,
         isDryRun: Bool,
         context: FlowContext
@@ -140,7 +140,7 @@ extension ExecutionEngine {
     ///
     /// 返回 nil 表示 required ContextRequest 失败已 finishFailure；调用方应 return。
     func runContextCollection(
-        tool: V2Tool,
+        tool: Tool,
         seed: ExecutionSeed,
         context: FlowContext
     ) async -> ResolvedExecutionContext? {
@@ -174,13 +174,13 @@ extension ExecutionEngine {
         }
     }
 
-    /// Step 4：ProviderResolver 解析 ProviderSelection 为具体 V2Provider。
+    /// Step 4：ProviderResolver 解析 ProviderSelection 为具体 Provider。
     ///
     /// 返回 nil 表示 provider 未找到 / 解析失败已 finishFailure；调用方应 return。
     func runProviderResolution(
-        tool: V2Tool,
+        tool: Tool,
         context: FlowContext
-    ) async -> V2Provider? {
+    ) async -> Provider? {
         let selection: ProviderSelection
         switch tool.kind {
         case .prompt(let p):
@@ -225,10 +225,10 @@ extension ExecutionEngine {
     /// `Task.isCancelled`：取消后不再 yield .llmChunk / .notImplemented / 调 output.handle，
     /// 防止 ResultPanel dismiss 后 chunk 仍投递到已关闭 panel。
     func runPromptStream(
-        tool: V2Tool,
+        tool: Tool,
         promptTool: PromptTool,
         resolved: ResolvedExecutionContext,
-        provider: V2Provider,
+        provider: Provider,
         context: FlowContext
     ) async -> UsageStats? {
         var promptUsage: UsageStats = .zero
@@ -284,7 +284,7 @@ extension ExecutionEngine {
     /// 循环入口 + gate await 后查 `Task.isCancelled`：Phase 1 真实 sideEffect（writeFile /
     /// showNotification / open URL）不可逆，取消后未派发部分静默丢弃。
     func runSideEffects(
-        tool: V2Tool,
+        tool: Tool,
         isDryRun: Bool,
         context: FlowContext
     ) async -> Bool {
@@ -336,8 +336,8 @@ extension ExecutionEngine {
     /// 不 yield .finished）。CostRecord 残留是可接受代价（telemetry 多一条孤记录，
     /// 比 audit 出现"取消但记 .success" 歧义影响小）。
     func recordCostAndFinishSuccess(
-        tool: V2Tool,
-        provider: V2Provider,
+        tool: Tool,
+        provider: Provider,
         usage: UsageStats,
         isDryRun: Bool,
         context: FlowContext
@@ -451,7 +451,7 @@ extension ExecutionEngine {
     /// 抽取 tool.kind 中所有 ContextRequest（与 PermissionGraph.extractContexts 同口径）。
     ///
     /// pipeline 仅 .prompt(inline:) step 的 inline.contexts 参与；其他 step 类型不嵌套 ContextRequest。
-    nonisolated func extractContextRequests(from tool: V2Tool) -> [ContextRequest] {
+    nonisolated func extractContextRequests(from tool: Tool) -> [ContextRequest] {
         switch tool.kind {
         case .prompt(let p):
             return p.contexts
@@ -484,7 +484,7 @@ extension ExecutionEngine {
     /// `nonisolated`：纯函数无 actor 状态依赖。
     /// pipeline 没顶层 provider，一致回 fallback；其他 kind 各自取自己的 provider selection。
     /// 只在 `.fixed(_, modelId:)` 且 modelId 非 nil 时返回 override，否则 fallback。
-    nonisolated func resolveSelectedModel(tool: V2Tool, fallback: String) -> String {
+    nonisolated func resolveSelectedModel(tool: Tool, fallback: String) -> String {
         let selection: ProviderSelection
         switch tool.kind {
         case .prompt(let promptTool): selection = promptTool.provider

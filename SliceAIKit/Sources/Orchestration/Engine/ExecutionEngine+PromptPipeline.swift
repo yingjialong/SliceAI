@@ -18,7 +18,7 @@ extension ExecutionEngine {
     /// **取消语义**：每个 await 之后立即 `if Task.isCancelled { return }` 短路；
     /// onTermination 已 finish 外层 continuation，本路径**不**写 audit、**不**再 yield。
     func runPromptKindPipeline(
-        tool: V2Tool,
+        tool: Tool,
         promptTool: PromptTool,
         seed: ExecutionSeed,
         context: FlowContext

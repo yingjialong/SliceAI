@@ -1,20 +1,17 @@
 import Foundation
 
-/// v2 工具定义；M3.0 Step 3 rename pass 前仍使用 `V2Tool` 临时命名。
+/// v2 工具定义，对应 `config-v2.json` 中的 tool 节点。
 ///
-/// `V2Tool` 是 canonical v2 数据模型：三态 kind（prompt/agent/pipeline）+ provenance +
+/// `Tool` 是 canonical v2 数据模型：三态 kind（prompt/agent/pipeline）+ provenance +
 /// permissions + outputBinding + visibleWhen + budget + hotkey + tags。
 ///
-/// **不**与旧配置 JSON 共享 Codable：旧 JSON 由 `LegacyConfigV1` 读取，v2 JSON 由 `V2Tool` 读写；
+/// **不**与旧配置 JSON 共享 Codable：旧 JSON 由 `LegacyConfigV1` 读取，v2 JSON 由 `Tool` 读写；
 /// migrator 是唯一的旧配置 → v2 转换路径。
 ///
 /// **没有**旧扁平 accessor（systemPrompt / userPrompt / providerId / modelId / temperature / variables）——
-/// 访问 V2Tool 字段必须通过 `kind` 的 pattern matching 或 kind-aware 编辑器。
+/// 访问 Tool 字段必须通过 `kind` 的 pattern matching 或 kind-aware 编辑器。
 ///
-/// M3 的 rename pass 会：
-/// 1. 把本文件重命名为 `Tool.swift`、类型改名为 `Tool`
-/// 2. 同步改 SettingsUI / Windowing / Orchestration 等所有引用
-public struct V2Tool: Identifiable, Sendable, Codable, Equatable {
+public struct Tool: Identifiable, Sendable, Codable, Equatable {
     public let id: String
     public var name: String
     public var icon: String
@@ -63,12 +60,12 @@ public struct V2Tool: Identifiable, Sendable, Codable, Equatable {
         self.tags = tags
     }
 
-    /// 校验 V2Tool 的类型不变量
+    /// 校验 Tool 的类型不变量
     ///
     /// **与 decoder 校验的关系**：decoder 对 JSON 输入做同样检查（`init(from:)`），但
     /// public `init(id:...)` 非 throws、允许代码侧临时构造非法对象（测试 fixture /
     /// 默认值 / migrator 输出）。`validate()` 是写入边界的守护——
-    /// `V2ConfigurationStore.save()` 在落盘前对所有 tool 调用一次。
+    /// `ConfigurationStore.save()` 在落盘前对所有 tool 调用一次。
     ///
     /// 当前校验项（与 decoder 对齐）：
     /// 1. `outputBinding != nil && outputBinding.primary != displayMode` → throw
@@ -87,12 +84,12 @@ public struct V2Tool: Identifiable, Sendable, Codable, Equatable {
 
     // MARK: - Codable（手写 init/encode；除了保持字段 round-trip，额外校验 displayMode / outputBinding.primary 一致性）
     //
-    // P2b 修复：V2Tool 既有 displayMode（non-optional）又有 outputBinding.primary（同 enum，可 nil）。
+    // P2b 修复：Tool 既有 displayMode（non-optional）又有 outputBinding.primary（同 enum，可 nil）。
     // 自动合成 Codable 会让 JSON 里声明 displayMode="window" + outputBinding.primary="replace" 的
     // Tool 通过解码，未来 ExecutionEngine 只能读其中一个，另一个默默被忽略 → 单一事实源违反。
     // 这里显式手写 Codable 加一致性校验；encode 也同步手写保证两端对称。
     //
-    // **JSON shape contract**：只锁定**字段名**与自动合成一致（`test_v2tool_goldenJSON_promptKind_usesKindDiscriminator`
+    // **JSON shape contract**：只锁定**字段名**与自动合成一致（`test_tool_goldenJSON_promptKind_usesKindDiscriminator`
     // 已覆盖关键 key 名），**不**把 CodingKeys 声明顺序作为 API 契约——JSON 里 key 的实际顺序由
     // `JSONEncoder.outputFormatting`（当前配置含 `.sortedKeys`）决定，与 CodingKeys 枚举顺序无关。
 
@@ -126,7 +123,7 @@ public struct V2Tool: Identifiable, Sendable, Codable, Equatable {
             throw DecodingError.dataCorrupted(.init(
                 codingPath: c.codingPath,
                 debugDescription:
-                    "V2Tool.outputBinding.primary (\(primary)) must equal displayMode (\(display))"
+                    "Tool.outputBinding.primary (\(primary)) must equal displayMode (\(display))"
             ))
         }
     }

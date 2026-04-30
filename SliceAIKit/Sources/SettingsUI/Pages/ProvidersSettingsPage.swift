@@ -79,8 +79,8 @@ public struct ProvidersSettingsPage: View {
         )
     }
 
-    /// 当前待删除的 V2Provider 对象，用于 alert 展示真实名称
-    private var pendingDeleteProvider: V2Provider? {
+    /// 当前待删除的 Provider 对象，用于 alert 展示真实名称
+    private var pendingDeleteProvider: Provider? {
         guard let id = pendingDeleteId else { return nil }
         return viewModel.configuration.providers.first { $0.id == id }
     }
@@ -132,7 +132,7 @@ public struct ProvidersSettingsPage: View {
     ///
     /// 独立为方法以避免 Swift 类型推导超时（providerList ForEach body 过深）。
     @ViewBuilder
-    private func providerListItem(for binding: Binding<V2Provider>) -> some View {
+    private func providerListItem(for binding: Binding<Provider>) -> some View {
         let provider = binding.wrappedValue
         let isExpanded = expandedId == provider.id
         // 提前计算描边颜色，避免在 overlay 闭包里做三目表达式
@@ -176,7 +176,7 @@ public struct ProvidersSettingsPage: View {
     // MARK: - 内联编辑区
 
     /// 展开的 Provider 编辑区（嵌入 ProviderEditorView + 删除按钮）
-    private func providerEditor(for binding: Binding<V2Provider>) -> some View {
+    private func providerEditor(for binding: Binding<Provider>) -> some View {
         VStack(spacing: 0) {
             // 分隔线
             Rectangle()
@@ -211,7 +211,7 @@ public struct ProvidersSettingsPage: View {
         let newId = "provider-\(Int(Date().timeIntervalSince1970))"
         // 硬编码 OpenAI baseURL 字符串是有效 URL，guard 处理仅为避免 force unwrap 告警
         guard let defaultURL = URL(string: "https://api.openai.com/v1") else { return }
-        let newProvider = V2Provider(
+        let newProvider = Provider(
             id: newId,
             kind: .openAICompatible,
             name: "新 Provider",
@@ -266,8 +266,8 @@ public struct ProvidersSettingsPage: View {
 /// 作为纯展示组件，点击事件通过 onToggle / onDelete 回调向上传递。
 private struct ProviderRow: View {
 
-    /// 当前行对应的 V2Provider（只读展示）
-    let provider: V2Provider
+    /// 当前行对应的 Provider（只读展示）
+    let provider: Provider
 
     /// 当前行是否展开
     let isExpanded: Bool

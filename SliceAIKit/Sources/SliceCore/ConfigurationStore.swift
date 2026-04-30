@@ -1,27 +1,27 @@
 import Foundation
 import OSLog
 
-private let v2ConfigLog = Logger(subsystem: "com.sliceai.core", category: "V2ConfigurationStore")
+private let v2ConfigLog = Logger(subsystem: "com.sliceai.core", category: "ConfigurationStore")
 
 /// v2 配置的读写 actor。
 ///
-/// 持有 `V2Configuration` 类型；与 v1 store 完全隔离：
+/// 持有 `Configuration` 类型；与 v1 store 完全隔离：
 /// - 不继承、不包装旧配置 store
 /// - 不共享 Configuration Codable
 /// - app 启动路径只通过本 store 读写 `config-v2.json`
 ///
 /// 规则（对齐 spec §3.7）：
-/// 1. v2 文件存在 → 直接 decode V2Configuration
+/// 1. v2 文件存在 → 直接 decode Configuration
 /// 2. v2 不存在但 v1 存在 → 读 v1 原文 → `ConfigMigratorV1ToV2.migrate(_:)` → 写 v2 → 返回 v2；**不改 v1**
-/// 3. 两者都不存在 → 写入并返回 `DefaultV2Configuration.initial()`；**不创建 v1**
+/// 3. 两者都不存在 → 写入并返回 `DefaultConfiguration.initial()`；**不创建 v1**
 /// 4. `save()` 始终写 v2 路径；v1 永不被写
-public actor V2ConfigurationStore {
+public actor ConfigurationStore {
 
     private let fileURL: URL
     private let legacyFileURL: URL?
-    private var cached: V2Configuration?
+    private var cached: Configuration?
 
-    /// 构造 V2ConfigurationStore
+    /// 构造 ConfigurationStore
     /// - Parameters:
     ///   - fileURL: v2 目标 JSON 路径（`config-v2.json`）
     ///   - legacyFileURL: v1 旧文件路径；nil 表示不做 v1 迁移
@@ -34,14 +34,14 @@ public actor V2ConfigurationStore {
     ///
     /// **抛错语义（P1 修复）**：v2 JSON 损坏 / schemaVersion 高于支持 / v1 迁移失败时
     /// 原样向外抛出 `SliceError.configuration(...)`，由上层（M3 AppContainer）决定是否
-    /// 告警用户 + 中止启动。严禁回退 DefaultV2Configuration.initial() 覆盖损坏文件——否则
+    /// 告警用户 + 中止启动。严禁回退 DefaultConfiguration.initial() 覆盖损坏文件——否则
     /// 下次 update() 会把默认值写回原路径，用户原有 providers / tools 永久丢失。
     ///
     /// "两个文件都不存在"不是错误：`load()` 会写入并返回默认 v2 配置。
     ///
     /// **错误不缓存**：throw 时 `cached` 保持 nil，下次调用会重新从磁盘 load——这样用户
     /// 修好 `config-v2.json` 后下一次 `current()` 即可自动恢复，无需重启 app。
-    public func current() async throws -> V2Configuration {
+    public func current() async throws -> Configuration {
         if let cached { return cached }
         let loaded = try await load()
         cached = loaded
@@ -50,13 +50,13 @@ public actor V2ConfigurationStore {
     }
 
     /// 更新并持久化到 v2 路径
-    public func update(_ configuration: V2Configuration) async throws {
+    public func update(_ configuration: Configuration) async throws {
         try await save(configuration)
         cached = configuration
     }
 
     /// 加载配置（按 §3.7 规则；全新安装时会创建默认 v2 配置文件）
-    public func load() async throws -> V2Configuration {
+    public func load() async throws -> Configuration {
         if FileManager.default.fileExists(atPath: fileURL.path) {
             return try loadV2Direct()
         }
@@ -66,8 +66,8 @@ public actor V2ConfigurationStore {
             try writeV2(v2)
             return v2
         }
-        v2ConfigLog.debug("load() neither v2 nor v1 exists, writing DefaultV2Configuration.initial() to v2 path")
-        let defaultCfg = DefaultV2Configuration.initial()
+        v2ConfigLog.debug("load() neither v2 nor v1 exists, writing DefaultConfiguration.initial() to v2 path")
+        let defaultCfg = DefaultConfiguration.initial()
         try writeV2(defaultCfg)
         return defaultCfg
     }
@@ -78,17 +78,17 @@ public actor V2ConfigurationStore {
     /// 首个违规直接 throw `SliceError.configuration(.validationFailed)`，磁盘文件不会被写入/覆盖。
     /// `update()` 是 `try await save(...); cached = configuration`，因此 validate 失败时
     /// 缓存也不会被更新——天然符合"非法对象不入磁盘、不入内存"的不变量。
-    public func save(_ configuration: V2Configuration) async throws {
+    public func save(_ configuration: Configuration) async throws {
         try validate(configuration)
         try writeV2(configuration)
     }
 
     /// 在落盘前逐个 validate providers / tools；首个违规立即抛出
     ///
-    /// 目的是让 V2Provider / V2Tool 的写入边界在 save() 路径上集中执行。
+    /// 目的是让 Provider / Tool 的写入边界在 save() 路径上集中执行。
     /// decoder 已校验的是 JSON 输入（用户手改 config-v2.json），而此处校验的是
     /// 代码构造的对象（测试 / 默认值 / migrator 输出 / UI 未来的 ToolEditor）。
-    private func validate(_ cfg: V2Configuration) throws {
+    private func validate(_ cfg: Configuration) throws {
         for p in cfg.providers {
             try p.validate()
         }
@@ -121,7 +121,7 @@ public actor V2ConfigurationStore {
     // MARK: - Private
 
     /// 直接读 v2 文件
-    private func loadV2Direct() throws -> V2Configuration {
+    private func loadV2Direct() throws -> Configuration {
         let data: Data
         do {
             data = try Data(contentsOf: fileURL)
@@ -130,22 +130,22 @@ public actor V2ConfigurationStore {
             throw SliceError.configuration(.invalidJSON("<redacted>"))
         }
 
-        let cfg: V2Configuration
+        let cfg: Configuration
         do {
-            cfg = try JSONDecoder().decode(V2Configuration.self, from: data)
+            cfg = try JSONDecoder().decode(Configuration.self, from: data)
         } catch {
             v2ConfigLog.error("v2 decode failed: \(error.localizedDescription, privacy: .private)")
             throw SliceError.configuration(.invalidJSON("<redacted>"))
         }
 
-        if cfg.schemaVersion > V2Configuration.currentSchemaVersion {
+        if cfg.schemaVersion > Configuration.currentSchemaVersion {
             throw SliceError.configuration(.schemaVersionTooNew(cfg.schemaVersion))
         }
         return cfg
     }
 
-    /// 读 v1 原文 → LegacyConfigV1 → V2Configuration
-    private func migrateFromLegacy(at legacyURL: URL) throws -> V2Configuration {
+    /// 读 v1 原文 → LegacyConfigV1 → Configuration
+    private func migrateFromLegacy(at legacyURL: URL) throws -> Configuration {
         let data: Data
         do {
             data = try Data(contentsOf: legacyURL)
@@ -164,7 +164,7 @@ public actor V2ConfigurationStore {
     }
 
     /// 原子写 v2 文件
-    private func writeV2(_ configuration: V2Configuration) throws {
+    private func writeV2(_ configuration: Configuration) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(configuration)

@@ -20,8 +20,8 @@ import Windowing
 ///   - 通过显式依赖注入，使 Swift 6 严格并发下的 `Sendable` 边界清晰可控。
 ///
 /// M3.0 Step 1 状态：
-///   - `configStore` 已切到 `V2ConfigurationStore`；
-///   - 触发链通过 `ExecutionEngine` 执行 V2Tool；
+///   - `configStore` 已切到 `ConfigurationStore`；
+///   - 触发链通过 `ExecutionEngine` 执行 Tool；
 ///   - 旧配置存储与旧执行器装配已从 App 组合根移除。
 ///
 /// 线程模型：`@MainActor` 限定，保证所有 UI 面板 / 监视器的创建都发生在主线程。
@@ -32,7 +32,7 @@ final class AppContainer {
     // MARK: - v2 配置与执行链
 
     /// v2 配置文件读写 actor；路径固定为 config-v2.json，保留 legacy config.json 迁移入口
-    let configStore: V2ConfigurationStore
+    let configStore: ConfigurationStore
     /// v2 执行引擎；AppDelegate 触发链通过它消费 ExecutionEvent stream
     let executionEngine: ExecutionEngine
     /// chunk 路由 dispatcher；window 模式最终投递到 ResultPanel adapter
@@ -66,7 +66,7 @@ final class AppContainer {
     ///
     /// 参数较多是 composition root 的合理成本：依赖在这里集中显式注入，避免在业务层隐藏创建逻辑。
     private init(
-        configStore: V2ConfigurationStore,
+        configStore: ConfigurationStore,
         keychain: KeychainStore,
         selectionService: SelectionService,
         hotkeyRegistrar: HotkeyRegistrar,
@@ -111,7 +111,7 @@ final class AppContainer {
     }
 
     /// bootstrap 期间创建出的 v2 runtime 依赖集合。
-    private struct V2RuntimeDependencies {
+    private struct RuntimeDependencies {
         let executionEngine: ExecutionEngine
         let outputDispatcher: any OutputDispatcherProtocol
         let invocationGate: InvocationGate
@@ -135,7 +135,7 @@ final class AppContainer {
     /// - Throws: app support 目录创建、v2 配置加载、cost sqlite 或 audit jsonl 初始化失败时上抛。
     static func bootstrap() async throws -> AppContainer {
         let appSupport = try makeAppSupportDir()
-        let configStore = V2ConfigurationStore(
+        let configStore = ConfigurationStore(
             fileURL: appSupport.appendingPathComponent("config-v2.json"),
             legacyFileURL: appSupport.appendingPathComponent("config.json")
         )
@@ -181,7 +181,7 @@ final class AppContainer {
     ///   - keychain: Keychain 访问器。
     /// - Returns: `AppDelegate` 使用的 UI dependency bundle。
     private static func makeUIDependencies(
-        configStore: V2ConfigurationStore,
+        configStore: ConfigurationStore,
         keychain: KeychainStore
     ) -> UIDependencies {
         UIDependencies(
@@ -209,11 +209,11 @@ final class AppContainer {
     /// - Throws: v2 配置、cost sqlite 或 audit jsonl 初始化失败时上抛。
     private static func makeV2RuntimeDependencies(
         appSupport: URL,
-        configStore: V2ConfigurationStore,
+        configStore: ConfigurationStore,
         keychain: KeychainStore,
         llmProviderFactory: any LLMProviderFactory,
         resultPanel: ResultPanel
-    ) async throws -> V2RuntimeDependencies {
+    ) async throws -> RuntimeDependencies {
         let providerRegistry = ContextProviderRegistry(providers: [:])
         let permissionBroker: any PermissionBrokerProtocol = PermissionBroker(store: PermissionGrantStore())
         let providerResolver: any ProviderResolverProtocol = DefaultProviderResolver(
@@ -238,7 +238,7 @@ final class AppContainer {
         )
         let executionEngine = makeExecutionEngine(dependencies: engineDependencies)
 
-        return V2RuntimeDependencies(
+        return RuntimeDependencies(
             executionEngine: executionEngine,
             outputDispatcher: outputDispatcher,
             invocationGate: invocationGate,
@@ -293,7 +293,7 @@ final class AppContainer {
     ///
     /// - Parameter configStore: v2 配置存储。
     /// - Returns: 初始为 `.auto` 的主题管理器。
-    private static func makeThemeManager(configStore: V2ConfigurationStore) -> ThemeManager {
+    private static func makeThemeManager(configStore: ConfigurationStore) -> ThemeManager {
         let themeManager = ThemeManager(initialMode: .auto)
         themeManager.onModeChange = { @MainActor mode in
             Task {

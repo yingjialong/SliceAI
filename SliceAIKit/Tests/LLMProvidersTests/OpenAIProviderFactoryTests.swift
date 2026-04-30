@@ -4,16 +4,16 @@ import XCTest
 
 final class OpenAIProviderFactoryTests: XCTestCase {
 
-    /// 构造测试用 V2Provider。
+    /// 构造测试用 Provider。
     /// - Parameters:
     ///   - kind: Provider 协议族。
     ///   - baseURL: Provider endpoint；openAICompatible 必须非 nil。
-    /// - Returns: 可传入 OpenAIProviderFactory 的 V2Provider。
+    /// - Returns: 可传入 OpenAIProviderFactory 的 Provider。
     private func makeProvider(
         kind: ProviderKind = .openAICompatible,
         baseURL: URL? = URL(string: "https://example.com/v1") // swiftlint:disable:this force_unwrapping
-    ) -> V2Provider {
-        V2Provider(
+    ) -> Provider {
+        Provider(
             id: "provider",
             kind: kind,
             name: "Provider",
@@ -24,8 +24,8 @@ final class OpenAIProviderFactoryTests: XCTestCase {
         )
     }
 
-    /// OpenAIProviderFactory 应直接接受合法的 V2Provider。
-    func test_make_acceptsOpenAICompatibleV2Provider() throws {
+    /// OpenAIProviderFactory 应直接接受合法的 Provider。
+    func test_make_acceptsOpenAICompatibleProvider() throws {
         let factory = OpenAIProviderFactory()
 
         _ = try factory.make(for: makeProvider(), apiKey: "sk-test")

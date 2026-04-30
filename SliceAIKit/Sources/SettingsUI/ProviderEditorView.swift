@@ -3,9 +3,9 @@ import DesignSystem
 import SliceCore
 import SwiftUI
 
-/// 单个 V2Provider 的编辑表单，含 API Key 的 Keychain 读写入口与连接测试
+/// 单个 Provider 的编辑表单，含 API Key 的 Keychain 读写入口与连接测试
 ///
-/// API Key 不存 V2Configuration，而是通过注入的 `onSaveKey` / `onLoadKey` 回调
+/// API Key 不存 Configuration，而是通过注入的 `onSaveKey` / `onLoadKey` 回调
 /// 间接访问 Keychain；连接测试通过 `onTestKey` 回调（通常由 ViewModel 转发到
 /// LLMProviders）。这样本视图无需感知具体存储 / 网络实现，便于预览与单元测试。
 ///
@@ -13,10 +13,10 @@ import SwiftUI
 /// 不使用 Form/Section（FormStyle.grouped 在内联展开场景有额外内边距不适用）。
 public struct ProviderEditorView: View {
 
-    /// 指向 V2Configuration 中某个 V2Provider 的双向绑定
-    @Binding public var provider: V2Provider
+    /// 指向 Configuration 中某个 Provider 的双向绑定
+    @Binding public var provider: Provider
 
-    /// 当前编辑态的 API Key 明文（只在内存中，不写回 V2Configuration）
+    /// 当前编辑态的 API Key 明文（只在内存中，不写回 Configuration）
     @State private var apiKey: String = ""
 
     /// 已从 Keychain 预读的 API Key；Test connection 在 `apiKey` 为空时回退使用
@@ -48,14 +48,14 @@ public struct ProviderEditorView: View {
     /// 测试连接的异步回调；签名 (key, baseURL, model)
     private let onTestKey: @Sendable (String, URL, String) async throws -> Void
 
-    /// 构造 V2Provider 编辑视图
+    /// 构造 Provider 编辑视图
     /// - Parameters:
-    ///   - provider: 指向 V2Configuration 中某个 V2Provider 的绑定
+    ///   - provider: 指向 Configuration 中某个 Provider 的绑定
     ///   - onSaveKey: 保存 API Key 的异步回调；抛错会被 UI 转成"保存失败"提示
     ///   - onLoadKey: 读取 API Key 的异步回调；返回 nil 表示槽位为空
     ///   - onTestKey: 测试连接的异步回调；抛错会被 UI 转成"测试失败"提示
     public init(
-        provider: Binding<V2Provider>,
+        provider: Binding<Provider>,
         onSaveKey: @escaping @Sendable (String) async throws -> Void,
         onLoadKey: @escaping @Sendable () async -> String?,
         onTestKey: @escaping @Sendable (String, URL, String) async throws -> Void
@@ -250,7 +250,7 @@ public struct ProviderEditorView: View {
     /// 校验 Base URL 文本，并把有效值同步回 provider。
     ///
     /// 无效输入会把 `provider.baseURL` 置 nil，避免 UI 文本已经变成坏值时仍静默保留旧 URL；
-    /// `V2ConfigurationStore` 的 validate 会阻止需要 baseURL 的 provider 被错误落盘。
+    /// `ConfigurationStore` 的 validate 会阻止需要 baseURL 的 provider 被错误落盘。
     /// - Parameter rawValue: 用户在 TextField 中输入的 URL 字符串。
     private func validateBaseURLInput(_ rawValue: String) {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)

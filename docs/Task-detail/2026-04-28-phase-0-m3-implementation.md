@@ -34,7 +34,7 @@ status: in_progress
 - [x] M3.0 Step 1：caller 切换 + ExecutionEventConsumer + SettingsUI binding + automated tests/gates。
 - [ ] M3.0 Step 1 手工 smoke：Safari 划词 / 命令面板 / 启动失败弹窗（待人工确认）。
 - [x] M3.0 Step 2：删除 v1 类型族 + SelectionReader + LLMProviderFactory 升级。
-- [ ] M3.0 Step 3：V2* rename 回 spec 正名。
+- [x] M3.0 Step 3：V2* rename 回 spec 正名。
 - [ ] M3.0 Step 4：PresentationMode → DisplayMode。
 - [ ] M3.0 Step 5：SelectionOrigin → SelectionSource。
 - [ ] M3.2/M3.3/M3.4：触发链、配置启动场景、grep validation 验收。
@@ -220,3 +220,54 @@ Step 1 已把 app caller 切到 v2 execution engine，但仓库中仍保留 v1 S
 - `swiftlint lint --strict`（从 worktree 根目录执行）：通过，137 files，0 violations / 0 serious。
 - Step 2 spec review：`APPROVED`，无 blocking finding；提示提交时必须包含新增 `SelectionReader.swift` / `ConfigurationComponents.swift` / `ToolLabelStyle.swift` / `OpenAIProviderFactoryTests.swift`，并排除历史未跟踪 docs/handoff。
 - Step 2 code quality review：先给出 `CHANGES_REQUESTED`，指出 unsupported provider kind 会被 Keychain 状态误报；修复 preflight 后聚焦复审 `APPROVED`。
+
+## M3.0 Step 3（Task 9）实施记录
+
+### 背景
+
+Step 2 已删除 v1 `Tool` / `Provider` / `Configuration` / `ConfigurationStore` / `DefaultConfiguration` 等冲突文件，当前 V2 类型族可以回到 spec canonical 名称。Task 9 只做 rename pass，不提前执行 Step 4 `PresentationMode -> DisplayMode` 或 Step 5 `SelectionOrigin -> SelectionSource`。
+
+### ToDoList
+
+- [x] 用 `git mv` 把 SliceCore 源文件从 `V2*` / `DefaultV2Configuration` 改回 canonical 文件名。
+- [x] 用 `git mv` 把 SliceCore 测试文件从 `V2*Tests` 改回 canonical 文件名。
+- [x] 用 `perl` word boundary 对 Swift 代码执行长前缀优先类型替换。
+- [x] 复查 `LegacyConfigV1` 未被误改，且 `PresentationMode` / `SelectionOrigin` 未被提前替换。
+- [x] 执行 `swift build`，可行后继续 targeted tests、full tests 与 app target build。
+
+### 实施结果
+
+- 源文件 rename：
+  - `V2Tool.swift` -> `Tool.swift`
+  - `V2Provider.swift` -> `Provider.swift`
+  - `V2Configuration.swift` -> `Configuration.swift`
+  - `V2ConfigurationStore.swift` -> `ConfigurationStore.swift`
+  - `DefaultV2Configuration.swift` -> `DefaultConfiguration.swift`
+- 测试文件 rename：
+  - `V2ToolTests.swift` -> `ToolTests.swift`
+  - `V2ProviderTests.swift` -> `ProviderTests.swift`
+  - `V2ConfigurationTests.swift` -> `ConfigurationTests.swift`
+  - `V2ConfigurationStoreTests.swift` -> `ConfigurationStoreTests.swift`
+- Swift 类型引用已替换为 canonical 名称：`Tool`、`Provider`、`Configuration`、`ConfigurationStore`、`DefaultConfiguration`；测试 class 名同步改为 `ToolTests`、`ProviderTests`、`ConfigurationTests`、`ConfigurationStoreTests`。
+- 额外发现并修正 app 内部 helper 类型 `V2RuntimeDependencies` -> `RuntimeDependencies`，避免 Step 3 后继续保留 V2-prefixed Swift 类型。
+- `ConfigMigratorV1ToV2` 与 `LegacyConfigV1` 保留原名；这是 v1 -> v2 迁移边界，不属于本轮 canonical 类型族 rename。
+- `PresentationMode` 与 `SelectionOrigin` 未改动，留给 Step 4 / Step 5。
+- 质量短审指出测试方法名 / helper 中仍有旧 `V2Provider` / `V2Tool` / `V2Configuration` 语义残留；已同步改为 `test_tool_*`、`test_provider_*`、`test_configuration_*`、`makeOpenAIProvider` 等 canonical 口径。
+
+### Step 3 验证结果
+
+- `rg '\b(V2ConfigurationStore|DefaultV2Configuration|V2Configuration|V2Provider|V2Tool|V2RuntimeDependencies|V2ConfigurationStoreTests|V2ConfigurationTests|V2ProviderTests|V2ToolTests)\b' --glob '*.swift'`：0 命中。
+- 扩展命名残留 grep：`rg 'v2tool|V2Tool|v2Provider|V2Provider|v2Configuration|V2Configuration|defaultV2Configuration|DefaultV2Configuration|makeOpenAIV2Provider|OpenAICompatibleV2Provider|V2 链路' SliceAIKit/Sources SliceAIKit/Tests SliceAIApp --type swift`：0 命中。
+- `swift build`：通过，最后一次复跑 `Build complete! (3.76s)`。
+- Targeted tests：`swift test --filter 'SliceCoreTests.ConfigurationStoreTests|SliceCoreTests.ConfigurationTests|SliceCoreTests.ProviderTests|SliceCoreTests.ToolTests|SliceCoreTests.ConfigMigratorV1ToV2Tests|LLMProvidersTests.OpenAIProviderFactoryTests|OrchestrationTests.PromptExecutorTests|OrchestrationTests.ProviderResolverTests|OrchestrationTests.ExecutionEngineTests'`：106 tests / 0 failures。
+- Full tests：`swift test --parallel --enable-code-coverage`：569 tests / 0 failures。
+- App target：`xcodebuild -quiet -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`：通过；仅有 Xcode 目的地选择 warning。
+- `swiftlint lint --strict`（从 worktree 根目录执行）：通过，137 files，0 violations / 0 serious。
+- `git diff --check`：通过。
+- Step 3 spec review：`APPROVED`，无 blocking finding。
+- Step 3 code quality review：初审 `CHANGES_REQUESTED`，指出暂存区不完整与测试命名残留；修复并重建暂存区后复审 `APPROVED`。
+
+### 残留风险
+
+- 仍保留 `ConfigMigratorV1ToV2`、`LegacyConfigV1`、`config-v2.json` 等版本边界命名；这些是迁移 / 文件 schema 语义，不属于 canonical 类型族残留。
+- 提交前必须重建暂存区：此前 index 只记录了 9 个纯 rename，类型替换仍在 unstaged 工作区；最终提交必须用精确 pathspec stage 本轮 tracked 文件，避免漏提替换或误加入历史未跟踪 docs/handoff。

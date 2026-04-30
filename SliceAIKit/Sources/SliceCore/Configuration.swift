@@ -1,13 +1,12 @@
 import Foundation
 
-/// v2 应用配置聚合；M3.0 Step 3 rename pass 前仍使用 `V2Configuration` 临时命名。
+/// v2 应用配置聚合，对应 `config-v2.json` 的顶层 schema。
 ///
-/// 由 `ConfigMigratorV1ToV2.migrate(_:)` 产出、由 `V2ConfigurationStore` 读写。
-/// M3 的 rename pass 会把本文件改名为 `Configuration.swift`，并把类型改名为 `Configuration`。
-public struct V2Configuration: Sendable, Codable, Equatable {
+/// 由 `ConfigMigratorV1ToV2.migrate(_:)` 产出、由 `ConfigurationStore` 读写。
+public struct Configuration: Sendable, Codable, Equatable {
     public let schemaVersion: Int
-    public var providers: [V2Provider]
-    public var tools: [V2Tool]
+    public var providers: [Provider]
+    public var tools: [Tool]
     public var hotkeys: HotkeyBindings
     public var triggers: TriggerSettings
     public var telemetry: TelemetrySettings
@@ -17,11 +16,11 @@ public struct V2Configuration: Sendable, Codable, Equatable {
     /// 当前 v2 schema 版本
     public static let currentSchemaVersion = 2
 
-    /// 构造 V2Configuration
+    /// 构造 Configuration
     public init(
-        schemaVersion: Int = V2Configuration.currentSchemaVersion,
-        providers: [V2Provider],
-        tools: [V2Tool],
+        schemaVersion: Int = Configuration.currentSchemaVersion,
+        providers: [Provider],
+        tools: [Tool],
         hotkeys: HotkeyBindings,
         triggers: TriggerSettings,
         telemetry: TelemetrySettings,

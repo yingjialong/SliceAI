@@ -12,7 +12,7 @@ import Windowing
 private struct ExecutionStreamContext {
 
     /// 当前执行的 V2 工具。
-    let tool: SliceCore.V2Tool
+    let tool: SliceCore.Tool
 
     /// 当前选区 payload。
     let payload: SelectionPayload
@@ -41,7 +41,7 @@ extension AppDelegate {
     ///   - payload: 选中文字及其来源上下文。
     ///   - triggerSource: 触发来源，用于审计和后续遥测区分浮条 / 命令面板等路径。
     func execute(
-        tool: SliceCore.V2Tool,
+        tool: SliceCore.Tool,
         payload: SelectionPayload,
         triggerSource: TriggerSource = .floatingToolbar
     ) {
@@ -74,7 +74,7 @@ extension AppDelegate {
     ///   - triggerSource: 当前触发来源。
     ///   - invocationId: 当前 invocation 标识。
     private func openResultPanel(
-        tool: SliceCore.V2Tool,
+        tool: SliceCore.Tool,
         payload: SelectionPayload,
         triggerSource: TriggerSource,
         invocationId: UUID
@@ -107,7 +107,7 @@ extension AppDelegate {
     ///   - seed: 由 payload 映射出的执行种子。
     ///   - invocationId: 当前 invocation 标识。
     private func startExecutionStream(
-        tool: SliceCore.V2Tool,
+        tool: SliceCore.Tool,
         payload: SelectionPayload,
         triggerSource: TriggerSource,
         seed: ExecutionSeed,
@@ -201,7 +201,7 @@ extension AppDelegate {
     /// 为结果面板标题提取模型标签。
     /// - Parameter tool: 当前执行的 V2 工具。
     /// - Returns: prompt/fixed provider 的 modelId，无法确定时返回 `"default"`。
-    private static func modelLabel(for tool: SliceCore.V2Tool) -> String {
+    private static func modelLabel(for tool: SliceCore.Tool) -> String {
         guard case .prompt(let promptTool) = tool.kind else { return "default" }
         if case .fixed(_, let modelId) = promptTool.provider {
             return modelId ?? "default"

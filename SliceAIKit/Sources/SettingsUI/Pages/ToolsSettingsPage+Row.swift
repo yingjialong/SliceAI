@@ -53,8 +53,8 @@ struct InsertionIndicator: View {
 /// 工具的数组顺序即浮条显示优先级——越靠前在浮条里出现越早。
 struct ToolRow: View {
 
-    /// 当前行对应的 V2Tool（只读展示）
-    let tool: V2Tool
+    /// 当前行对应的 Tool（只读展示）
+    let tool: Tool
 
     /// 当前行是否展开
     let isExpanded: Bool

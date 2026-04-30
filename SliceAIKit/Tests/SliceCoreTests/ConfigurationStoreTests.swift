@@ -1,7 +1,7 @@
 import XCTest
 @testable import SliceCore
 
-final class V2ConfigurationStoreTests: XCTestCase {
+final class ConfigurationStoreTests: XCTestCase {
 
     private var tempDir: URL!
 
@@ -20,13 +20,13 @@ final class V2ConfigurationStoreTests: XCTestCase {
     // MARK: - Path selection
 
     func test_standardV2FileURL_endsWith_config_v2_json() {
-        let url = V2ConfigurationStore.standardV2FileURL()
+        let url = ConfigurationStore.standardV2FileURL()
         XCTAssertEqual(url.lastPathComponent, "config-v2.json")
         XCTAssertTrue(url.path.contains("/SliceAI/"))
     }
 
     func test_legacyV1FileURL_endsWith_config_json() {
-        let url = V2ConfigurationStore.legacyV1FileURL()
+        let url = ConfigurationStore.legacyV1FileURL()
         XCTAssertEqual(url.lastPathComponent, "config.json")
     }
 
@@ -41,7 +41,7 @@ final class V2ConfigurationStoreTests: XCTestCase {
         try v1Data.write(to: v1URL, options: .atomic)
 
         // 构造 v2 store 读 v2 路径；应触发自动迁移
-        let store = V2ConfigurationStore(fileURL: v2URL, legacyFileURL: v1URL)
+        let store = ConfigurationStore(fileURL: v2URL, legacyFileURL: v1URL)
         let cfg = try await store.load()
 
         XCTAssertEqual(cfg.schemaVersion, 2)
@@ -58,9 +58,9 @@ final class V2ConfigurationStoreTests: XCTestCase {
         let v1URL = tempDir.appendingPathComponent("config.json")
         let v2URL = tempDir.appendingPathComponent("config-v2.json")
 
-        // 准备 v2 文件（用 DefaultV2Configuration 做样本，改一个可辨识字段）
-        var v2Template = DefaultV2Configuration.initial()
-        v2Template = V2Configuration(
+        // 准备 v2 文件（用 DefaultConfiguration 做样本，改一个可辨识字段）
+        var v2Template = DefaultConfiguration.initial()
+        v2Template = Configuration(
             schemaVersion: v2Template.schemaVersion,
             providers: [], tools: [],
             hotkeys: HotkeyBindings(toggleCommandPalette: "option+z"),
@@ -76,7 +76,7 @@ final class V2ConfigurationStoreTests: XCTestCase {
         let v1Data = try fixtureData("config-v1-minimal")
         try v1Data.write(to: v1URL, options: .atomic)
 
-        let store = V2ConfigurationStore(fileURL: v2URL, legacyFileURL: v1URL)
+        let store = ConfigurationStore(fileURL: v2URL, legacyFileURL: v1URL)
         let cfg = try await store.load()
 
         XCTAssertEqual(cfg.hotkeys.toggleCommandPalette, "option+z")
@@ -87,18 +87,18 @@ final class V2ConfigurationStoreTests: XCTestCase {
         let v1URL = tempDir.appendingPathComponent("config.json")
         let v2URL = tempDir.appendingPathComponent("config-v2.json")
 
-        let store = V2ConfigurationStore(fileURL: v2URL, legacyFileURL: v1URL)
+        let store = ConfigurationStore(fileURL: v2URL, legacyFileURL: v1URL)
         let cfg = try await store.load()
 
         XCTAssertEqual(cfg.schemaVersion, 2)
-        XCTAssertEqual(cfg.tools.count, 4)  // 4 个内置工具（DefaultV2Configuration）
+        XCTAssertEqual(cfg.tools.count, 4)  // 4 个内置工具（DefaultConfiguration）
     }
 
     /// 两个配置文件都不存在时，load/current 必须返回默认 v2 并只创建 config-v2.json
     func test_load_withNeither_writesDefaultToV2Path() async throws {
         let v2URL = tempDir.appendingPathComponent("config-v2.json")
         let legacyURL = tempDir.appendingPathComponent("config.json")
-        let store = V2ConfigurationStore(fileURL: v2URL, legacyFileURL: legacyURL)
+        let store = ConfigurationStore(fileURL: v2URL, legacyFileURL: legacyURL)
 
         // 前置条件：全新安装场景下 v1/v2 配置文件都不存在。
         XCTAssertFalse(FileManager.default.fileExists(atPath: v2URL.path))
@@ -106,7 +106,7 @@ final class V2ConfigurationStoreTests: XCTestCase {
 
         let cfg = try await store.current()
 
-        let expected = DefaultV2Configuration.initial()
+        let expected = DefaultConfiguration.initial()
         XCTAssertEqual(cfg.providers.map(\.id), expected.providers.map(\.id))
         XCTAssertEqual(cfg.tools.map(\.id), expected.tools.map(\.id))
 
@@ -115,7 +115,7 @@ final class V2ConfigurationStoreTests: XCTestCase {
 
         // 校验写出的 v2 文件内容可解码，且与本次返回值一致。
         let writtenData = try Data(contentsOf: v2URL)
-        let writtenCfg = try JSONDecoder().decode(V2Configuration.self, from: writtenData)
+        let writtenCfg = try JSONDecoder().decode(Configuration.self, from: writtenData)
         XCTAssertEqual(writtenCfg, cfg)
     }
 
@@ -128,8 +128,8 @@ final class V2ConfigurationStoreTests: XCTestCase {
         let v1Data = try fixtureData("config-v1-minimal")
         try v1Data.write(to: v1URL, options: .atomic)
 
-        let store = V2ConfigurationStore(fileURL: v2URL, legacyFileURL: v1URL)
-        let cfg = DefaultV2Configuration.initial()
+        let store = ConfigurationStore(fileURL: v2URL, legacyFileURL: v1URL)
+        let cfg = DefaultConfiguration.initial()
         try await store.save(cfg)
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: v2URL.path))
@@ -137,13 +137,13 @@ final class V2ConfigurationStoreTests: XCTestCase {
         XCTAssertEqual(preservedV1, v1Data)
     }
 
-    /// 关键不变量：V2ConfigurationStore.save 只写 v2 路径，不创建 legacy v1 文件。
+    /// 关键不变量：ConfigurationStore.save 只写 v2 路径，不创建 legacy v1 文件。
     func test_save_doesNotCreateLegacyFileWhenLegacyMissing() async throws {
         let v1URL = tempDir.appendingPathComponent("config.json")
         let v2URL = tempDir.appendingPathComponent("config-v2.json")
-        let store = V2ConfigurationStore(fileURL: v2URL, legacyFileURL: v1URL)
+        let store = ConfigurationStore(fileURL: v2URL, legacyFileURL: v1URL)
 
-        try await store.save(DefaultV2Configuration.initial())
+        try await store.save(DefaultConfiguration.initial())
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: v2URL.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: v1URL.path))
@@ -153,14 +153,14 @@ final class V2ConfigurationStoreTests: XCTestCase {
 
     /// 覆盖"v2 JSON 损坏时 current() 必须 throw invalidJSON"
     ///
-    /// 修复前：current() 用 `try? await load()` 吞错 → 回退 DefaultV2Configuration.initial() →
+    /// 修复前：current() 用 `try? await load()` 吞错 → 回退 DefaultConfiguration.initial() →
     /// 下次 update() 把默认值写回原路径 → 用户原有 providers / tools 永久丢失。
     /// 修复后：load() 的 throw 原样向外传播，调用方（M3 AppContainer）必须显式处理。
     func test_current_throwsOnCorruptedV2JSON() async throws {
         let v2URL = tempDir.appendingPathComponent("config-v2.json")
         try Data("{ not valid json".utf8).write(to: v2URL, options: .atomic)
 
-        let store = V2ConfigurationStore(fileURL: v2URL, legacyFileURL: nil)
+        let store = ConfigurationStore(fileURL: v2URL, legacyFileURL: nil)
         do {
             _ = try await store.current()
             XCTFail("current() 必须在 v2 JSON 损坏时 throw")
@@ -174,9 +174,9 @@ final class V2ConfigurationStoreTests: XCTestCase {
     /// schemaVersion 高于当前应用时 current() 必须 throw，避免用默认配置覆盖未来版本
     func test_current_throwsOnSchemaTooNew() async throws {
         let v2URL = tempDir.appendingPathComponent("config-v2.json")
-        // 基于 DefaultV2Configuration 合成合法 JSON，仅改 schemaVersion = 999
-        let template = DefaultV2Configuration.initial()
-        let future = V2Configuration(
+        // 基于 DefaultConfiguration 合成合法 JSON，仅改 schemaVersion = 999
+        let template = DefaultConfiguration.initial()
+        let future = Configuration(
             schemaVersion: 999,
             providers: template.providers,
             tools: template.tools,
@@ -189,7 +189,7 @@ final class V2ConfigurationStoreTests: XCTestCase {
         let data = try JSONEncoder().encode(future)
         try data.write(to: v2URL, options: .atomic)
 
-        let store = V2ConfigurationStore(fileURL: v2URL, legacyFileURL: nil)
+        let store = ConfigurationStore(fileURL: v2URL, legacyFileURL: nil)
         do {
             _ = try await store.current()
             XCTFail("current() 必须 throw schemaVersionTooNew")
@@ -223,7 +223,7 @@ final class V2ConfigurationStoreTests: XCTestCase {
         """#
         try Data(weirdV1JSON.utf8).write(to: v1URL, options: .atomic)
 
-        let store = V2ConfigurationStore(fileURL: v2URL, legacyFileURL: v1URL)
+        let store = ConfigurationStore(fileURL: v2URL, legacyFileURL: v1URL)
         do {
             _ = try await store.current()
             XCTFail("current() 必须在 v1 schemaVersion 未知时 throw")
@@ -246,7 +246,7 @@ final class V2ConfigurationStoreTests: XCTestCase {
         let v2URL = tempDir.appendingPathComponent("config-v2.json")
         try Data("bad".utf8).write(to: v1URL, options: .atomic)
 
-        let store = V2ConfigurationStore(fileURL: v2URL, legacyFileURL: v1URL)
+        let store = ConfigurationStore(fileURL: v2URL, legacyFileURL: v1URL)
         do {
             _ = try await store.current()
             XCTFail("current() 必须在 v1 JSON 损坏时 throw")
@@ -262,26 +262,26 @@ final class V2ConfigurationStoreTests: XCTestCase {
         let v1URL = tempDir.appendingPathComponent("config.json")
         let v2URL = tempDir.appendingPathComponent("config-v2.json")
 
-        let store = V2ConfigurationStore(fileURL: v2URL, legacyFileURL: v1URL)
+        let store = ConfigurationStore(fileURL: v2URL, legacyFileURL: v1URL)
         let cfg = try await store.current()
 
-        XCTAssertEqual(cfg.schemaVersion, V2Configuration.currentSchemaVersion)
-        XCTAssertEqual(cfg.tools.count, 4)  // DefaultV2Configuration 4 个内置工具
+        XCTAssertEqual(cfg.schemaVersion, Configuration.currentSchemaVersion)
+        XCTAssertEqual(cfg.tools.count, 4)  // DefaultConfiguration 4 个内置工具
     }
 
     // MARK: - 写入边界 validation（第八轮 P2-1/P2-2 修复）
     //
     // save() 必须"先 validate，再 write"——validate throw 时磁盘不得被写入。
-    // 测试策略：构造一个包含非法 Provider / Tool 的 V2Configuration，断言
+    // 测试策略：构造一个包含非法 Provider / Tool 的 Configuration，断言
     // save() throw .validationFailed 且 config-v2.json 不存在。
 
     /// 包含 openAICompatible + nil baseURL 的 Provider 时 save() 必须拒绝写入
     func test_save_rejectsConfigWithInvalidProvider() async throws {
         let v2URL = tempDir.appendingPathComponent("config-v2.json")
-        let store = V2ConfigurationStore(fileURL: v2URL, legacyFileURL: nil)
+        let store = ConfigurationStore(fileURL: v2URL, legacyFileURL: nil)
 
         // 故意构造非法 Provider：kind=openAICompatible 却把 baseURL 传 nil
-        let badProvider = V2Provider(
+        let badProvider = Provider(
             id: "bad",
             kind: .openAICompatible,
             name: "Bad",
@@ -290,8 +290,8 @@ final class V2ConfigurationStoreTests: XCTestCase {
             defaultModel: "gpt-5",
             capabilities: []
         )
-        let template = DefaultV2Configuration.initial()
-        let cfg = V2Configuration(
+        let template = DefaultConfiguration.initial()
+        let cfg = Configuration(
             schemaVersion: template.schemaVersion,
             providers: [badProvider],  // 注入非法 Provider
             tools: [], hotkeys: template.hotkeys,
@@ -318,10 +318,10 @@ final class V2ConfigurationStoreTests: XCTestCase {
     /// 包含 displayMode/outputBinding 不一致的 Tool 时 save() 必须拒绝写入
     func test_save_rejectsConfigWithInvalidTool() async throws {
         let v2URL = tempDir.appendingPathComponent("config-v2.json")
-        let store = V2ConfigurationStore(fileURL: v2URL, legacyFileURL: nil)
+        let store = ConfigurationStore(fileURL: v2URL, legacyFileURL: nil)
 
         // 故意构造非法 Tool：displayMode=window 但 outputBinding.primary=replace
-        let badTool = V2Tool(
+        let badTool = Tool(
             id: "bad-tool",
             name: "Bad",
             icon: "!",
@@ -337,8 +337,8 @@ final class V2ConfigurationStoreTests: XCTestCase {
             permissions: [], provenance: .firstParty,
             budget: nil, hotkey: nil, labelStyle: .icon, tags: []
         )
-        let template = DefaultV2Configuration.initial()
-        let cfg = V2Configuration(
+        let template = DefaultConfiguration.initial()
+        let cfg = Configuration(
             schemaVersion: template.schemaVersion,
             providers: [], tools: [badTool],  // 注入非法 Tool
             hotkeys: template.hotkeys,

@@ -37,7 +37,7 @@ final class ExecutionEngineTests: XCTestCase {
 
     // MARK: - Fixture builders
 
-    /// 构造最小 V2Tool 测试 stub
+    /// 构造最小 Tool 测试 stub
     /// - Parameters:
     ///   - id: tool id，默认 "test.tool"
     ///   - permissions: tool 静态声明的权限，默认空
@@ -50,11 +50,11 @@ final class ExecutionEngineTests: XCTestCase {
         contexts: [ContextRequest] = [],
         sideEffects: [SideEffect] = [],
         providerSelection: ProviderSelection = .fixed(providerId: "test-provider", modelId: nil)
-    ) -> V2Tool {
+    ) -> Tool {
         let outputBinding: OutputBinding? = sideEffects.isEmpty
             ? nil
             : OutputBinding(primary: .window, sideEffects: sideEffects)
-        return V2Tool(
+        return Tool(
             id: id,
             name: "Test Tool",
             icon: "T",
@@ -110,7 +110,7 @@ final class ExecutionEngineTests: XCTestCase {
     /// 参数化的 ExecutionEngine 装配 helper —— 让 7 条用例用单一 helper 配置不同行为。
     ///
     /// 默认行为构成"happy path 全放行"骨架：空 ContextProvider 注册表 + happy MockPermissionBroker +
-    /// 默认 V2Provider stub + 空 LLM chunks（PromptExecutor 仍能产出 .completed(.zero)）。
+    /// 默认 Provider stub + 空 LLM chunks（PromptExecutor 仍能产出 .completed(.zero)）。
     /// 每条用例按需替换 broker / contextRegistry / resolver / chunks / keychain 等参数。
     ///
     /// - Parameters:
@@ -500,7 +500,7 @@ final class ExecutionEngineTests: XCTestCase {
     /// 调用 + 触发 ContextCollector 预执行（Phase 1 真实 ContextProvider 会做 fileRead/MCP IO）。
     func test_execute_agentKind_skipsContextAndProviderResolution_yieldsNotImplementedSuccess() async throws {
         let bundle = try makeEngine()
-        let agentTool = V2Tool(
+        let agentTool = Tool(
             id: "tool.agent",
             name: "Agent",
             icon: "A",
@@ -556,7 +556,7 @@ final class ExecutionEngineTests: XCTestCase {
     /// 语义（应是 stub success + .notImplemented event）。fix 后直接分流 → .success audit。
     func test_execute_pipelineKind_skipsProviderResolution_yieldsNotImplementedSuccessNotProviderMissing() async throws {
         let bundle = try makeEngine()
-        let pipelineTool = V2Tool(
+        let pipelineTool = Tool(
             id: "tool.pipeline",
             name: "Pipeline",
             icon: "P",
@@ -657,7 +657,7 @@ final class ExecutionEngineTests: XCTestCase {
             keychain: MockKeychain(["test-provider": "fake-key"]),
             llmProviderFactory: factory
         )
-        // resolver 返回 V2Provider.defaultModel="gpt-4o-mini"；工具级 ProviderSelection 用
+        // resolver 返回 Provider.defaultModel="gpt-4o-mini"；工具级 ProviderSelection 用
         // modelId="gpt-4-turbo" override；断言两侧 model 都是 turbo
         let resolver = MockProviderResolver(
             defaultProvider: MockProvider.openAIStub(id: "test-provider", defaultModel: "gpt-4o-mini")
@@ -679,7 +679,7 @@ final class ExecutionEngineTests: XCTestCase {
             output: output
         )
         // 工具级 modelId override
-        let tool = V2Tool(
+        let tool = Tool(
             id: "tool.modelOverride",
             name: "Override",
             icon: "M",
@@ -817,7 +817,7 @@ final class ExecutionEngineTests: XCTestCase {
     /// runMainFlow 的 `guard ... else { return }` 退出 → **不**写 success audit、**不**触发 sideEffects。
     ///
     /// 关键安全保证：用户关闭结果面板（M3 ResultPanel onDismiss）后，LLM 续流 / 写文件 /
-    /// 通知等不可逆副作用不再发生。等价于 v0.1 中 `streamTask.cancel()` 的语义在 V2 链路上保持一致。
+    /// 通知等不可逆副作用不再发生。等价于 v0.1 中 `streamTask.cancel()` 的语义在 ExecutionEngine 链路上保持一致。
     func test_execute_consumerCancellation_skipsSideEffectsAndSuccessAudit() async throws {
         // BlockingMockLLMProvider yield 一个 chunk 后阻塞 sleep；consumer cancel 时
         // 通过 onTermination 链传导，runPromptStream 抛 CancellationError 被新增 catch 拿下
@@ -1232,14 +1232,14 @@ private final class BlockingMockLLMProvider: LLMProvider, @unchecked Sendable {
 /// 让出点把 cancel 信号在 Step 4 期间引入 runMainFlow，让 Step 4 之后的
 /// `if Task.isCancelled { return }` 能捕获并提前 return（不调 PromptExecutor）。
 private final class YieldingMockProviderResolver: ProviderResolverProtocol, @unchecked Sendable {
-    private let provider: V2Provider
+    private let provider: Provider
 
-    init(provider: V2Provider = MockProvider.openAIStub()) {
+    init(provider: Provider = MockProvider.openAIStub()) {
         self.provider = provider
     }
 
     /// ProviderResolverProtocol 实现：让出 cooperative thread 一次后返回 provider
-    func resolve(_ selection: ProviderSelection) async throws -> V2Provider {
+    func resolve(_ selection: ProviderSelection) async throws -> Provider {
         await Task.yield()
         return provider
     }

@@ -1,6 +1,6 @@
 import Foundation
 
-/// v2 LLM 供应商配置；M3.0 Step 3 rename pass 前仍使用 `V2Provider` 临时命名。
+/// v2 LLM 供应商配置，对应 `config-v2.json` 中的 provider 节点。
 ///
 /// 相对旧供应商配置的变化：
 /// - 新增 `kind: ProviderKind`：声明协议族
@@ -12,8 +12,7 @@ import Foundation
 /// 本版改为 `[ProviderCapability]`：`init` 中自动去重（保留首次出现顺序）并按 rawValue 排序，
 /// 保证 round-trip 稳定；Set 语义由 init 保证，调用方读到的数组已有序无重复。
 ///
-/// M3 rename pass：把本文件重命名为 Provider.swift、类型改名为 Provider。
-public struct V2Provider: Identifiable, Sendable, Codable, Equatable {
+public struct Provider: Identifiable, Sendable, Codable, Equatable {
     public let id: String
     public var kind: ProviderKind
     public var name: String
@@ -24,10 +23,10 @@ public struct V2Provider: Identifiable, Sendable, Codable, Equatable {
     ///
     /// **调用方契约**：仅通过 `init(...)` / decode 写入；**不要**直接 mutate（例如
     /// `provider.capabilities.append(.toolCalling)` 会破坏去重 + 排序不变量，后续
-    /// JSON round-trip 会打破稳定顺序承诺）。要增删，重新构造 V2Provider。
+    /// JSON round-trip 会打破稳定顺序承诺）。要增删，重新构造 Provider。
     public var capabilities: [ProviderCapability]  // **[…] 而非 Set<…>**（P2-3）
 
-    /// 构造 V2Provider
+    /// 构造 Provider
     /// - Note: `capabilities` 传入 Set 或 Array 都可；内部去重 + 按 rawValue 排序，保证 JSON 稳定
     public init(
         id: String,
@@ -48,12 +47,12 @@ public struct V2Provider: Identifiable, Sendable, Codable, Equatable {
         self.capabilities = Array(Set(capabilities)).sorted { $0.rawValue < $1.rawValue }
     }
 
-    /// 校验 V2Provider 的类型不变量
+    /// 校验 Provider 的类型不变量
     ///
     /// **与 decoder 校验的关系**：decoder 对 JSON 输入做同样的检查（`init(from:)`），
     /// 但 public `init(id:...)` 非 throws、允许代码侧构造暂时不合规的对象（测试 fixture /
     /// 默认值 / migrator 输出）。`validate()` 是写入边界的守护——
-    /// `V2ConfigurationStore.save()` 在落盘前对所有 provider 调用一次，阻止非法对象写盘。
+    /// `ConfigurationStore.save()` 在落盘前对所有 provider 调用一次，阻止非法对象写盘。
     ///
     /// 当前校验项（与 decoder 对齐）：
     /// 1. `kind ∈ {.openAICompatible, .ollama}` 时 `baseURL` 必须非 nil
@@ -87,7 +86,7 @@ public struct V2Provider: Identifiable, Sendable, Codable, Equatable {
     //
     // **encode 不手写**：序列化侧不需要对称手写，原因——
     // (a) self.capabilities 已由 init / decoder 统一归一化为有序无重，encode 直接走自动合成即可；
-    // (b) baseURL 必填约束只影响"读入侧"——能通过 init/decode 构造的 V2Provider 已经合法，
+    // (b) baseURL 必填约束只影响"读入侧"——能通过 init/decode 构造的 Provider 已经合法，
     //     encode 出去的 JSON 永远满足约束，无需再校验一次。
 
     private enum CodingKeys: String, CodingKey {
@@ -106,7 +105,7 @@ public struct V2Provider: Identifiable, Sendable, Codable, Equatable {
         if (self.kind == .openAICompatible || self.kind == .ollama) && self.baseURL == nil {
             throw DecodingError.dataCorrupted(.init(
                 codingPath: c.codingPath,
-                debugDescription: "V2Provider.kind=\(self.kind.rawValue) requires non-nil baseURL"
+                debugDescription: "Provider.kind=\(self.kind.rawValue) requires non-nil baseURL"
             ))
         }
         self.apiKeyRef = try c.decode(String.self, forKey: .apiKeyRef)

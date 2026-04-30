@@ -1,16 +1,16 @@
 import Foundation
 
-/// v2 默认配置（migrator 无 v1 文件时 fallback，以及 V2ConfigurationStore 首次启动使用）
+/// v2 默认配置（migrator 无 v1 文件时 fallback，以及 ConfigurationStore 首次启动使用）
 ///
-/// 内容与 v1 `DefaultConfiguration.initial()` 同构：1 个 OpenAI Provider + 4 个内置 Prompt Tool。
-/// 不复用 `DefaultConfiguration` 的产物——直接用 V2Tool / V2Provider 类型构造。
-public enum DefaultV2Configuration {
+/// 内容沿用 legacy 默认配置语义：1 个 OpenAI Provider + 4 个内置 Prompt Tool。
+/// 直接用 v2 `Tool` / `Provider` 类型构造，不复用旧配置模型的 Codable 产物。
+public enum DefaultConfiguration {
 
     /// 生成 v2 默认配置
-    public static func initial() -> V2Configuration {
+    public static func initial() -> Configuration {
         // 组装 v2 聚合配置（触发、快捷键、遥测均使用保守默认值，与 v1 DefaultConfiguration 对齐）
-        V2Configuration(
-            schemaVersion: V2Configuration.currentSchemaVersion,
+        Configuration(
+            schemaVersion: Configuration.currentSchemaVersion,
             providers: [openAIDefault],
             tools: [translate, polish, summarize, explain],
             hotkeys: HotkeyBindings(toggleCommandPalette: "option+space"),
@@ -34,7 +34,7 @@ public enum DefaultV2Configuration {
     }
 
     /// OpenAI 官方 API Provider，作为首次启动时唯一预置的 v2 Provider
-    public static let openAIDefault = V2Provider(
+    public static let openAIDefault = Provider(
         id: "openai-official",
         kind: .openAICompatible,
         name: "OpenAI",
@@ -110,22 +110,22 @@ public enum DefaultV2Configuration {
         let variables: [String: String]
     }
 
-    /// 构造一个 `.prompt` kind 的 V2Tool（均使用 openAIDefault 作为 fixed provider）
+    /// 构造一个 `.prompt` kind 的 Tool（均使用 openAIDefault 作为 fixed provider）
     /// - Parameters:
     ///   - id: 工具唯一 id
     ///   - name: 显示名
     ///   - icon: 浮条图标（emoji 或 SF Symbol）
     ///   - description: 中文描述，供 Settings UI 展示
     ///   - spec: prompt / 温度 / 变量打包后的规格
-    /// - Returns: 首方工具（.firstParty）、窗口展示（.window）、图标标签（.icon）的 V2Tool
+    /// - Returns: 首方工具（.firstParty）、窗口展示（.window）、图标标签（.icon）的 Tool
     private static func makePromptTool(
         id: String,
         name: String,
         icon: String,
         description: String,
         spec: PromptSpec
-    ) -> V2Tool {
-        V2Tool(
+    ) -> Tool {
+        Tool(
             id: id, name: name, icon: icon, description: description,
             kind: .prompt(PromptTool(
                 systemPrompt: spec.systemPrompt,

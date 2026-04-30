@@ -45,7 +45,7 @@ public actor OutputDispatcher: OutputDispatcherProtocol {
     ///
     /// - Parameters:
     ///   - chunk: 单个 LLM stream 片段
-    ///   - mode: 来自 `V2Tool.displayMode`
+    ///   - mode: 来自 `Tool.displayMode`
     ///   - invocationId: 当前 invocation 的唯一标识
     /// - Returns: `.delivered` 当 sink 接收成功。
     /// - Throws: `.window` 模式下 sink 抛错时透传

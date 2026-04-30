@@ -48,10 +48,10 @@ public actor PermissionGraph {
     /// 3. 遍历所有 `MCPToolRef`：转成 `.mcp(server:tools:[ref.tool])` 进 fromMCP
     /// 4. 遍历所有 `BuiltinCapability`：调 `mapBuiltin(_:scope:)` 进 fromBuiltins
     ///
-    /// - Parameter tool: V2Tool 完整定义
+    /// - Parameter tool: Tool 完整定义
     /// - Returns: 聚合后的 `EffectivePermissions`（含 declared + 4 个 from* set）
     /// - Throws: `SliceError.toolPermission(.unknownProvider)` 当 ContextRequest 引用未注册的 provider 时
-    public func compute(tool: V2Tool) async throws -> EffectivePermissions {
+    public func compute(tool: Tool) async throws -> EffectivePermissions {
         // declared 直接来自 tool.permissions，转 Set 便于 union 去重
         let declared = Set(tool.permissions)
 
@@ -108,7 +108,7 @@ public actor PermissionGraph {
 
     /// 聚合 tool 中所有 ContextRequest——含 PromptTool / AgentTool 直接的 contexts，
     /// 以及 PipelineStep.prompt(inline:) 中嵌套的 contexts
-    private static func extractContexts(from tool: V2Tool) -> [ContextRequest] {
+    private static func extractContexts(from tool: Tool) -> [ContextRequest] {
         switch tool.kind {
         case .prompt(let p):
             return p.contexts
@@ -129,12 +129,12 @@ public actor PermissionGraph {
 
     /// 聚合 tool 中所有 SideEffect——目前只来自 outputBinding.sideEffects
     /// （spec §3.3.4：sideEffects 是 outputBinding 的子字段，不在 kind 内）
-    private static func extractSideEffects(from tool: V2Tool) -> [SideEffect] {
+    private static func extractSideEffects(from tool: Tool) -> [SideEffect] {
         tool.outputBinding?.sideEffects ?? []
     }
 
     /// 聚合 tool 中所有 MCPToolRef——含 agent.mcpAllowlist / pipeline.step.mcp / sideEffect.callMCP
-    private static func extractMCPRefs(from tool: V2Tool) -> [MCPToolRef] {
+    private static func extractMCPRefs(from tool: Tool) -> [MCPToolRef] {
         var collected: [MCPToolRef] = []
 
         // 1) agent.mcpAllowlist：Agent 工具显式允许的 MCP tool 列表
@@ -162,7 +162,7 @@ public actor PermissionGraph {
     }
 
     /// 聚合 tool 中所有 BuiltinCapability——仅 AgentTool 暴露此字段
-    private static func extractBuiltins(from tool: V2Tool) -> [BuiltinCapability] {
+    private static func extractBuiltins(from tool: Tool) -> [BuiltinCapability] {
         if case .agent(let a) = tool.kind {
             return a.builtinCapabilities
         }

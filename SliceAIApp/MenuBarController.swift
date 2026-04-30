@@ -64,7 +64,7 @@ final class MenuBarController: NSObject {
     func refreshConfigStateIndicator() {
         Task { @MainActor [weak self] in
             guard let self, let container = self.container else { return }
-            let cfg: V2Configuration
+            let cfg: Configuration
             do {
                 cfg = try await container.configStore.current()
             } catch {

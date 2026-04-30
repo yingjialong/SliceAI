@@ -70,15 +70,15 @@ final class PermissionGraphTests: XCTestCase {
 
     // MARK: - Helpers
 
-    /// 构造空 V2Tool；调用方用 with* 风格手动改 kind / permissions / outputBinding
+    /// 构造空 Tool；调用方用 with* 风格手动改 kind / permissions / outputBinding
     private func makeTool(
         id: String = "test.tool",
         kind: ToolKind,
         permissions: [Permission] = [],
         outputBinding: OutputBinding? = nil,
         provenance: Provenance = .firstParty
-    ) -> V2Tool {
-        V2Tool(
+    ) -> Tool {
+        Tool(
             id: id,
             name: "Test",
             icon: "T",

@@ -203,7 +203,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         container.hotkeyRegistrar.unregisterAll()
         Task { @MainActor [weak self] in
             guard let self, let container = self.container else { return }
-            let cfg: V2Configuration
+            let cfg: Configuration
             do {
                 cfg = try await container.configStore.current()
             } catch {
@@ -298,7 +298,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func onMouseUp() {
         Task { @MainActor [weak self] in
             guard let self, let container = self.container else { return }
-            let cfg: V2Configuration
+            let cfg: Configuration
             do {
                 cfg = try await container.configStore.current()
             } catch {
@@ -323,7 +323,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// 尝试捕获选中文字并按配置过滤后展示浮条
     /// - Parameter cfg: 触发时刻的配置快照，避免与用户编辑产生竞态
-    private func tryCaptureAndShowToolbar(_ cfg: V2Configuration) async {
+    private func tryCaptureAndShowToolbar(_ cfg: Configuration) async {
         guard let container else { return }
         // spec §1.4 #2 / §3.1 / §7.2 都要求 mouseUp 路径走 "AX 优先 → Cmd+C
         // fallback 透明降级"，否则 Sublime / VSCode / Figma / Slack 等不暴露 AX
@@ -385,7 +385,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func showCommandPalette() {
         Task { @MainActor [weak self] in
             guard let self, let container = self.container else { return }
-            let cfg: V2Configuration
+            let cfg: Configuration
             do {
                 cfg = try await container.configStore.current()
             } catch {

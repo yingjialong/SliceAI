@@ -130,7 +130,7 @@ final class SliceErrorTests: XCTestCase {
     /// 不变量：
     /// - developerContext 必须脱敏（String payload 一律 <redacted>，防止字段名 / provider id 进日志聚合）
     /// - userMessage 必须把调用方生成的校验消息原样带回，便于用户定位
-    /// 注意：调用方（V2Provider.validate / V2Tool.validate）负责保证 msg 不含用户自由文本
+    /// 注意：调用方（Provider.validate / Tool.validate）负责保证 msg 不含用户自由文本
     func test_configuration_validationFailed_developerContext_isRedacted() {
         let err = SliceError.configuration(.validationFailed("openai: nope"))
         // 日志侧脱敏：payload 替换为 <redacted>
