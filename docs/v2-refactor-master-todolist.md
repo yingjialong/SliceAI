@@ -15,11 +15,11 @@
 
 | 字段 | 值 |
 |---|---|
-| 最后更新 | 2026-04-25 |
+| 最后更新 | 2026-05-02 |
 | 当前 Phase | **Phase 0**（底层重构） |
-| 当前 Milestone | **M1 已 merge 入 main**（merge commit `5cdf0f7`）；M2 准备启动 |
-| 下一个动作 | 启动 **Phase 0 M2**（Orchestration + Capabilities 骨架）的 brainstorming + writing-plans |
-| 阻塞 | 无 |
+| 当前 Milestone | **M3 实施中**：M3.0–M3.4 CLI 自动化验收已完成；M3.5 手工回归待执行 |
+| 下一个动作 | 执行 **M3.5 13 项手工回归**；全部通过后进入 M3.6 文档归档 + `v0.2.0` DMG / release |
+| 阻塞 | M3.5 需要用户在真实 macOS 桌面环境执行 GUI / Accessibility / Provider / config 场景 |
 
 **Milestone 状态**
 
@@ -28,8 +28,8 @@
 | Phase | Milestone | 状态 |
 |---|---|---|
 | 0 | M1 | ✅ 已 merge 入 main（merge commit `5cdf0f7`，2026-04-25） |
-| 0 | M2 | ⏳ 准备启动（Entry criteria 中"PR #1 merge + pull main" 已满足） |
-| 0 | M3 | ⏳ 未启动（等 M2 merge） |
+| 0 | M2 | ✅ 已完成：Orchestration + Capabilities 骨架落地 |
+| 0 | M3 | ⏳ 实施中：代码切换 + CLI 验收完成；等待 M3.5 手工回归 |
 | 1 | — | ⏳ 设计已 Freeze，plan 未写 |
 | 2–5 | — | 🟦 Directional，进入前需重新 spec |
 
@@ -147,88 +147,65 @@
 
 ---
 
-### 3.2 M2：Orchestration + Capabilities 骨架 ⏳ **未启动**
+### 3.2 M2：Orchestration + Capabilities 骨架 ✅ **已完成**
 
-**目标**：执行引擎、上下文采集器、权限 broker、成本记账、审计日志、路径沙箱、Prompt executor 全部成型、**可独立单测**但**尚未在 app 启动链路中接入**。
+**目标**：执行引擎、上下文采集器、权限 broker、成本记账、审计日志、路径沙箱、Prompt executor 全部成型，可独立单测；M2 阶段不接入 app 启动链路。
 
-**Entry criteria（必须全部满足才能启动）**：
+**状态**：已完成并作为 M3 的前置基础。实施记录见：
 
-- [x] PR #1 已 merge 到 `origin/main`（2026-04-25，merge commit `5cdf0f7`）
-- [x] 本地 `main` 已 pull 最新（`origin/main` HEAD = `5cdf0f7`）
-- [ ] 新建 worktree：`git worktree add .worktrees/phase-0-m2 -b feature/phase-0-m2-orchestration`（参考 superpowers:using-git-worktrees skill）
-- [ ] 确认 M2 **子任务在 spec §4.2.3 M2.1–M2.9 冻结不变（含 M2.3a PermissionGraph，共 10 项）**（如需调整，先在 plan 里记"评审修正"）
-- [ ] 用 superpowers:brainstorming skill 预走一遍 M2（可选——spec 已 freeze，如果没有新问题可直接跳到 writing-plans）
+- plan：[docs/superpowers/plans/2026-04-25-phase-0-m2-orchestration.md](superpowers/plans/2026-04-25-phase-0-m2-orchestration.md)
+- Task-detail：[docs/Task-detail/2026-04-25-phase-0-m2-orchestration.md](Task-detail/2026-04-25-phase-0-m2-orchestration.md)
 
-**任务拆解**（抄自 spec §4.2.3 M2）：
+**关键交付物**：
 
-| # | 任务 | 人天 | 交付物 |
-|---|---|---|---|
-| M2.1 | `Orchestration/ExecutionEngine.swift` 骨架 + `ExecutionEvent` | 1.5 | actor + 事件流 + dry-run 分支 + 单测（Mock Provider） |
-| M2.2 | `Orchestration/ContextCollector.swift`（**平铺并发，非 DAG**——D-17） | 1.5 | `resolve(seed:requests:) -> ResolvedExecutionContext` + timeout + failures 记录 + 单测 |
-| M2.3 | `Orchestration/PermissionBroker.swift`（接口 + 默认全放行实现，但 §3.9.2 下限约束在此层硬编码） | 1 | `gate(effective:provenance:scope:isDryRun:)` + grant store + 单测覆盖 §3.9.2 表（firstParty **不能**放行 exec / network-write — D-22） |
-| M2.3a | `Orchestration/PermissionGraph.swift`（D-24 新增）：`compute(tool:) -> EffectivePermissions` + `ExecutionEngine` Step 2 静态校验 ⊆ | 1 | 单测覆盖：未声明的 context permission → `.failed(.permission(.undeclared))`；多种 tool.kind 均命中 |
-| M2.4 | `Orchestration/CostAccounting.swift` | 1 | sqlite schema + 写入 API + 单测 |
-| M2.5 | `Orchestration/AuditLog.swift` | 1 | jsonl append + 脱敏（§3.9.5）+ 单测（含 `logCleared` 事件） |
-| M2.6 | `Orchestration/OutputDispatcher.swift`（**仅 window 分支**；其余 mode 返回 `.notImplemented`） | 0.5 | 路由 + 单测 |
-| M2.7 | `Orchestration/PromptExecutor.swift`（从旧 `ToolExecutor` **复制**逻辑到新文件，**不替换**旧文件） | 1 | 新 executor + 单测；旧 `ToolExecutor` 保留 |
-| M2.8 | `Capabilities/SecurityKit/PathSandbox.swift`（路径规范化 + 白名单） | 0.5 | 工具 + 单测覆盖所有硬禁止路径 |
-| M2.9 | `Capabilities` 预留 `MCPClientProtocol` `SkillRegistryProtocol` | 0.5 | 接口 + Mock 实现 |
+- [x] `Orchestration` target：`ExecutionEngine` / `ExecutionEvent` / `ContextCollector` / `PermissionGraph` / `PermissionBroker` / `PromptExecutor` / `OutputDispatcher`
+- [x] `Capabilities` target：`PathSandbox` / `MCPClientProtocol` / `SkillRegistryProtocol` / production-side mock
+- [x] `CostAccounting` sqlite append + `JSONLAuditLog` jsonl append + 脱敏
+- [x] M2 保持 app 启动链路 zero-touch；M3 才接入 `ExecutionEngine`
 
-**Exit criteria（DoD）**：
+**验证状态**：
 
-- [ ] `swift test OrchestrationTests CapabilitiesTests` 全绿；Orchestration 覆盖率 ≥ 75%
-- [ ] ExecutionEngine 单测覆盖 `.prompt` kind 的 **4 条路径**：happy / context-fail / permission-deny / dry-run
-- [ ] 旧 `ToolExecutor` **保留不动**；app 行为仍为 v0.1；AppContainer 未改动
-- [ ] `swiftlint lint --strict` 0 violations
-- [ ] v1 + M1 的 V2* 类型都 zero-touch（除了**新建** Orchestration/Capabilities 文件）
-- [ ] PR 独立可 merge（独立 review，不与 M1 / M3 绑定）
-- [ ] `docs/Task-detail/2026-XX-XX-phase-0-m2-orchestration.md` 归档实施过程
-
-**M2 产出路径**（预计）：
-
-- `docs/superpowers/plans/2026-XX-XX-phase-0-m2-orchestration.md`
-- `docs/Task-detail/2026-XX-XX-phase-0-m2-orchestration.md`
-- feature branch `feature/phase-0-m2-orchestration` → PR #2
-
-**M2 工作流程**：见 §8 工作流程 SOP。
+- [x] `swift build`
+- [x] `swift test --parallel --enable-code-coverage`
+- [x] `swiftlint lint --strict`
+- [x] `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`
 
 ---
 
-### 3.3 M3：切换 + 删旧 + 端到端回归 ⏳ **未启动**
+### 3.3 M3：切换 + 删旧 + 端到端回归 ⏳ **实施中**
 
 **目标**：把 AppContainer / 触发通路切到 `ExecutionEngine`；删除旧 `ToolExecutor`；配置改读 `config-v2.json`；端到端回归通过。
 
+**当前分支 / worktree**：`feature/phase-0-m3-switch-to-v2`，worktree `.worktrees/phase-0-m3`
+
+**权威文档**：
+
+- mini-spec：[docs/superpowers/specs/2026-04-28-phase-0-m3-mini-spec.md](superpowers/specs/2026-04-28-phase-0-m3-mini-spec.md)
+- implementation plan：[docs/superpowers/plans/2026-04-28-phase-0-m3-switch-to-v2.md](superpowers/plans/2026-04-28-phase-0-m3-switch-to-v2.md)
+- implementation record：[docs/Task-detail/2026-04-28-phase-0-m3-implementation.md](Task-detail/2026-04-28-phase-0-m3-implementation.md)
+
 **Entry criteria**：
 
-- [ ] M2 PR 已 merge
-- [ ] 本地 main 已 pull
-- [ ] 新 worktree `feature/phase-0-m3-switch-to-v2`
-- [ ] 回答的 open question：M1 里的 V2* 独立类型 rename 策略最终确认（M1 plan 顶部评审修正索引 A 已列；M3 进入前需 sanity check）
-- [ ] **先写并评审 M3 mini-spec**：M1 plan 明确要求 "spec §4.2 M3 的任务清单需要在 M3 启动前独立 spec 一次"（见 M1 plan:24）。因为 M3 要做的是 **rename + 切换真实启动路径 + 删旧**，风险比 M1/M2 高一个数量级，不能只靠 spec §4.2.3 的 6 项清单启动；先写 `docs/superpowers/specs/YYYY-MM-DD-phase-0-m3-mini-spec.md` 过一轮 Codex review 再走 writing-plans
+- [x] M2 已完成
+- [x] 新 worktree / feature branch 已创建
+- [x] M3 mini-spec 已完成多轮 review 并与 plan 对齐
+- [x] implementation plan 已完成 review / 优化，可执行
 
-**任务拆解**（抄自 spec §4.2.3 M3，**rename pass 升为一等主任务，与 M3.1–M3.6 同级；见下方 M3.0 + 原表**）：
+**当前任务状态**：
 
-**M3.0（一等主任务）— v1→v2 rename pass**（M1 plan 明文要求：plan:15-24 "**必须把以下任务列为一等主任务**，而非附带清理"；预计 3–5 人天，是 M3 最大工作量）：
-
-- [ ] 删除旧 `Tool.swift` / `Provider.swift` / `Configuration.swift` / `DefaultConfiguration.swift` / `SelectionPayload.swift` / `ConfigurationStore.swift`
-- [ ] 把 `V2Tool.swift` → `Tool.swift`（同理 V2Provider / V2Configuration / V2ConfigurationStore / DefaultV2Configuration），类型 + 文件名双重 rename
-- [ ] 把 `PresentationMode` → `DisplayMode`；把 `SelectionOrigin` → `SelectionSource`（两处改名恢复 spec 原始意图；**必须**先删除 v1 `DisplayMode` enum 和 v1 `SelectionSource` protocol）
-- [ ] 同步改 `ToolExecutor`（删） / `AppContainer` / `ToolEditorView` / `SettingsViewModel` / `OpenAICompatibleProvider` / `SelectionCapture` / `Windowing` 全部引用
-- [ ] 把 config 文件路径从 `config.json` 切到 `config-v2.json`（AppContainer 换用 `V2ConfigurationStore`）
-- [ ] 首次启动时对既有用户的 `~/Library/Application Support/SliceAI/config.json` 做 migration
-- [ ] 升级 `ToolEditorView` UI（v1 扁平字段 → v2 按 `ToolKind` 分派到 prompt/agent/pipeline 编辑器）
-- [ ] 更新所有涉及 `Tool` / `Provider` / `Configuration` 的测试引用
-
-**M3.1–M3.6（抄自 spec §4.2.3，与 M3.0 并行）**：
-
-| # | 任务 | 人天 | 交付物 |
+| # | 任务 | 状态 | 备注 |
 |---|---|---|---|
-| M3.1 | `SliceAIApp/AppContainer.swift` 装配 `ExecutionEngine` + 各依赖 | 1 | 装配链路 + 启动冒烟 |
-| M3.2 | 触发通路（FloatingToolbar / CommandPalette）从 `ToolExecutor.execute` 切到 `ExecutionEngine.execute(tool:seed:)` | 1 | 对齐 `ExecutionSeed` 构造方式 |
-| M3.3 | `ConfigurationStore` 启动时按 §3.7 规则选择 v1/v2 路径，运行 migrator | 0.5 | 启动逻辑 + 单测 |
-| M3.4 | 删除 `SliceCore/ToolExecutor.swift` | 0.5 | PR |
-| M3.5 | 端到端手动回归（见 §4.2.5 清单） | 1.5 | checklist 全过 |
-| M3.6 | 更新 `README.md` 项目修改变动记录、Module 文档、Task-detail | 1 | 文档 |
+| M3.1 | AppContainer / AppDelegate 装配 v2 runtime | ✅ 已完成 | async bootstrap、Xcode deps、InvocationGate、ResultPanel adapter 均已提交 |
+| M3.0 Step 1 | caller 切到 `ExecutionEngine` | ✅ 已完成 | App caller、SettingsUI、Windowing、OutputDispatcher fallback 已完成 |
+| M3.0 Step 2 | 删除 v1 类型族 + `SelectionReader` + `LLMProviderFactory` 升级 | ✅ 已完成 | v1 `ToolExecutor` 已在此步删除 |
+| M3.0 Step 3 | `V2*` 正名回 spec canonical | ✅ 已完成 | `Tool` / `Provider` / `Configuration` / `ConfigurationStore` / `DefaultConfiguration` |
+| M3.0 Step 4 | `PresentationMode` → `DisplayMode` | ✅ 已完成 | raw values / JSON wire shape 保持不变 |
+| M3.0 Step 5 | `SelectionOrigin` → `SelectionSource` | ✅ 已完成 | `SelectionReader` / `AXSelectionSource` / `ClipboardSelectionSource` 保持不变 |
+| M3.2 | 触发链端到端验收 | ⏳ 部分完成 | CLI targeted tests 完成；Safari / `⌥Space` / cancel / single-flight stress 待手工 |
+| M3.3 | 4 个启动场景验证 | ⏳ 部分完成 | `ConfigurationStoreTests` 完成；真实 app/config 文件场景待手工 |
+| M3.4 | grep validation 收尾 | ✅ CLI 已完成 | v1 / V2* / `PresentationMode` / `SelectionOrigin` 源码测试范围 0 命中 |
+| M3.5 | 13 项手工回归 | ⏳ 下一步 | 用户在真实 macOS 桌面环境执行 |
+| M3.6 | 文档归档 + `v0.2.0` DMG / release | ⏳ 待 M3.5 全过 | 不要在 M3.5 前提前 release |
 
 **Exit criteria（DoD）**：
 
@@ -239,16 +216,71 @@
 - [ ] 旧分支 app（切回 v0.1 worktree）仍能打开旧 `config.json` 正常工作
 - [ ] **V2 命名已回归 spec 原名**：没有任何 `V2Tool` / `V2Provider` / `PresentationMode` / `SelectionOrigin` 残留
 
-**M3 手工回归清单**（抄自 spec §4.2.5）：
+#### M3.5 手工回归执行方式（下一步）
 
-- [ ] Safari 划词翻译 → 弹浮条 → 点 "Translate" → ResultPanel 流式
-- [ ] ⌥Space → 面板 → 搜索 → 选工具 → 同上
-- [ ] Regenerate / Copy / Pin / Close / Retry / Open Settings
-- [ ] Accessibility 权限 revoke 后的降级提示
-- [ ] 无 API Key 时的错误提示
-- [ ] 修改 Tool / Provider 后配置立即生效并**写入 `config-v2.json`**（不写 `config.json`）
-- [ ] 将 `config-v2.json` 删除后重启：app 能从 `config.json` 重新 migrate
-- [ ] 同一机器切回旧分支 / 旧 build：旧 app 读取原 `config.json` 仍正常
+> 完整细节以 implementation plan Task 15 为准：`docs/superpowers/plans/2026-04-28-phase-0-m3-switch-to-v2.md`。本节是执行入口，避免每次翻 4800 行 plan。
+
+**执行前准备**：
+
+1. 在当前 worktree 构建 Debug app，并固定产物路径：
+   ```bash
+   cd /Users/majiajun/workspace/SliceAI/.worktrees/phase-0-m3
+   xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug -derivedDataPath build build
+   open build/Build/Products/Debug/SliceAI.app
+   ```
+2. 备份真实 app support 目录，后续涉及删除 / chmod / 手改 config 的测试都从这个备份恢复：
+   ```bash
+   APP_SUPPORT="$HOME/Library/Application Support/SliceAI"
+   BACKUP_ROOT="$(mktemp -d /tmp/sliceai-m3-regression.XXXXXX)"
+   echo "BACKUP_ROOT=$BACKUP_ROOT"
+   if [ -d "$APP_SUPPORT" ]; then
+     cp -a "$APP_SUPPORT" "$BACKUP_ROOT/SliceAI"
+   fi
+   ```
+3. 准备一个可用 Provider：至少一个 OpenAI 兼容 baseURL + API Key；无 key 场景在 Step 5 单独验证，验证后恢复。
+4. 打开 Console.app 过滤 `SliceAI`，用于观察 capture source、fallback、Regenerate / single-flight 相关日志。
+
+**13 项回归清单**：
+
+- [ ] 1. Safari 划词 → 浮条 → Translate → ResultPanel 正常流式输出。
+- [ ] 2. `⌥Space` → 命令面板 → 选择工具 → ResultPanel 正常流式输出。
+- [ ] 3. ResultPanel 操作：Regenerate / Copy / Pin / Close / Retry / Open Settings 均与 v0.1 行为等价；Regenerate 时旧 invocation 不应污染新输出。
+- [ ] 4. Accessibility 降级：关闭 AX 后划词不弹虚假浮条、`⌥Space` 不走 startupError；恢复 AX 后在 AX 文本不可读 app 中验证 Cmd+C fallback 命中。
+- [ ] 5. 清空 API Key 后触发工具，应出现可理解的配置错误提示；验证后恢复 API Key。
+- [ ] 6. 修改 Tool / Provider 后立即写入 `config-v2.json` 且执行生效；不得写坏旧 `config.json`。
+- [ ] 7. 删除 `config-v2.json` 后重启，app 能从旧 `config.json` 重新 migrate；旧 `config.json` 内容不变。
+- [ ] 8. 切回旧分支 / 旧 build，旧 app 仍能读取原 `config.json` 正常工作。
+- [ ] 9. 编辑自定义变量并在 prompt 中使用 `{{key}}`，验证 `config-v2.json` 写盘且执行时占位符被替换。
+- [ ] 10. 全新安装场景：临时移走整个 app support 目录后启动，自动生成 `config-v2.json` / `cost.sqlite` / `audit.jsonl`，且不生成 `config.json`。
+- [ ] 11. v1 `displayMode = "bubble"` / `"replace"` 经 migrator 后仍 fallback 到 ResultPanel 流式，不报 `.notImplemented`。
+- [ ] 12. app support 目录不可写时启动，应弹 “SliceAI 启动失败” NSAlert 并退出；验证后恢复目录权限。
+- [ ] 13. ToolEditorView 切换 Provider 时清空旧 `modelId`；`config-v2.json` 中对应 prompt provider 的 `modelId` 为 `null` 或缺省。
+
+**恢复配置**：
+
+```bash
+APP_SUPPORT="$HOME/Library/Application Support/SliceAI"
+if [ -n "$BACKUP_ROOT" ] && [ -d "$BACKUP_ROOT/SliceAI" ]; then
+  rm -rf "$APP_SUPPORT"
+  cp -a "$BACKUP_ROOT/SliceAI" "$APP_SUPPORT"
+fi
+```
+
+任一项不通过：不要进入 M3.6；记录失败项、现象、Console 日志关键行，回 implementation 修复后重跑相关项。
+
+#### M3.6 文档归档 + `v0.2.0` release（M3.5 全过后执行）
+
+**M3.6 不在 M3.5 之前执行。**它包含：
+
+- [ ] 更新 `README.md`：项目状态、模块说明、Phase 0 M3 变更记录。
+- [ ] 更新 `CLAUDE.md`：架构总览从 v1 `ToolExecutor` 改为 v2 `ExecutionEngine`。
+- [ ] 创建 / 更新 `docs/Module/SliceCore.md`、`docs/Module/Orchestration.md`、`docs/Module/Capabilities.md`。
+- [ ] 更新 `docs/Task_history.md`，补 M3 implementation 索引。
+- [ ] 更新本文件：Phase 0 / M3 / 历史 snapshot 标为完成。
+- [ ] 最后一次跑 4 关 gate：`swift build`、`swift test --parallel --enable-code-coverage`、`xcodebuild`、`swiftlint lint --strict`。
+- [ ] `scripts/build-dmg.sh 0.2.0`，计算并记录 `build/SliceAI-0.2.0.dmg.sha256`。
+- [ ] 验证 DMG 可安装 / 可启动。
+- [ ] merge PR 后打 `v0.2.0` tag，并创建 GitHub Release / 上传 unsigned DMG。
 
 ---
 
@@ -262,7 +294,7 @@
 - [ ] Settings 界面无功能变化（不要误加 UI）
 - [ ] PR 不引入任何 TODO / FIXME 注释（要做的留成 Issue）
 - [ ] `docs/Task-detail/phase-0-*.md` 归档 M1/M2/M3 各自的实施过程
-- [ ] 发布 **v0.2** tag（Release Notes 按 `scripts/build-dmg.sh` 打包 unsigned DMG）
+- [ ] 发布 **v0.2.0** tag（Release Notes 按 `scripts/build-dmg.sh 0.2.0` 打包 unsigned DMG）
 
 **Phase 0 合计人天**：M1: 6–8 + M2: 6–8 + M3: 3–5 = **15–21 人天**；加 20% buffer → 19–26 人天。
 
@@ -603,3 +635,26 @@
 2. 阶段 1：（可选）用 `superpowers:brainstorming` 过一遍 M2 设计（spec §4.2.3 M2 已 freeze，无新问题可跳过）
 3. 阶段 2：用 `superpowers:writing-plans` 产出 `docs/superpowers/plans/2026-04-XX-phase-0-m2-orchestration.md`，过一轮 Codex 评审到 APPROVED
 4. 阶段 3：subagent-driven-development 实施 M2.1–M2.9 + M2.3a 共 10 个子任务
+
+---
+
+### 2026-05-02 — Phase 0 M3 代码切换 + CLI 验收完成，进入 M3.5 手工回归
+
+- M2 已完成；M3 已基于 `feature/phase-0-m3-switch-to-v2` 实施。
+- M3.1 完成：SliceAI app target 链接 Orchestration / Capabilities；AppContainer async bootstrap；InvocationGate + ResultPanelWindowSinkAdapter 接入。
+- M3.0 Step 1–5 完成：caller 切到 `ExecutionEngine`；删除 v1 类型族；`V2*` / `PresentationMode` / `SelectionOrigin` 回归 spec canonical 命名。
+- M3.2/M3.3/M3.4 CLI 自动化验收完成：
+  - `swift build`
+  - `swift test --parallel --enable-code-coverage`（569/569）
+  - `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`
+  - `swiftlint lint --strict`
+  - M3.4 grep validation：v1 / V2* / `PresentationMode` / `SelectionOrigin` 源码测试范围 0 命中
+- 仍未完成：M3.5 13 项手工回归、M3.6 文档归档 + `v0.2.0` DMG / release。
+
+**关键文件**：
+
+- mini-spec：`docs/superpowers/specs/2026-04-28-phase-0-m3-mini-spec.md`
+- plan：`docs/superpowers/plans/2026-04-28-phase-0-m3-switch-to-v2.md`
+- implementation record：`docs/Task-detail/2026-04-28-phase-0-m3-implementation.md`
+
+**下一步**：执行 §3.3 的 M3.5 13 项手工回归；全部通过后再进入 M3.6。不要提前打 `v0.2.0`。
