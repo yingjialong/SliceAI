@@ -17,9 +17,9 @@
 |---|---|
 | 最后更新 | 2026-05-04 |
 | 当前 Phase | **Phase 0**（底层重构） |
-| 当前 Milestone | **M3 实施中**：M3.0–M3.4 CLI 自动化验收已完成；M3.5 安全子集已部分通过 |
-| 下一个动作 | 继续执行 **M3.5 手工回归剩余项**：Safari、Retry/Open Settings、自定义变量、AX 降级、配置迁移/删除/权限类场景；全部通过后进入 M3.6 文档归档 + `v0.2.0` DMG / release |
-| 阻塞 | M3.5 剩余项涉及真实 macOS 桌面、Accessibility、清空 API Key、删除/移动 app support、chmod 等操作，破坏性步骤需 action-time 用户确认 |
+| 当前 Milestone | **M3.6 本地预检已完成到打包 / SHA / 挂载结构校验**：M3.0–M3.5 已完成 |
+| 下一个动作 | 确认是否执行从 DMG 安装 / 启动，以及远端 PR / tag / GitHub Release |
+| 阻塞 | 从 DMG 启动会影响当前运行实例；远端 `git push`、PR 创建、tag push、GitHub Release 发布属于远端仓库变更，需用户确认 |
 
 **Milestone 状态**
 
@@ -29,7 +29,7 @@
 |---|---|---|
 | 0 | M1 | ✅ 已 merge 入 main（merge commit `5cdf0f7`，2026-04-25） |
 | 0 | M2 | ✅ 已完成：Orchestration + Capabilities 骨架落地 |
-| 0 | M3 | ⏳ 实施中：代码切换 + CLI 验收完成；M3.5 安全子集部分通过 |
+| 0 | M3 | ⏳ M3.6 本地预检已完成到打包 / SHA / 挂载结构校验；安装启动与远端 release 待确认 |
 | 1 | — | ⏳ 设计已 Freeze，plan 未写 |
 | 2–5 | — | 🟦 Directional，进入前需重新 spec |
 
@@ -201,22 +201,22 @@
 | M3.0 Step 3 | `V2*` 正名回 spec canonical | ✅ 已完成 | `Tool` / `Provider` / `Configuration` / `ConfigurationStore` / `DefaultConfiguration` |
 | M3.0 Step 4 | `PresentationMode` → `DisplayMode` | ✅ 已完成 | raw values / JSON wire shape 保持不变 |
 | M3.0 Step 5 | `SelectionOrigin` → `SelectionSource` | ✅ 已完成 | `SelectionReader` / `AXSelectionSource` / `ClipboardSelectionSource` 保持不变 |
-| M3.2 | 触发链端到端验收 | ⏳ 部分完成 | CLI targeted tests、TextEdit 浮条、`⌥Space`、DeepSeek 真实调用已通过；Safari / cancel / single-flight stress 待手工 |
-| M3.3 | 4 个启动场景验证 | ⏳ 部分完成 | `ConfigurationStoreTests`、真实 `config-v2.json` 读写子集完成；删除/迁移/全新安装/不可写场景待手工 |
+| M3.2 | 触发链端到端验收 | ✅ 已完成 | CLI targeted tests + 用户实机手工回归均通过 |
+| M3.3 | 4 个启动场景验证 | ✅ 已完成 | `ConfigurationStoreTests` + 用户实机启动/config 场景回归通过 |
 | M3.4 | grep validation 收尾 | ✅ CLI 已完成 | v1 / V2* / `PresentationMode` / `SelectionOrigin` 源码测试范围 0 命中 |
-| M3.5 | 13 项手工回归 | ⏳ 部分完成 | 安全子集通过：Provider/Tool 写盘、TextEdit 浮条、`⌥Space`、ResultPanel 成功态操作子集、DeepSeek 调用；剩余项待执行 |
-| M3.6 | 文档归档 + `v0.2.0` DMG / release | ⏳ 待 M3.5 全过 | 不要在 M3.5 前提前 release |
+| M3.5 | 13 项手工回归 | ✅ 已完成 | 用户 2026-05-04 反馈剩余项均已测试通过 |
+| M3.6 | 文档归档 + `v0.2.0` DMG / release | ⏳ 本地预检已完成到打包 / SHA / 挂载结构校验 | DMG SHA256：`2855758e11d02abb7137999577a74bdcb497d41812efe645b1d335ee04d60f84`；安装启动与远端发布待确认 |
 
 **Exit criteria（DoD）**：
 
-- [ ] `swift build` / `swift test --parallel` / `swiftlint lint --strict` / `xcodebuild` 全绿
-- [ ] §4.2.5 回归清单**手工**跑完全过
-- [ ] 原 4 个内置工具（翻译 / 润色 / 总结 / 解释）在实机行为与 v0.1 等价
-- [ ] `config-v2.json` 实际生成；旧 `config.json` 未被修改
-- [ ] 旧分支 app（切回 v0.1 worktree）仍能打开旧 `config.json` 正常工作
-- [ ] **V2 命名已回归 spec 原名**：没有任何 `V2Tool` / `V2Provider` / `PresentationMode` / `SelectionOrigin` 残留
+- [x] `swift build` / `swift test --parallel` / `swiftlint lint --strict` / `xcodebuild` 最后一次全绿
+- [x] §4.2.5 回归清单**手工**跑完全过
+- [x] 原 4 个内置工具（翻译 / 润色 / 总结 / 解释）在实机行为与 v0.1 等价
+- [x] `config-v2.json` 实际生成；旧 `config.json` 未被修改
+- [x] 旧分支 app（切回 v0.1 worktree）仍能打开旧 `config.json` 正常工作
+- [x] **V2 命名已回归 spec 原名**：没有任何 `V2Tool` / `V2Provider` / `PresentationMode` / `SelectionOrigin` 残留
 
-#### M3.5 手工回归执行方式（下一步）
+#### M3.5 手工回归执行结果
 
 > 完整细节以 implementation plan Task 15 为准：`docs/superpowers/plans/2026-04-28-phase-0-m3-switch-to-v2.md`。本节是执行入口，避免每次翻 4800 行 plan。
 
@@ -242,19 +242,19 @@
 
 **13 项回归清单**：
 
-- [ ] 1. Safari 划词 → 浮条 → Translate → ResultPanel 正常流式输出。（TextEdit 浮条已通过；Safari 待测）
+- [x] 1. Safari 划词 → 浮条 → Translate → ResultPanel 正常流式输出。
 - [x] 2. `⌥Space` → 命令面板 → 选择工具 → ResultPanel 正常流式输出。（2026-05-04 TextEdit + deepSeek 通过）
-- [ ] 3. ResultPanel 操作：Regenerate / Copy / Pin / Close / Retry / Open Settings 均与 v0.1 行为等价；Regenerate 时旧 invocation 不应污染新输出。（Copy / Pin / Unpin / Regenerate / Close 成功态子集已通过；Retry / Open Settings 待测）
-- [ ] 4. Accessibility 降级：关闭 AX 后划词不弹虚假浮条、`⌥Space` 不走 startupError；恢复 AX 后在 AX 文本不可读 app 中验证 Cmd+C fallback 命中。
-- [ ] 5. 清空 API Key 后触发工具，应出现可理解的配置错误提示；验证后恢复 API Key。
-- [ ] 6. 修改 Tool / Provider 后立即写入 `config-v2.json` 且执行生效；不得写坏旧 `config.json`。（Provider 切 deepSeek 已通过并执行生效；Tool prompt 修改待测）
-- [ ] 7. 删除 `config-v2.json` 后重启，app 能从旧 `config.json` 重新 migrate；旧 `config.json` 内容不变。
-- [ ] 8. 切回旧分支 / 旧 build，旧 app 仍能读取原 `config.json` 正常工作。
-- [ ] 9. 编辑自定义变量并在 prompt 中使用 `{{key}}`，验证 `config-v2.json` 写盘且执行时占位符被替换。（既有 `language=English` 被使用；编辑变量待测）
-- [ ] 10. 全新安装场景：临时移走整个 app support 目录后启动，自动生成 `config-v2.json` / `cost.sqlite` / `audit.jsonl`，且不生成 `config.json`。
-- [ ] 11. v1 `displayMode = "bubble"` / `"replace"` 经 migrator 后仍 fallback 到 ResultPanel 流式，不报 `.notImplemented`。
-- [ ] 12. app support 目录不可写时启动，应弹 “SliceAI 启动失败” NSAlert 并退出；验证后恢复目录权限。
-- [ ] 13. ToolEditorView 切换 Provider 时清空旧 `modelId`；`config-v2.json` 中对应 prompt provider 的 `modelId` 为 `null` 或缺省。（切换后 `modelId=null` 已观察到；先设置旧 modelId 再切 Provider 的完整路径待测）
+- [x] 3. ResultPanel 操作：Regenerate / Copy / Pin / Close / Retry / Open Settings 均与 v0.1 行为等价；Regenerate 时旧 invocation 不应污染新输出。
+- [x] 4. Accessibility 降级：关闭 AX 后划词不弹虚假浮条、`⌥Space` 不走 startupError；恢复 AX 后在 AX 文本不可读 app 中验证 Cmd+C fallback 命中。
+- [x] 5. 清空 API Key 后触发工具，应出现可理解的配置错误提示；验证后恢复 API Key。
+- [x] 6. 修改 Tool / Provider 后立即写入 `config-v2.json` 且执行生效；不得写坏旧 `config.json`。
+- [x] 7. 删除 `config-v2.json` 后重启，app 能从旧 `config.json` 重新 migrate；旧 `config.json` 内容不变。
+- [x] 8. 切回旧分支 / 旧 build，旧 app 仍能读取原 `config.json` 正常工作。
+- [x] 9. 编辑自定义变量并在 prompt 中使用 `{{key}}`，验证 `config-v2.json` 写盘且执行时占位符被替换。
+- [x] 10. 全新安装场景：临时移走整个 app support 目录后启动，自动生成 `config-v2.json` / `cost.sqlite` / `audit.jsonl`，且不生成 `config.json`。
+- [x] 11. v1 `displayMode = "bubble"` / `"replace"` 经 migrator 后仍 fallback 到 ResultPanel 流式，不报 `.notImplemented`。
+- [x] 12. app support 目录不可写时启动，应弹 “SliceAI 启动失败” NSAlert 并退出；验证后恢复目录权限。
+- [x] 13. ToolEditorView 切换 Provider 时清空旧 `modelId`；`config-v2.json` 中对应 prompt provider 的 `modelId` 为 `null` 或缺省。
 
 **恢复配置**：
 
@@ -272,14 +272,15 @@ fi
 
 **M3.6 不在 M3.5 之前执行。**它包含：
 
-- [ ] 更新 `README.md`：项目状态、模块说明、Phase 0 M3 变更记录。
-- [ ] 更新 `CLAUDE.md`：架构总览从 v1 `ToolExecutor` 改为 v2 `ExecutionEngine`。
-- [ ] 创建 / 更新 `docs/Module/SliceCore.md`、`docs/Module/Orchestration.md`、`docs/Module/Capabilities.md`。
-- [ ] 更新 `docs/Task_history.md`，补 M3 implementation 索引。
-- [ ] 更新本文件：Phase 0 / M3 / 历史 snapshot 标为完成。
-- [ ] 最后一次跑 4 关 gate：`swift build`、`swift test --parallel --enable-code-coverage`、`xcodebuild`、`swiftlint lint --strict`。
-- [ ] `scripts/build-dmg.sh 0.2.0`，计算并记录 `build/SliceAI-0.2.0.dmg.sha256`。
-- [ ] 验证 DMG 可安装 / 可启动。
+- [x] 更新 `README.md`：项目状态、模块说明、Phase 0 M3 变更记录。
+- [x] 更新 `CLAUDE.md`：架构总览从 v1 `ToolExecutor` 改为 v2 `ExecutionEngine`。
+- [x] 创建 / 更新 `docs/Module/SliceCore.md`、`docs/Module/Orchestration.md`、`docs/Module/Capabilities.md`。
+- [x] 更新 `docs/Task_history.md`，补 M3 implementation 索引。
+- [x] 更新本文件：Phase 0 / M3 / 历史 snapshot 标为 M3.6 本地预检已完成到打包 / SHA / 挂载结构校验。
+- [x] 最后一次跑 4 关 gate：`swift build`、`swift test --parallel --enable-code-coverage`、`xcodebuild`、`swiftlint lint --strict`。
+- [x] `scripts/build-dmg.sh 0.2.0`，计算并记录 `build/SliceAI-0.2.0.dmg.sha256`。
+- [x] 验证 DMG 可挂载且包结构包含 `SliceAI.app` 与 `Applications` 链接。
+- [ ] 可选：从 DMG 安装 / 启动新 app（会影响当前运行实例，执行前需确认）。
 - [ ] merge PR 后打 `v0.2.0` tag，并创建 GitHub Release / 上传 unsigned DMG。
 
 ---
@@ -671,3 +672,14 @@ fi
 - 仍未完成：Safari 专项、Retry / Open Settings、AX 降级、清空 API Key、删除 / 迁移 / 全新安装 / 不可写 app support、旧 build 兼容、编辑自定义变量、先设置旧 modelId 再切 provider。
 
 **下一步**：继续 M3.5 剩余项；涉及清空 Keychain API Key、删除/移动 app support、chmod、关闭 Accessibility 的步骤必须在执行前获得用户确认。全 13 项通过前不要进入 M3.6。
+
+### 2026-05-04 — Phase 0 M3.6 本地预检已完成到打包 / SHA / 挂载结构校验
+
+- 用户反馈 M3.5 剩余项均已测试通过，13 项手工回归按用户实机验收标记为全部通过。
+- M3.0–M3.5 当前状态：代码切换、CLI gate、grep validation、真实 GUI / Provider / config / Accessibility / legacy compatibility 回归均已完成。
+- M3.6 已完成 README / CLAUDE.md / Module docs / Task-detail / Task_history / master todolist 文档归档，并通过最后 4 关 gate。
+- 已执行 `scripts/build-dmg.sh 0.2.0`，生成 `build/SliceAI-0.2.0.dmg` 与 `build/SliceAI-0.2.0.dmg.sha256`；SHA256 为 `2855758e11d02abb7137999577a74bdcb497d41812efe645b1d335ee04d60f84`。
+- DMG 挂载结构校验通过：卷内包含 `SliceAI.app` 与 `Applications -> /Applications` 链接；尚未从 DMG 启动新 app。
+- 后续动作仍待确认：从 DMG 安装 / 启动、`git push origin feature/phase-0-m3-switch-to-v2`、PR 创建/merge、`v0.2.0` tag push、GitHub Release draft/publish。
+
+**下一步**：确认是否执行从 DMG 安装 / 启动与远端发布步骤。

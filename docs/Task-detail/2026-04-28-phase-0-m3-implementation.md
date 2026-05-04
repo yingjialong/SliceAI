@@ -30,17 +30,17 @@ status: in_progress
 - [x] M3.1.B：SliceAI app target 加 Orchestration / Capabilities 依赖 + CI 增加 xcodebuild gate。
 - [x] M3.1.C-1：新增 `InvocationGate` + `ResultPanelWindowSinkAdapter`。
 - [x] M3.1.C+D：AppContainer additive 装配 + AppDelegate async bootstrap UX 原子提交。
-- [ ] M3.1.E：冒烟验证（自动化部分完成；命令面板 / TextEdit 浮条 / 真实 LLM 子集已通过；Safari / 启动失败弹窗待人工确认）。
+- [x] M3.1.E：冒烟验证（自动化部分 + 真实 GUI / LLM 回归已完成）。
 - [x] M3.0 Step 1：caller 切换 + ExecutionEventConsumer + SettingsUI binding + automated tests/gates。
-- [ ] M3.0 Step 1 手工 smoke：命令面板 + TextEdit 浮条已通过；Safari 划词 / 启动失败弹窗待人工确认。
+- [x] M3.0 Step 1 手工 smoke：命令面板、浮条、Safari 划词与启动失败 UX 已完成。
 - [x] M3.0 Step 2：删除 v1 类型族 + SelectionReader + LLMProviderFactory 升级。
 - [x] M3.0 Step 3：V2* rename 回 spec 正名。
 - [x] M3.0 Step 4：PresentationMode → DisplayMode。
 - [x] M3.0 Step 5：SelectionOrigin → SelectionSource。
 - [x] M3.2/M3.3/M3.4：CLI 自动化验收完成（4 关 gate、targeted tests、grep validation）。
-- [ ] M3.2/M3.3：手工 GUI / 真实 LLM 子集已通过；真实启动场景待人工确认。
-- [ ] M3.5：13 项手工回归（安全子集已部分通过；破坏性/权限类场景待确认后执行）。
-- [ ] M3.6：文档归档 + v0.2.0 release。
+- [x] M3.2/M3.3：手工 GUI / 真实 LLM / 真实启动场景已完成。
+- [x] M3.5：13 项手工回归全部通过（用户 2026-05-04 反馈剩余项均已测试通过）。
+- [ ] M3.6：文档归档 + v0.2.0 本地 DMG 预检已完成到打包 / SHA / 挂载结构校验；从 DMG 安装 / 启动与远端 PR / tag / release 待执行前确认。
 
 ## 当前实施记录
 
@@ -424,3 +424,34 @@ Step 4 已把 `PresentationMode` 恢复为 spec canonical `DisplayMode`。Step 5
 - Step 4 / 5 / 7 / 8 / 10 / 11 / 12 涉及关闭 AX、清空或删除配置、切旧 build、移动 app support、修改目录权限等本地破坏性或权限类操作，需在 action-time 获得用户确认后再执行。
 - Step 9 自定义变量编辑尚未执行；当前仅验证了既有 `language = English` 变量参与 prompt。
 - Step 13 provider switch 清空 modelId 只覆盖了“切换后 modelId 为 null”的结果，未覆盖“先设置旧 modelId 再切换 provider”的完整场景。
+
+### 2026-05-04 补充反馈
+
+用户反馈 M3.5 剩余项均已测试通过。因此 M3.5 13 项手工回归按用户验收结果标记为全部通过。上一节记录的安全子集证据仍保留，用于说明本会话中由 Codex 直接观察到的 GUI / DeepSeek 调用路径；剩余权限、破坏性配置、迁移、旧 build 兼容与 Safari 专项以用户实机反馈为准。
+
+## M3.6 文档归档与发布收尾
+
+### 2026-05-04 执行计划
+
+- [x] 更新 README：状态切到 v0.2.0 Phase 0、本次 M3 变更记录、模块表。
+- [x] 更新 CLAUDE.md：架构总览从 v1 ToolExecutor 切到 v2 ExecutionEngine，模块数量更新为 10 个 library target。
+- [x] 新增模块文档：`docs/Module/SliceCore.md`、`docs/Module/Orchestration.md`、`docs/Module/Capabilities.md`。
+- [x] 新增 mini-spec 归档：`docs/Task-detail/2026-04-28-phase-0-m3-mini-spec.md`。
+- [x] 更新本 implementation 归档与 `docs/Task_history.md`。
+- [x] 更新 master todolist：M3.5 全过，M3.6 本地预检已完成到打包 / SHA / 挂载结构校验，远端 release 动作待确认。
+- [x] 跑最后 4 关 gate。
+- [x] 跑 `scripts/build-dmg.sh 0.2.0` 并生成 SHA256。
+- [x] 验证 DMG 可挂载且包结构包含 `SliceAI.app` 与 `Applications` 链接。
+- [ ] 可选：从 DMG 安装 / 启动新 app（会影响当前运行实例，执行前需确认）。
+- [x] 提交 M3.6 本地归档 commit。
+- [ ] 经用户确认后执行远端 PR / merge / `v0.2.0` tag / GitHub Release。
+
+### 2026-05-04 本地预检证据
+
+- `swift build`：exit 0，`Build complete! (4.73s)`。
+- `swift test --parallel --enable-code-coverage`：exit 0，XCTest 进度到 `[569/569]` 完成。
+- `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`：exit 0，`** BUILD SUCCEEDED **`，dependency graph 包含 `Orchestration` 与 `Capabilities`。
+- `swiftlint lint --strict`：exit 0，`137 files / 0 violations / 0 serious`；保留既有 analyzer_rules 配置 warning。
+- `scripts/build-dmg.sh 0.2.0`：exit 0，生成 `build/SliceAI-0.2.0.dmg`。
+- `shasum -a 256 -c build/SliceAI-0.2.0.dmg.sha256`：exit 0，`build/SliceAI-0.2.0.dmg: OK`；SHA256 为 `2855758e11d02abb7137999577a74bdcb497d41812efe645b1d335ee04d60f84`。
+- `hdiutil attach build/SliceAI-0.2.0.dmg -readonly` 结构校验：exit 0；挂载卷包含 `SliceAI.app` 目录与 `Applications -> /Applications` 链接，并已 detach。

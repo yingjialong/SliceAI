@@ -7,14 +7,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 SliceAI 是 macOS 原生、开源的划词触发 LLM 工具栏。划词后弹出浮条工具栏（PopClip 风格），或按 `⌥Space` 调出命令面板（Raycast 风格），通过 OpenAI 兼容协议调用大模型并流式渲染结果。
 
 - 平台：macOS 14 Sonoma+，Xcode 26+，Swift 6.0
-- 状态：MVP v0.1 开发中（unsigned，不上架 App Store，需 Accessibility 权限）
+- 状态：v0.2.0 Phase 0 底层重构完成本地验收（unsigned，不上架 App Store，需 Accessibility 权限）
 
 ## 常用命令
 
 所有 Swift 包命令在 `SliceAIKit/` 子目录执行；App target 命令在仓库根目录执行。
 
 ```bash
-# 构建 SliceAIKit（领域库 + 8 个子模块）
+# 构建 SliceAIKit（领域库 + 9 个功能子模块）
 cd SliceAIKit && swift build
 
 # 跑全部单元测试（并行 + 覆盖率）
@@ -22,7 +22,7 @@ cd SliceAIKit && swift test --parallel --enable-code-coverage
 
 # 跑单个 target / 单个测试
 cd SliceAIKit && swift test --filter SliceCoreTests
-cd SliceAIKit && swift test --filter SliceCoreTests.ToolExecutorTests/test_execute_xxx
+cd SliceAIKit && swift test --filter OrchestrationTests.ExecutionStreamOrderingTests
 
 # Lint（CI 用 --strict，本地常规）
 swiftlint lint
@@ -45,8 +45,10 @@ SliceAI.app  (Xcode App target, SliceAIApp/)
   ├─ @main 入口、菜单栏、Onboarding、Composition Root（AppContainer）
   └─ depends on → SliceAIKit (Local SwiftPM)
 
-SliceAIKit  (SliceAIKit/Package.swift, 8 个 library target)
-  ├─ SliceCore         领域层，Foundation only，零 UI 依赖
+SliceAIKit  (SliceAIKit/Package.swift, 10 个 library target)
+  ├─ SliceCore         领域层，Foundation only，零 UI 依赖；含 canonical Tool/Provider/Configuration
+  ├─ Orchestration     ExecutionEngine + ContextCollector + PermissionGraph/Broker + PromptExecutor + Audit/Cost
+  ├─ Capabilities      PathSandbox + MCPClientProtocol + SkillRegistryProtocol + production-side mock
   ├─ LLMProviders      OpenAI 兼容协议 + SSE 流式
   ├─ SelectionCapture  AX 主路径 + Cmd+C 备份恢复路径
   ├─ HotkeyManager     Carbon RegisterEventHotKey 全局热键
@@ -60,11 +62,12 @@ SliceAIKit  (SliceAIKit/Package.swift, 8 个 library target)
 
 - **SliceCore 必须零 UI 依赖**（仅 Foundation）：保证未来能复用为 CLI / MCP server。`AppearanceMode`（`SliceCore/AppearanceMode.swift`）是这里唯一跟视觉相关的类型，但它只是 Codable enum，不碰 AppKit / SwiftUI。
 - **DesignSystem 只被 UI 层依赖**（Windowing / Permissions / SettingsUI），**严禁被 SliceCore / LLMProviders / SelectionCapture / HotkeyManager 反向依赖**——否则领域层又会被拖进 AppKit，破坏"未来跑 CLI / MCP server"的前提。
-- **Provider 是 protocol**（`SliceCore/LLMProvider.swift`）：当前只有 OpenAI 兼容实现，社区可零改动新增 Claude / Gemini / Ollama。
-- **模块间只通过 SliceCore 的 protocol 通信**：`ConfigurationProviding`、`KeychainAccessing`、`LLMProvider` 都是 protocol，`SelectionSource` / `PasteboardProtocol` / `CopyKeystrokeInvoking` 同理。这让单元测试可以注入 Fake，模块替换不影响其他层。
-- **配置与密钥严格分离**：`Configuration` 走 JSON（`~/Library/Application Support/SliceAI/config.json`，schema 见 `config.schema.json`）；API Key 永远在 Keychain（`service: com.sliceai.app.providers`），通过 `Provider.apiKeyRef = "keychain:<account>"` 间接引用。
+- **`Provider` 是配置数据模型，`LLMProvider` 是协议**：`SliceCore/Provider.swift` 描述 OpenAI-compatible / Anthropic / Gemini / Ollama 等 provider 配置；`SliceCore/LLMProvider.swift` 是运行时流式调用协议，当前生产实现由 `LLMProviders/OpenAICompatibleProvider` 提供。
+- **模块间只通过 SliceCore 的值类型 / protocol 通信**：`ConfigurationStore`、`KeychainAccessing`、`LLMProvider`、`SelectionReader`、`PasteboardProtocol`、`CopyKeystrokeInvoking` 都支持测试注入，模块替换不影响其他层。
+- **配置与密钥严格分离**：`Configuration` 走 JSON（`~/Library/Application Support/SliceAI/config-v2.json`）；旧 `config.json` 只作为 migrator 输入保留。API Key 永远在 Keychain（`service: com.sliceai.app.providers`），通过 `Provider.apiKeyRef = "keychain:<account>"` 间接引用。
 - **Composition Root 集中在 `SliceAIApp/AppContainer.swift`**：所有跨模块依赖在 App 启动时一次性装配，业务层不再分散 init。
-- **主题切换中枢是 `DesignSystem/Theme/ThemeManager`**：读写 `Configuration.appearanceMode`（system / light / dark），由 `AppContainer` 在启动时注入一次；切换时通过 `onModeChange` 回调把变更持久化回 `ConfigurationStore`。UI 层只读环境里的 `ThemeManager`，不直接碰 `NSApp.appearance`。
+- **主题切换中枢是 `DesignSystem/Theme/ThemeManager`**：读写 `Configuration.appearance`（auto / light / dark），由 `AppContainer` 在启动时注入一次；切换时通过 `onModeChange` 回调把变更持久化回 `ConfigurationStore`。UI 层只读环境里的 `ThemeManager`，不直接碰 `NSApp.appearance`。
+- **ExecutionEngine 是唯一执行入口**：v0.2.0 后生产触发链不再使用旧 `ToolExecutor`；所有工具调用都进入 `Orchestration.ExecutionEngine`，按权限、上下文、provider、prompt、输出、成本和审计顺序闭环。
 
 ### 触发与执行流（核心数据流）
 
@@ -74,8 +77,12 @@ mouseDown → 记录起点 → mouseUp → 算位移 ≥ 5pt → debounce(trigge
   → 黑名单 / 长度过滤
   → FloatingToolbarPanel.show(tools, anchor)
   → onPick(tool)
-  → ToolExecutor.execute(tool, payload)             // actor，渲染 prompt + 取 Key
+  → SelectionPayload.toExecutionSeed(triggerSource)
+  → ExecutionEngine.execute(tool, seed)             // actor，权限闭环 + context + provider + prompt + audit/cost
+  → PromptExecutor.run(...)                         // 渲染 prompt + Keychain + LLMProviderFactory
   → OpenAICompatibleProvider.stream(request)        // SSE 流
+  → OutputDispatcher.handle(..., mode, invocationId)
+  → ResultPanelWindowSinkAdapter + InvocationGate   // single-flight chunk gating
   → ResultPanel.open(..., anchor, onDismiss: { streamTask.cancel() })   // 浮出于选区附近，可钉可拖可 resize
   → ResultPanel.append(chunk.delta) / .finish() / .fail(SliceError, onRetry, onOpenSettings)
   ↑ 非钉态：装 outside-click monitor，点 panel 外 → dismiss → onDismiss 回调 cancel streamTask
@@ -84,6 +91,8 @@ mouseDown → 记录起点 → mouseUp → 算位移 ≥ 5pt → debounce(trigge
 ```
 
 两条触发路径（mouseUp 浮条 / ⌥Space 命令面板）都走 `SelectionService.capture()` 的"AX 优先 → Cmd+C fallback 透明降级"链路——spec §1.4 / §3.1 / §7.2 明确要求这样以覆盖 Sublime / VSCode / Figma / Slack 等不暴露 AX 的应用。被动触发（mouseUp）的"虚假浮条"由三道防线挡住：5pt 位移过滤（installMouseMonitor）+ `ClipboardSelectionSource` 的 `changeCount` 校验（无真正选中时 ⌘C 是 no-op、changeCount 不变就返回 nil）+ `minimumSelectionLength` 长度过滤。`SelectionService.captureFromPrimaryOnly()` API 仍保留，作为未来"strict AX-only"策略的入口，当前生产路径不使用。
+
+`ExecutionEngine` 主流程固定为：`.started` → `PermissionGraph.compute` 静态闭环 → `PermissionBroker.gate` → `ContextCollector.resolve` → `ProviderResolver.resolve` → `PromptExecutor` stream → `OutputDispatcher` → side effects gate → `CostAccounting` → `JSONLAuditLog` → `.finished` / `.failed`。App 层只消费事件，不直接拼 prompt、读 Keychain 或写审计日志。
 
 ### Swift 6 严格并发约定
 
@@ -94,7 +103,7 @@ mouseDown → 记录起点 → mouseUp → 算位移 ≥ 5pt → debounce(trigge
 
 ### 错误模型
 
-`SliceError`（`SliceCore/SliceError.swift`）是统一错误枚举，分四类（selection / provider / configuration / permission）。每个 case 提供：
+`SliceError`（`SliceCore/SliceError.swift`）是统一错误枚举，覆盖 selection / provider / configuration / permission / context / toolPermission / execution 等执行链路错误。每个 case 提供：
 - `userMessage`：中文友好文案，由 `ResultPanel.fail(...)` 直接展示给用户。
 - `developerContext`：脱敏后的日志摘要——**对携带任意字符串 payload 的 case（如 `invalidResponse(String)`、`sseParseError(String)`、`invalidJSON(String)`）一律输出 `<redacted>`**，避免 API Key / 响应体 / 用户文本流入日志。新增带 String 关联值的错误 case 时必须遵守这一约定。
 
@@ -115,7 +124,7 @@ mouseDown → 记录起点 → mouseUp → 算位移 ≥ 5pt → debounce(trigge
 
 ## 配置与密钥的写入约定
 
-- **新增 Provider 时，`apiKeyRef` 必须用 `keychain:<provider.id>` 形式**（见 `SettingsScene.addProvider()`）。这样 `SettingsViewModel.setAPIKey(_:for:)`（写）与 `ToolExecutor.execute`（读）通过 `Provider.keychainAccount` 解析出同一个 account。
+- **新增 Provider 时，`apiKeyRef` 必须用 `keychain:<provider.id>` 形式**（见 `SettingsViewModel.addProvider()` / Provider editor 相关逻辑）。这样 `SettingsViewModel.setAPIKey(_:for:)`（写）与 `PromptExecutor`（读）通过 `Provider.keychainAccount` 解析出同一个 account。
 - 修改 `Provider.apiKeyRef` 时不会自动迁移 Keychain 槽位；UI 层需要提示用户重新填写 API Key。
 - 删除 Provider 时**不**主动清除 Keychain 槽位（`SettingsScene.deleteSelectedProvider`），保留以兼容"误删后重建同 id"。
 
@@ -127,7 +136,7 @@ mouseDown → 记录起点 → mouseUp → 算位移 ≥ 5pt → debounce(trigge
 
 ## CI
 
-- `.github/workflows/ci.yml`：每次 push/PR 跑 `swift build` + `swift test --parallel --enable-code-coverage` + `swiftlint lint --strict`（runs-on: macos-latest）。
+- `.github/workflows/ci.yml`：每次 push/PR 跑 `swift build` + `swift test --parallel --enable-code-coverage` + `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build` + `swiftlint lint --strict`（runs-on: macos-latest）。
 - `.github/workflows/release.yml`：tag `v*` 触发，调用 `scripts/build-dmg.sh`、计算 SHA256、创建 GitHub Release（draft）。
 
 ## 风格 / 工具配置
