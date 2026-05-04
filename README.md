@@ -66,7 +66,7 @@ open SliceAI.xcodeproj
 - CLI gate：`swift build`、`swift test --parallel --enable-code-coverage`、`xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`、`swiftlint lint --strict` 已通过。
 - M3.4 grep validation：v1 / `V2*` / `PresentationMode` / `SelectionOrigin` 源码测试范围 0 命中。
 - M3.5 13 项手工回归：用户反馈剩余项均已测试通过；2026-05-04 已记录安全子集实机证据。
-- M3.6：本地文档归档、最后 4 关 gate、`SliceAI-0.2.0.dmg` 打包、SHA256 与 DMG 挂载结构校验已完成；SHA256 为 `2855758e11d02abb7137999577a74bdcb497d41812efe645b1d335ee04d60f84`。从 DMG 安装 / 启动与远端 PR / tag / GitHub Release 需执行前确认。
+- M3.6：本地文档归档、最后 4 关 gate、`SliceAI-0.2.0.dmg` 打包、SHA256、DMG 挂载结构校验与临时安装 / 启动校验已完成；SHA256 为 `2855758e11d02abb7137999577a74bdcb497d41812efe645b1d335ee04d60f84`。远端 PR / tag / GitHub Release 需执行前确认。
 
 ### 2026-04-27 · Phase 0 M2 · Orchestration + Capabilities 骨架
 

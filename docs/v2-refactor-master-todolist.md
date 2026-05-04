@@ -17,9 +17,9 @@
 |---|---|
 | 最后更新 | 2026-05-04 |
 | 当前 Phase | **Phase 0**（底层重构） |
-| 当前 Milestone | **M3.6 本地预检已完成到打包 / SHA / 挂载结构校验**：M3.0–M3.5 已完成 |
-| 下一个动作 | 确认是否执行从 DMG 安装 / 启动，以及远端 PR / tag / GitHub Release |
-| 阻塞 | 从 DMG 启动会影响当前运行实例；远端 `git push`、PR 创建、tag push、GitHub Release 发布属于远端仓库变更，需用户确认 |
+| 当前 Milestone | **M3.6 本地 release preflight 已完成**：M3.0–M3.5 已完成，DMG 临时安装 / 启动校验通过 |
+| 下一个动作 | 执行远端 `git push`、PR 创建；PR merge 后再打 `v0.2.0` tag 并创建 GitHub Release |
+| 阻塞 | 远端 `git push`、PR 创建、tag push、GitHub Release 发布属于远端仓库变更，需用户确认 |
 
 **Milestone 状态**
 
@@ -29,7 +29,7 @@
 |---|---|---|
 | 0 | M1 | ✅ 已 merge 入 main（merge commit `5cdf0f7`，2026-04-25） |
 | 0 | M2 | ✅ 已完成：Orchestration + Capabilities 骨架落地 |
-| 0 | M3 | ⏳ M3.6 本地预检已完成到打包 / SHA / 挂载结构校验；安装启动与远端 release 待确认 |
+| 0 | M3 | ⏳ M3.6 本地 release preflight 已完成；远端 PR / release 待确认 |
 | 1 | — | ⏳ 设计已 Freeze，plan 未写 |
 | 2–5 | — | 🟦 Directional，进入前需重新 spec |
 
@@ -205,7 +205,7 @@
 | M3.3 | 4 个启动场景验证 | ✅ 已完成 | `ConfigurationStoreTests` + 用户实机启动/config 场景回归通过 |
 | M3.4 | grep validation 收尾 | ✅ CLI 已完成 | v1 / V2* / `PresentationMode` / `SelectionOrigin` 源码测试范围 0 命中 |
 | M3.5 | 13 项手工回归 | ✅ 已完成 | 用户 2026-05-04 反馈剩余项均已测试通过 |
-| M3.6 | 文档归档 + `v0.2.0` DMG / release | ⏳ 本地预检已完成到打包 / SHA / 挂载结构校验 | DMG SHA256：`2855758e11d02abb7137999577a74bdcb497d41812efe645b1d335ee04d60f84`；安装启动与远端发布待确认 |
+| M3.6 | 文档归档 + `v0.2.0` DMG / release | ⏳ 本地 release preflight 已完成 | DMG SHA256：`2855758e11d02abb7137999577a74bdcb497d41812efe645b1d335ee04d60f84`；远端发布待确认 |
 
 **Exit criteria（DoD）**：
 
@@ -276,11 +276,11 @@ fi
 - [x] 更新 `CLAUDE.md`：架构总览从 v1 `ToolExecutor` 改为 v2 `ExecutionEngine`。
 - [x] 创建 / 更新 `docs/Module/SliceCore.md`、`docs/Module/Orchestration.md`、`docs/Module/Capabilities.md`。
 - [x] 更新 `docs/Task_history.md`，补 M3 implementation 索引。
-- [x] 更新本文件：Phase 0 / M3 / 历史 snapshot 标为 M3.6 本地预检已完成到打包 / SHA / 挂载结构校验。
+- [x] 更新本文件：Phase 0 / M3 / 历史 snapshot 标为 M3.6 本地 release preflight 已完成。
 - [x] 最后一次跑 4 关 gate：`swift build`、`swift test --parallel --enable-code-coverage`、`xcodebuild`、`swiftlint lint --strict`。
 - [x] `scripts/build-dmg.sh 0.2.0`，计算并记录 `build/SliceAI-0.2.0.dmg.sha256`。
 - [x] 验证 DMG 可挂载且包结构包含 `SliceAI.app` 与 `Applications` 链接。
-- [ ] 可选：从 DMG 安装 / 启动新 app（会影响当前运行实例，执行前需确认）。
+- [x] 从 DMG 临时安装 / 启动新 app，并只结束临时启动的新进程。
 - [ ] merge PR 后打 `v0.2.0` tag，并创建 GitHub Release / 上传 unsigned DMG。
 
 ---
@@ -673,13 +673,14 @@ fi
 
 **下一步**：继续 M3.5 剩余项；涉及清空 Keychain API Key、删除/移动 app support、chmod、关闭 Accessibility 的步骤必须在执行前获得用户确认。全 13 项通过前不要进入 M3.6。
 
-### 2026-05-04 — Phase 0 M3.6 本地预检已完成到打包 / SHA / 挂载结构校验
+### 2026-05-04 — Phase 0 M3.6 本地 release preflight 已完成
 
 - 用户反馈 M3.5 剩余项均已测试通过，13 项手工回归按用户实机验收标记为全部通过。
 - M3.0–M3.5 当前状态：代码切换、CLI gate、grep validation、真实 GUI / Provider / config / Accessibility / legacy compatibility 回归均已完成。
 - M3.6 已完成 README / CLAUDE.md / Module docs / Task-detail / Task_history / master todolist 文档归档，并通过最后 4 关 gate。
 - 已执行 `scripts/build-dmg.sh 0.2.0`，生成 `build/SliceAI-0.2.0.dmg` 与 `build/SliceAI-0.2.0.dmg.sha256`；SHA256 为 `2855758e11d02abb7137999577a74bdcb497d41812efe645b1d335ee04d60f84`。
-- DMG 挂载结构校验通过：卷内包含 `SliceAI.app` 与 `Applications -> /Applications` 链接；尚未从 DMG 启动新 app。
-- 后续动作仍待确认：从 DMG 安装 / 启动、`git push origin feature/phase-0-m3-switch-to-v2`、PR 创建/merge、`v0.2.0` tag push、GitHub Release draft/publish。
+- DMG 挂载结构校验通过：卷内包含 `SliceAI.app` 与 `Applications -> /Applications` 链接。
+- DMG 临时安装 / 启动校验通过：复制到 `/tmp/sliceai-dmg-install.*` 后 `open -n` 启动出新 `SliceAI` 进程，随后只结束该临时进程；未覆盖 `/Applications`。
+- 后续动作仍待确认：`git push origin feature/phase-0-m3-switch-to-v2`、PR 创建/merge、`v0.2.0` tag push、GitHub Release draft/publish。
 
-**下一步**：确认是否执行从 DMG 安装 / 启动与远端发布步骤。
+**下一步**：执行远端 push 并创建 PR；PR merge 后再执行 `v0.2.0` tag 与 GitHub Release。
