@@ -4,6 +4,15 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 
 ---
 
+## Task 37 · Phase 1 前收尾
+
+- **时间**：2026-05-05
+- **描述**：进入 Phase 1 前收敛本地状态：归档旧 `AppContainer.swift` 本地中间态、归档 M3 review loop / handoff 历史草稿、同步根工作区到最新 `origin/main`，并更新 master todolist 的下一步为 Phase 1 planning。
+- **详情**：[docs/Task-detail/2026-05-05-pre-phase1-closeout.md](Task-detail/2026-05-05-pre-phase1-closeout.md)
+- **结果**：完成。本地未提交内容已保存到归档分支；根工作区 `main` 已同步到 PR #4 后的最新远端；下一步是 Phase 1 brainstorming + plan 起草。
+
+---
+
 ## Task 36 · Phase 0 M3 · Switch to V2 implementation
 
 - **时间**：2026-04-28 – 2026-05-04

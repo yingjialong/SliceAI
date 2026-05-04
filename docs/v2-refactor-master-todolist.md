@@ -15,9 +15,9 @@
 
 | 字段 | 值 |
 |---|---|
-| 最后更新 | 2026-05-04 |
+| 最后更新 | 2026-05-05 |
 | 当前 Phase | **Phase 1 准备期**（MCP + Context 主干） |
-| 当前 Milestone | **Phase 0 已完成并发布 v0.2.0**：M3.0–M3.6、PR #3、`v0.2.0` tag、GitHub Release 均已完成 |
+| 当前 Milestone | **Phase 0 已完成并发布 v0.2.0，Phase 1 前本地收尾已完成** |
 | 下一个动作 | 用 `superpowers:brainstorming` 复核 Phase 1 设计，并起草 `docs/superpowers/plans/YYYY-MM-DD-phase-1-mcp-context.md` |
 | 阻塞 | Phase 1 plan 尚未起草；进入实现前必须先完成 brainstorming、plan、review 到 APPROVED / COMMENT |
 
@@ -695,3 +695,12 @@ fi
 - Release DMG SHA256：`2d7749a1405e1ec4051b90b8b3ee5e029f5819e18a2cf69eda074f2de5b98aea`。
 
 **下一步**：启动 Phase 1，不要直接写代码。先用 `superpowers:brainstorming` 复核 MCP + Context 主干设计，再起草 Phase 1 plan 并做 plan review。
+
+### 2026-05-05 — Phase 1 前本地收尾完成
+
+- 根工作区 `main` 已 fast-forward 到最新 `origin/main`，包含 PR #3（M3 implementation）与 PR #4（v0.2.0 发布进展文档）。
+- 旧根工作区里的 `SliceAIApp/AppContainer.swift` 本地中间态已保存到归档分支 `archive/pre-phase1-local-appcontainer-snapshot`，commit `51f27fd`；该代码不合入 `main`，避免倒退已发布的 v2 runtime。
+- M3 worktree 中未跟踪的 review loop / handoff 历史草稿已保存到归档分支 `archive/phase-0-m3-review-loop-artifacts`，commit `03ac677`；正式发布文档主线保持干净。
+- 当前进入 Phase 1 前的唯一产品动作是 planning：先 brainstorming，再写 Phase 1 MCP + Context plan，再做 plan review。
+
+**下一步**：启动 Phase 1 planning，首个动作是 `superpowers:brainstorming`。
