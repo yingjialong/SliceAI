@@ -16,10 +16,10 @@
 | 字段 | 值 |
 |---|---|
 | 最后更新 | 2026-05-04 |
-| 当前 Phase | **Phase 0**（底层重构） |
-| 当前 Milestone | **M3.6 本地 release preflight 已完成**：M3.0–M3.5 已完成，DMG 临时安装 / 启动校验通过 |
-| 下一个动作 | 执行远端 `git push`、PR 创建；PR merge 后再打 `v0.2.0` tag 并创建 GitHub Release |
-| 阻塞 | 远端 `git push`、PR 创建、tag push、GitHub Release 发布属于远端仓库变更，需用户确认 |
+| 当前 Phase | **Phase 1 准备期**（MCP + Context 主干） |
+| 当前 Milestone | **Phase 0 已完成并发布 v0.2.0**：M3.0–M3.6、PR #3、`v0.2.0` tag、GitHub Release 均已完成 |
+| 下一个动作 | 用 `superpowers:brainstorming` 复核 Phase 1 设计，并起草 `docs/superpowers/plans/YYYY-MM-DD-phase-1-mcp-context.md` |
+| 阻塞 | Phase 1 plan 尚未起草；进入实现前必须先完成 brainstorming、plan、review 到 APPROVED / COMMENT |
 
 **Milestone 状态**
 
@@ -29,7 +29,7 @@
 |---|---|---|
 | 0 | M1 | ✅ 已 merge 入 main（merge commit `5cdf0f7`，2026-04-25） |
 | 0 | M2 | ✅ 已完成：Orchestration + Capabilities 骨架落地 |
-| 0 | M3 | ⏳ M3.6 本地 release preflight 已完成；远端 PR / release 待确认 |
+| 0 | M3 | ✅ 已完成并发布：PR #3 merged，`v0.2.0` tag + GitHub Release |
 | 1 | — | ⏳ 设计已 Freeze，plan 未写 |
 | 2–5 | — | 🟦 Directional，进入前需重新 spec |
 
@@ -205,7 +205,7 @@
 | M3.3 | 4 个启动场景验证 | ✅ 已完成 | `ConfigurationStoreTests` + 用户实机启动/config 场景回归通过 |
 | M3.4 | grep validation 收尾 | ✅ CLI 已完成 | v1 / V2* / `PresentationMode` / `SelectionOrigin` 源码测试范围 0 命中 |
 | M3.5 | 13 项手工回归 | ✅ 已完成 | 用户 2026-05-04 反馈剩余项均已测试通过 |
-| M3.6 | 文档归档 + `v0.2.0` DMG / release | ⏳ 本地 release preflight 已完成 | DMG SHA256：`2855758e11d02abb7137999577a74bdcb497d41812efe645b1d335ee04d60f84`；远端发布待确认 |
+| M3.6 | 文档归档 + `v0.2.0` DMG / release | ✅ 已完成 | Release DMG SHA256：`2d7749a1405e1ec4051b90b8b3ee5e029f5819e18a2cf69eda074f2de5b98aea` |
 
 **Exit criteria（DoD）**：
 
@@ -281,21 +281,21 @@ fi
 - [x] `scripts/build-dmg.sh 0.2.0`，计算并记录 `build/SliceAI-0.2.0.dmg.sha256`。
 - [x] 验证 DMG 可挂载且包结构包含 `SliceAI.app` 与 `Applications` 链接。
 - [x] 从 DMG 临时安装 / 启动新 app，并只结束临时启动的新进程。
-- [ ] merge PR 后打 `v0.2.0` tag，并创建 GitHub Release / 上传 unsigned DMG。
+- [x] merge PR 后打 `v0.2.0` tag，并创建 GitHub Release / 上传 unsigned DMG。
 
 ---
 
 ### 3.4 Phase 0 整体 DoD（M1 + M2 + M3 全部合入后）
 
-- [ ] `swift build` 成功（全 10 个 target）
-- [ ] `swift test --parallel --enable-code-coverage` 全绿；覆盖率：SliceCore ≥ 90% / Orchestration ≥ 75% / Capabilities ≥ 60%
-- [ ] `swiftlint lint --strict` 0 violations
-- [ ] 原 4 个内置工具在实机上与 v0.1 行为等价
-- [ ] 老 `config.json` 经 migrator 产出 `config-v2.json`；旧 `config.json` 未被修改；切回旧分支 app 仍正常
-- [ ] Settings 界面无功能变化（不要误加 UI）
-- [ ] PR 不引入任何 TODO / FIXME 注释（要做的留成 Issue）
-- [ ] `docs/Task-detail/phase-0-*.md` 归档 M1/M2/M3 各自的实施过程
-- [ ] 发布 **v0.2.0** tag（Release Notes 按 `scripts/build-dmg.sh 0.2.0` 打包 unsigned DMG）
+- [x] `swift build` 成功（全 10 个 target）
+- [x] `swift test --parallel --enable-code-coverage` 全绿；覆盖率：SliceCore ≥ 90% / Orchestration ≥ 75% / Capabilities ≥ 60%
+- [x] `swiftlint lint --strict` 0 violations
+- [x] 原 4 个内置工具在实机上与 v0.1 行为等价
+- [x] 老 `config.json` 经 migrator 产出 `config-v2.json`；旧 `config.json` 未被修改；切回旧分支 app 仍正常
+- [x] Settings 界面无功能变化（不要误加 UI）
+- [x] PR 不引入任何 TODO / FIXME 注释（要做的留成 Issue）
+- [x] `docs/Task-detail/phase-0-*.md` 归档 M1/M2/M3 各自的实施过程
+- [x] 发布 **v0.2.0** tag（Release Notes 按 `scripts/build-dmg.sh 0.2.0` 打包 unsigned DMG）
 
 **Phase 0 合计人天**：M1: 6–8 + M2: 6–8 + M3: 3–5 = **15–21 人天**；加 20% buffer → 19–26 人天。
 
@@ -309,7 +309,7 @@ fi
 
 **Entry criteria**（启动 plan 起草的前置条件）：
 
-- [ ] Phase 0 全部 milestone merge（v0.2 已发布）
+- [x] Phase 0 全部 milestone merge（v0.2 已发布）
 - [ ] 用 superpowers:brainstorming skill 走一遍 Phase 1 设计（spec 已 freeze 但细节需要再走一遍）
 - [ ] 产出 `docs/superpowers/plans/YYYY-MM-DD-phase-1-mcp-context.md`
 - [ ] plan 过一轮 Codex review，直到 APPROVED / COMMENT
@@ -681,6 +681,17 @@ fi
 - 已执行 `scripts/build-dmg.sh 0.2.0`，生成 `build/SliceAI-0.2.0.dmg` 与 `build/SliceAI-0.2.0.dmg.sha256`；SHA256 为 `2855758e11d02abb7137999577a74bdcb497d41812efe645b1d335ee04d60f84`。
 - DMG 挂载结构校验通过：卷内包含 `SliceAI.app` 与 `Applications -> /Applications` 链接。
 - DMG 临时安装 / 启动校验通过：复制到 `/tmp/sliceai-dmg-install.*` 后 `open -n` 启动出新 `SliceAI` 进程，随后只结束该临时进程；未覆盖 `/Applications`。
-- 后续动作仍待确认：`git push origin feature/phase-0-m3-switch-to-v2`、PR 创建/merge、`v0.2.0` tag push、GitHub Release draft/publish。
+- 当时待执行的远端动作（已在下一节完成）：`git push origin feature/phase-0-m3-switch-to-v2`、PR 创建/merge、`v0.2.0` tag push、GitHub Release publish。
 
-**下一步**：执行远端 push 并创建 PR；PR merge 后再执行 `v0.2.0` tag 与 GitHub Release。
+**下一步（历史快照）**：执行远端 push 并创建 PR；PR merge 后再执行 `v0.2.0` tag 与 GitHub Release。该动作已在下一个快照完成。
+
+### 2026-05-04 — Phase 0 / v0.2.0 已正式发布
+
+- PR #3 已 merge：`https://github.com/yingjialong/SliceAI/pull/3`。
+- Merge commit：`0e06eeeac3ada99f3fa8aad559f41f0591a6e62a`。
+- Tag：`v0.2.0` 已推送并指向 PR #3 merge commit。
+- GitHub Release：`https://github.com/yingjialong/SliceAI/releases/tag/v0.2.0`，已正式发布，非 draft。
+- Release workflow run `25314316460` 成功，上传 `SliceAI-0.2.0.dmg`。
+- Release DMG SHA256：`2d7749a1405e1ec4051b90b8b3ee5e029f5819e18a2cf69eda074f2de5b98aea`。
+
+**下一步**：启动 Phase 1，不要直接写代码。先用 `superpowers:brainstorming` 复核 MCP + Context 主干设计，再起草 Phase 1 plan 并做 plan review。

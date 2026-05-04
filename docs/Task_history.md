@@ -9,7 +9,7 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 - **时间**：2026-04-28 – 2026-05-04
 - **描述**：按 `docs/superpowers/plans/2026-04-28-phase-0-m3-switch-to-v2.md` 执行 M3 implementation：V2 类型族接入真实启动路径、删除 v1 冲突类型族、完成 rename pass、13 项手工回归与 v0.2.0 unsigned DMG release。
 - **详情**：[mini-spec 归档](Task-detail/2026-04-28-phase-0-m3-mini-spec.md) + [implementation 归档](Task-detail/2026-04-28-phase-0-m3-implementation.md)
-- **结果**：M3.0–M3.5 已完成并通过自动化 / 手工回归；M3.6 本地文档归档、最后 4 关 gate、`SliceAI-0.2.0.dmg` 打包、SHA256、DMG 挂载结构校验与临时安装 / 启动校验已完成；远端 PR / tag / GitHub Release 需执行前确认。
+- **结果**：完成。M3.0–M3.5 已通过自动化 / 手工回归；M3.6 本地 release preflight 已完成；PR #3 已 merge；`v0.2.0` tag 与 GitHub Release 已正式发布（2026-05-04 21:19 CST）。Release DMG SHA256：`2d7749a1405e1ec4051b90b8b3ee5e029f5819e18a2cf69eda074f2de5b98aea`。
 
 ---
 

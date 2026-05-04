@@ -40,7 +40,7 @@ status: in_progress
 - [x] M3.2/M3.3/M3.4：CLI 自动化验收完成（4 关 gate、targeted tests、grep validation）。
 - [x] M3.2/M3.3：手工 GUI / 真实 LLM / 真实启动场景已完成。
 - [x] M3.5：13 项手工回归全部通过（用户 2026-05-04 反馈剩余项均已测试通过）。
-- [ ] M3.6：文档归档 + v0.2.0 本地 DMG 预检已完成到打包 / SHA / 挂载结构 / 临时安装启动校验；远端 PR / tag / release 待执行前确认。
+- [x] M3.6：文档归档 + v0.2.0 本地 DMG 预检 + 远端 PR / tag / GitHub Release 已完成。
 
 ## 当前实施记录
 
@@ -438,13 +438,13 @@ Step 4 已把 `PresentationMode` 恢复为 spec canonical `DisplayMode`。Step 5
 - [x] 新增模块文档：`docs/Module/SliceCore.md`、`docs/Module/Orchestration.md`、`docs/Module/Capabilities.md`。
 - [x] 新增 mini-spec 归档：`docs/Task-detail/2026-04-28-phase-0-m3-mini-spec.md`。
 - [x] 更新本 implementation 归档与 `docs/Task_history.md`。
-- [x] 更新 master todolist：M3.5 全过，M3.6 本地预检已完成到打包 / SHA / 挂载结构校验，远端 release 动作待确认。
+- [x] 更新 master todolist：M3.5 全过，M3.6 本地 release preflight 完成，远端 release 已发布。
 - [x] 跑最后 4 关 gate。
 - [x] 跑 `scripts/build-dmg.sh 0.2.0` 并生成 SHA256。
 - [x] 验证 DMG 可挂载且包结构包含 `SliceAI.app` 与 `Applications` 链接。
 - [x] 从 DMG 临时安装 / 启动新 app，并只结束临时启动的新进程。
 - [x] 提交 M3.6 本地归档 commit。
-- [ ] 经用户确认后执行远端 PR / merge / `v0.2.0` tag / GitHub Release。
+- [x] 经用户确认后执行远端 PR / merge / `v0.2.0` tag / GitHub Release。
 
 ### 2026-05-04 本地预检证据
 
@@ -456,3 +456,12 @@ Step 4 已把 `PresentationMode` 恢复为 spec canonical `DisplayMode`。Step 5
 - `shasum -a 256 -c build/SliceAI-0.2.0.dmg.sha256`：exit 0，`build/SliceAI-0.2.0.dmg: OK`；SHA256 为 `2855758e11d02abb7137999577a74bdcb497d41812efe645b1d335ee04d60f84`。
 - `hdiutil attach build/SliceAI-0.2.0.dmg -readonly` 结构校验：exit 0；挂载卷包含 `SliceAI.app` 目录与 `Applications -> /Applications` 链接，并已 detach。
 - DMG 临时安装 / 启动校验：从挂载卷复制 `SliceAI.app` 到 `/tmp/sliceai-dmg-install.*`，`open -n` 启动后检测到新 `SliceAI` 进程 `77763`，随后只结束该临时启动进程；未覆盖 `/Applications`。
+
+### 2026-05-04 远端发布证据
+
+- PR：`https://github.com/yingjialong/SliceAI/pull/3`，CI `Build & Test` 通过后 merge。
+- Merge commit：`0e06eeeac3ada99f3fa8aad559f41f0591a6e62a`。
+- Tag：`v0.2.0`，指向 PR #3 merge commit。
+- Release：`https://github.com/yingjialong/SliceAI/releases/tag/v0.2.0`，已正式发布，不是 draft。
+- GitHub Actions Release run：`25314316460`，build job 成功并上传 `SliceAI-0.2.0.dmg`。
+- Release DMG SHA256：`2d7749a1405e1ec4051b90b8b3ee5e029f5819e18a2cf69eda074f2de5b98aea`。该 SHA 来自 GitHub runner 重新构建的正式下载资产；本地预检 SHA 仅用于本地构建证据。
