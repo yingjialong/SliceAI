@@ -130,7 +130,7 @@ final class SliceErrorTests: XCTestCase {
     /// 不变量：
     /// - developerContext 必须脱敏（String payload 一律 <redacted>，防止字段名 / provider id 进日志聚合）
     /// - userMessage 必须把调用方生成的校验消息原样带回，便于用户定位
-    /// 注意：调用方（V2Provider.validate / V2Tool.validate）负责保证 msg 不含用户自由文本
+    /// 注意：调用方（Provider.validate / Tool.validate）负责保证 msg 不含用户自由文本
     func test_configuration_validationFailed_developerContext_isRedacted() {
         let err = SliceError.configuration(.validationFailed("openai: nope"))
         // 日志侧脱敏：payload 替换为 <redacted>
@@ -186,5 +186,20 @@ final class SliceErrorTests: XCTestCase {
             SliceError.configuration(.referencedProviderMissing("p-id")).developerContext,
             "configuration.referencedProviderMissing(p-id)"
         )
+    }
+
+    /// 验证 execution.notImplemented 的用户文案可读、开发日志脱敏。
+    func test_executionNotImplemented_redactsDeveloperContext() {
+        let error = SliceError.execution(.notImplemented("v0.2 不支持 .skill 调用"))
+
+        XCTAssertTrue(error.userMessage.contains("v0.2 不支持"))
+        XCTAssertEqual(error.developerContext, "execution.notImplemented(<redacted>)")
+    }
+
+    /// 验证 execution.unknown 不会把外部错误描述写入开发日志。
+    func test_executionUnknown_redactsDeveloperContext() {
+        let error = SliceError.execution(.unknown("API key abc123 leaked"))
+
+        XCTAssertEqual(error.developerContext, "execution.unknown(<redacted>)")
     }
 }

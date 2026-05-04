@@ -1,138 +1,178 @@
 import Foundation
 import OSLog
 
-/// FileConfigurationStore 的日志器，便于调试 load/save 路径与错误转译
-private let configLog = Logger(subsystem: "com.sliceai.core", category: "ConfigurationStore")
+private let v2ConfigLog = Logger(subsystem: "com.sliceai.core", category: "ConfigurationStore")
 
-/// 以 JSON 文件为后端的 `Configuration` 读写 actor
+/// v2 配置的读写 actor。
 ///
-/// 设计要点：
-///   - 作为 `actor` 保证所有读写被串行化，避免并发写入导致文件损坏；
-///   - `current()` 作为热路径（调用者可能非常频繁）在内存里缓存一份配置，失败时回退到默认值；
-///   - `load()` 会把底层 JSON / IO 错误统一转译为 `SliceError.configuration(.invalidJSON)`，
-///     以便上层只处理 `SliceError` 族；
-///   - `save()` 使用原子写入（`.atomic`）+ 自动创建父目录，杜绝半写文件；
-///   - `standardFileURL()` 给出 App 部署时的约定路径 `~/Library/Application Support/SliceAI/config.json`，
-///     但 actor 本身并不依赖这条路径，便于测试注入临时文件。
-public actor FileConfigurationStore: ConfigurationProviding {
+/// 持有 `Configuration` 类型；与 v1 store 完全隔离：
+/// - 不继承、不包装旧配置 store
+/// - 不共享 Configuration Codable
+/// - app 启动路径只通过本 store 读写 `config-v2.json`
+///
+/// 规则（对齐 spec §3.7）：
+/// 1. v2 文件存在 → 直接 decode Configuration
+/// 2. v2 不存在但 v1 存在 → 读 v1 原文 → `ConfigMigratorV1ToV2.migrate(_:)` → 写 v2 → 返回 v2；**不改 v1**
+/// 3. 两者都不存在 → 写入并返回 `DefaultConfiguration.initial()`；**不创建 v1**
+/// 4. `save()` 始终写 v2 路径；v1 永不被写
+public actor ConfigurationStore {
 
-    /// 目标 JSON 文件的绝对路径
     private let fileURL: URL
-    /// 上次成功读/写的配置缓存，避免重复 IO
+    private let legacyFileURL: URL?
     private var cached: Configuration?
 
-    /// 构造 FileConfigurationStore
-    /// - Parameter fileURL: 目标 JSON 文件路径（不要求已存在）
-    public init(fileURL: URL) {
+    /// 构造 ConfigurationStore
+    /// - Parameters:
+    ///   - fileURL: v2 目标 JSON 路径（`config-v2.json`）
+    ///   - legacyFileURL: v1 旧文件路径；nil 表示不做 v1 迁移
+    public init(fileURL: URL, legacyFileURL: URL?) {
         self.fileURL = fileURL
+        self.legacyFileURL = legacyFileURL
     }
 
-    /// 获取当前配置：优先命中缓存，其次尝试从磁盘加载，失败回退到默认配置
-    /// - Returns: 始终返回一个可用的 Configuration（不会抛错）
-    public func current() async -> Configuration {
-        // 1. 命中内存缓存直接返回
-        if let cached {
-            return cached
-        }
-        // 2. 尝试从磁盘加载（文件缺失 / 损坏时走 catch）
-        if let loaded = try? await load() {
-            cached = loaded
-            // swiftlint:disable:next line_length
-            configLog.debug("current() loaded config from disk, schemaVersion=\(loaded.schemaVersion, privacy: .public)")
-            return loaded
-        }
-        // 3. 最终保险：返回内置默认配置并缓存
-        let fallback = DefaultConfiguration.initial()
-        cached = fallback
-        configLog.debug("current() falling back to DefaultConfiguration.initial()")
-        return fallback
+    /// 获取当前 v2 配置：优先缓存 → v2 文件 → migrator → 默认配置
+    ///
+    /// **抛错语义（P1 修复）**：v2 JSON 损坏 / schemaVersion 高于支持 / v1 迁移失败时
+    /// 原样向外抛出 `SliceError.configuration(...)`，由上层（M3 AppContainer）决定是否
+    /// 告警用户 + 中止启动。严禁回退 DefaultConfiguration.initial() 覆盖损坏文件——否则
+    /// 下次 update() 会把默认值写回原路径，用户原有 providers / tools 永久丢失。
+    ///
+    /// "两个文件都不存在"不是错误：`load()` 会写入并返回默认 v2 配置。
+    ///
+    /// **错误不缓存**：throw 时 `cached` 保持 nil，下次调用会重新从磁盘 load——这样用户
+    /// 修好 `config-v2.json` 后下一次 `current()` 即可自动恢复，无需重启 app。
+    public func current() async throws -> Configuration {
+        if let cached { return cached }
+        let loaded = try await load()
+        cached = loaded
+        v2ConfigLog.debug("current() loaded v2 config")
+        return loaded
     }
 
-    /// 更新配置并持久化；写入成功后刷新缓存
-    /// - Parameter configuration: 新的配置快照
+    /// 更新并持久化到 v2 路径
     public func update(_ configuration: Configuration) async throws {
         try await save(configuration)
         cached = configuration
     }
 
-    /// 从磁盘加载配置
-    /// - Returns: 解码出的 Configuration；当文件不存在时返回默认配置
-    /// - Throws: `SliceError.configuration(.invalidJSON)` 或 `.schemaVersionTooNew`
+    /// 加载配置（按 §3.7 规则；全新安装时会创建默认 v2 配置文件）
     public func load() async throws -> Configuration {
-        // 文件不存在属于合法状态（首次启动），返回默认值以便上层继续流程
-        if !FileManager.default.fileExists(atPath: fileURL.path) {
-            configLog.debug("load() file not found, returning DefaultConfiguration.initial()")
-            return DefaultConfiguration.initial()
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            return try loadV2Direct()
         }
+        if let legacyFileURL, FileManager.default.fileExists(atPath: legacyFileURL.path) {
+            v2ConfigLog.info("v2 missing, migrating from v1 at \(legacyFileURL.path, privacy: .private)")
+            let v2 = try migrateFromLegacy(at: legacyFileURL)
+            try writeV2(v2)
+            return v2
+        }
+        v2ConfigLog.debug("load() neither v2 nor v1 exists, writing DefaultConfiguration.initial() to v2 path")
+        let defaultCfg = DefaultConfiguration.initial()
+        try writeV2(defaultCfg)
+        return defaultCfg
+    }
 
-        // 读取文件内容，读失败（权限 / 磁盘）一律视为 invalidJSON
+    /// 写 v2；永不碰 v1
+    ///
+    /// **写入边界（第八轮 P2-1/P2-2 修复）**：落盘前逐个 validate providers / tools。
+    /// 首个违规直接 throw `SliceError.configuration(.validationFailed)`，磁盘文件不会被写入/覆盖。
+    /// `update()` 是 `try await save(...); cached = configuration`，因此 validate 失败时
+    /// 缓存也不会被更新——天然符合"非法对象不入磁盘、不入内存"的不变量。
+    public func save(_ configuration: Configuration) async throws {
+        try validate(configuration)
+        try writeV2(configuration)
+    }
+
+    /// 在落盘前逐个 validate providers / tools；首个违规立即抛出
+    ///
+    /// 目的是让 Provider / Tool 的写入边界在 save() 路径上集中执行。
+    /// decoder 已校验的是 JSON 输入（用户手改 config-v2.json），而此处校验的是
+    /// 代码构造的对象（测试 / 默认值 / migrator 输出 / UI 未来的 ToolEditor）。
+    private func validate(_ cfg: Configuration) throws {
+        for p in cfg.providers {
+            try p.validate()
+        }
+        for t in cfg.tools {
+            try t.validate()
+        }
+    }
+
+    // MARK: - Path helpers
+
+    /// v2 默认路径 `~/Library/Application Support/SliceAI/config-v2.json`
+    public static func standardV2FileURL() -> URL {
+        // swiftlint:disable:next force_unwrapping
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("SliceAI", isDirectory: true)
+        return appSupport.appendingPathComponent("config-v2.json")
+    }
+
+    /// v1 旧路径，**仅供迁移 / 测试使用**
+    ///
+    /// 本方法只用于构造 `legacyFileURL` 参数，让 v2 store 在首次启动时读取旧 `config.json`
+    /// 并迁移为 `config-v2.json`；app 不会再把旧路径作为主配置写入目标。
+    public static func legacyV1FileURL() -> URL {
+        // swiftlint:disable:next force_unwrapping
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("SliceAI", isDirectory: true)
+        return appSupport.appendingPathComponent("config.json")
+    }
+
+    // MARK: - Private
+
+    /// 直接读 v2 文件
+    private func loadV2Direct() throws -> Configuration {
         let data: Data
         do {
             data = try Data(contentsOf: fileURL)
         } catch {
-            configLog.error("load() read failed: \(error.localizedDescription, privacy: .public)")
-            throw SliceError.configuration(.invalidJSON(error.localizedDescription))
+            v2ConfigLog.error("v2 read failed: \(error.localizedDescription, privacy: .private)")
+            throw SliceError.configuration(.invalidJSON("<redacted>"))
         }
 
-        // 解码 JSON；结构不符或非 JSON 都会落到 catch
-        let decoder = JSONDecoder()
         let cfg: Configuration
         do {
-            cfg = try decoder.decode(Configuration.self, from: data)
+            cfg = try JSONDecoder().decode(Configuration.self, from: data)
         } catch {
-            configLog.error("load() decode failed: \(error.localizedDescription, privacy: .public)")
-            throw SliceError.configuration(.invalidJSON(error.localizedDescription))
+            v2ConfigLog.error("v2 decode failed: \(error.localizedDescription, privacy: .private)")
+            throw SliceError.configuration(.invalidJSON("<redacted>"))
         }
 
-        // schemaVersion 高于当前支持版本意味着用户使用了更新的 App 写入的配置
         if cfg.schemaVersion > Configuration.currentSchemaVersion {
-            configLog.error("load() schema too new: \(cfg.schemaVersion, privacy: .public)")
             throw SliceError.configuration(.schemaVersionTooNew(cfg.schemaVersion))
         }
         return cfg
     }
 
-    /// 将配置写入磁盘（pretty-printed，便于人工审阅 diff）
-    /// - Parameter configuration: 要写入的配置快照
-    public func save(_ configuration: Configuration) async throws {
-        // 编码为稳定排序的可读 JSON，保证同一配置产出相同字节，利于 diff/版本控制
+    /// 读 v1 原文 → LegacyConfigV1 → Configuration
+    private func migrateFromLegacy(at legacyURL: URL) throws -> Configuration {
+        let data: Data
+        do {
+            data = try Data(contentsOf: legacyURL)
+        } catch {
+            throw SliceError.configuration(.invalidJSON("<redacted>"))
+        }
+        let v1: LegacyConfigV1
+        do {
+            v1 = try JSONDecoder().decode(LegacyConfigV1.self, from: data)
+        } catch {
+            throw SliceError.configuration(.invalidJSON("<redacted>"))
+        }
+        // migrate() 现在 throws（第八轮 P2-3 修复）：v1.schemaVersion ≠ 1 时原样抛出
+        // .schemaVersionTooNew，阻止 current()/load() 把未知版本的配置写成 v2
+        return try ConfigMigratorV1ToV2.migrate(v1)
+    }
+
+    /// 原子写 v2 文件
+    private func writeV2(_ configuration: Configuration) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(configuration)
-        // 父目录可能尚未创建（例如 ~/Library/Application Support/SliceAI）
         try FileManager.default.createDirectory(
             at: fileURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        // 原子写入：失败不会留下半写文件
         try data.write(to: fileURL, options: .atomic)
-        configLog.debug("save() wrote config, bytes=\(data.count, privacy: .public)")
-    }
-
-    /// 仅更新 appearance 字段并持久化，避免外部传整个 Configuration 覆盖其他字段
-    ///
-    /// 典型调用方：`ThemeManager.onModeChange` 回调，用户切换主题时持久化新模式。
-    /// 实现上先取当前缓存（或磁盘）快照，改 appearance 后走 update() 写回。
-    /// - Parameter mode: 新的主题模式
-    /// - Throws: 磁盘写入失败时向上透传 IO 错误
-    public func updateAppearance(_ mode: AppearanceMode) async throws {
-        // 读取当前配置快照（命中缓存则不产生磁盘 IO）
-        var cfg = await current()
-        // 仅修改 appearance，其余字段保持不变
-        cfg.appearance = mode
-        // 写回磁盘并刷新缓存
-        try await update(cfg)
-        configLog.info("updateAppearance: persisted mode=\(mode.rawValue, privacy: .public)")
-    }
-
-    /// App 部署时 config.json 的约定路径
-    /// - Returns: `~/Library/Application Support/SliceAI/config.json`
-    public static func standardFileURL() -> URL {
-        let fm = FileManager.default
-        // `.first!` 安全：userDomainMask 下的 ApplicationSupport 在 macOS 上永远存在
-        // swiftlint:disable:next force_unwrapping
-        let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("SliceAI", isDirectory: true)
-        return appSupport.appendingPathComponent("config.json")
+        v2ConfigLog.debug("writeV2: wrote \(data.count, privacy: .public) bytes")
     }
 }

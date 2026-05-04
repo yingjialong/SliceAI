@@ -10,6 +10,8 @@ public enum SliceError: Error, Sendable, Equatable {
     case context(ContextError)
     /// v2 工具权限决策失败；细分语义见 `ToolPermissionError`
     case toolPermission(ToolPermissionError)
+    /// 执行链非业务错误：not-implemented 边界 / 未分类异常 fallback
+    case execution(ExecutionError)
 
     /// 面向最终用户的友好错误文案
     public var userMessage: String {
@@ -20,6 +22,7 @@ public enum SliceError: Error, Sendable, Equatable {
         case .permission(let e): return e.userMessage
         case .context(let e): return e.userMessage
         case .toolPermission(let e): return e.userMessage
+        case .execution(let e): return e.userMessage
         }
     }
 
@@ -52,7 +55,7 @@ public enum SliceError: Error, Sendable, Equatable {
             case .invalidJSON: return "configuration.invalidJSON(<redacted>)"
             case .referencedProviderMissing(let id): return "configuration.referencedProviderMissing(\(id))"
             // 脱敏规则：虽然 validationFailed 的 msg 由内部 validator 生成、不含用户自由文本（参见
-            // V2Provider.validate / V2Tool.validate），但统一按"任意 String payload 一律 <redacted>"
+            // Provider.validate / Tool.validate），但统一按"任意 String payload 一律 <redacted>"
             // 原则处理，避免未来扩展 validator 时误把 prompt / apiKey 等拼进 msg 导致日志泄漏。
             case .validationFailed: return "configuration.validationFailed(<redacted>)"
             // 脱敏规则：tool id / reason 都可能携带用户自由文本（自定义工具 id / validator 描述），
@@ -86,6 +89,13 @@ public enum SliceError: Error, Sendable, Equatable {
             case .notGranted: return "toolPermission.notGranted"
             case .unknownProvider: return "toolPermission.unknownProvider(<redacted>)"
             case .sandboxViolation: return "toolPermission.sandboxViolation(<redacted>)"
+            }
+        // 脱敏规则：execution reason 可能来自未实现模式描述或外部 error.localizedDescription，
+        // 统一不写入 developerContext，避免日志泄露用户配置、API 响应或密钥片段。
+        case .execution(let e):
+            switch e {
+            case .notImplemented: return "execution.notImplemented(<redacted>)"
+            case .unknown: return "execution.unknown(<redacted>)"
             }
         }
     }
@@ -147,7 +157,7 @@ public enum ConfigurationError: Error, Sendable, Equatable {
     case referencedProviderMissing(String)
     /// 配置落盘前的类型不变量校验失败（第八轮 P2 新增）
     ///
-    /// 由 `V2Provider.validate()` / `V2Tool.validate()` 抛出，`V2ConfigurationStore.save()`
+    /// 由 `Provider.validate()` / `Tool.validate()` 抛出，`ConfigurationStore.save()`
     /// 在写入磁盘前调用。msg 由 validator 生成，只包含 provider id / tool id / 字段名等"技术描述"——
     /// **不得**包含 prompt / API Key 等用户自由文本。
     case validationFailed(String)
@@ -189,6 +199,27 @@ public enum PermissionError: Error, Sendable, Equatable {
             return "辅助功能权限未授予，SliceAI 无法读取划词。"
         case .inputMonitoringDenied:
             return "输入监控权限未授予，快捷键可能无法工作。"
+        }
+    }
+}
+
+/// 执行链顶层错误（与 ExecutionEvent 的 notImplemented / catch-all unknown 对接）
+public enum ExecutionError: Error, Sendable, Equatable {
+    /// spec 设计期声明的 not-implemented 边界（如 v0.2 .skill / .agent）
+    case notImplemented(String)
+    /// 非 SliceError / 非 CancellationError 的 catch-all 兜底
+    case unknown(String)
+
+    /// 面向最终用户的友好错误文案。
+    public var userMessage: String {
+        switch self {
+        case .notImplemented(let reason):
+            // notImplemented 的 reason 由调用方提供，面向用户可读；开发日志仍统一脱敏。
+            return "该能力在当前版本（v0.2）尚未实现：\(reason)。请等待后续版本。"
+        case .unknown:
+            // unknown 不回显外部错误描述，避免把 provider / 系统错误中的敏感内容
+            // 展示给用户。
+            return "执行过程中发生未知错误，请稍后重试或联系支持。"
         }
     }
 }

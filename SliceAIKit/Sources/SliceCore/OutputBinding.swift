@@ -3,12 +3,12 @@ import Foundation
 /// Tool 的输出绑定；决定结果展示形态 + 并行副作用
 public struct OutputBinding: Sendable, Equatable, Codable {
     /// 主展示方式
-    public let primary: PresentationMode
+    public let primary: DisplayMode
     /// 并行副作用；按数组顺序触发
     public let sideEffects: [SideEffect]
 
     /// 构造 OutputBinding
-    public init(primary: PresentationMode, sideEffects: [SideEffect]) {
+    public init(primary: DisplayMode, sideEffects: [SideEffect]) {
         self.primary = primary
         self.sideEffects = sideEffects
     }
@@ -16,17 +16,16 @@ public struct OutputBinding: Sendable, Equatable, Codable {
 
 /// v2 结果展示模式；六种模式都作为正式成员进入数据模型（spec §3.3.6）
 ///
-/// **命名说明**：命名有意避开 `Tool.swift:85` 既有 v1 `public enum DisplayMode`（3-case，
-/// Tool v1 专用）。v2 canonical 6-case 使用 `PresentationMode`；v1 `DisplayMode` 原封保留，
-/// 与本类型无继承关系，M3 rename 阶段再统一。rawValue 完全包含 v1 的三个字符串
-/// （"window" / "bubble" / "replace"），方便 migrator 零损失迁移。
+/// **命名说明**：M3.0 Step 4 后，本类型已使用 spec canonical 名称 `DisplayMode`。
+/// JSON wire shape 仍由 `Tool.displayMode` 字段名和 enum rawValue 共同锁定，rawValue 完全
+/// 包含 v1 的三个字符串（"window" / "bubble" / "replace"），方便 migrator 零损失迁移。
 ///
 /// Phase 0 M1 仅定义 enum；各模式的 UI 实现按 phase 渐进：
 /// - Phase 0 (v0.1 继承): `.window`
 /// - Phase 2: `.replace` / `.bubble` / `.structured` / `.silent`
 ///   （配合 InlineReplaceOverlay / BubblePanel / StructuredResultView）
 /// - Phase 2+: `.file`
-public enum PresentationMode: String, Sendable, Codable, CaseIterable {
+public enum DisplayMode: String, Sendable, Codable, CaseIterable {
     /// 独立浮窗（v0.1 默认）
     case window
     /// 小气泡，自动消失

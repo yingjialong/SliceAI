@@ -12,10 +12,10 @@ public struct InvocationReport: Sendable, Equatable, Codable {
     /// 与 `.started(invocationId:)` 一致
     public let invocationId: UUID
 
-    /// 触发的 V2Tool 标识（不存原 manifest，避免敏感字段进 AuditLog）
+    /// 触发的 Tool 标识（不存原 manifest，避免敏感字段进 AuditLog）
     public let toolId: String
 
-    /// V2Tool.permissions 静态声明
+    /// Tool.permissions 静态声明
     public let declaredPermissions: Set<Permission>
 
     /// 实际触发（PermissionGraph.compute 聚合后的并集）
@@ -46,7 +46,7 @@ public struct InvocationReport: Sendable, Equatable, Codable {
     /// 构造 InvocationReport
     /// - Parameters:
     ///   - invocationId: 与 `.started` 事件一致的唯一标识
-    ///   - toolId: V2Tool 的 id，不携带敏感信息
+    ///   - toolId: Tool 的 id，不携带敏感信息
     ///   - declaredPermissions: Tool 静态声明的权限集合
     ///   - effectivePermissions: 运行时实际触发的权限集合
     ///   - flags: 关键事件标记集合
@@ -119,6 +119,8 @@ public enum InvocationOutcome: Sendable, Codable, Equatable {
         case context
         /// v2 工具权限决策错误（SliceError.toolPermission(ToolPermissionError)）
         case toolPermission
+        /// 执行链顶层错误（SliceError.execution(ExecutionError)）
+        case execution
     }
 }
 
@@ -134,6 +136,7 @@ extension InvocationOutcome.ErrorKind {
         case .permission:     return .permission
         case .context:        return .context
         case .toolPermission: return .toolPermission
+        case .execution:      return .execution
         }
     }
 }

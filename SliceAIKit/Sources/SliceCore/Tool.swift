@@ -1,102 +1,149 @@
 import Foundation
 
-/// 工具定义，一个 Tool 代表菜单栏上的一个按钮 + 一套 prompt
+/// v2 工具定义，对应 `config-v2.json` 中的 tool 节点。
+///
+/// `Tool` 是 canonical v2 数据模型：三态 kind（prompt/agent/pipeline）+ provenance +
+/// permissions + outputBinding + visibleWhen + budget + hotkey + tags。
+///
+/// **不**与旧配置 JSON 共享 Codable：旧 JSON 由 `LegacyConfigV1` 读取，v2 JSON 由 `Tool` 读写；
+/// migrator 是唯一的旧配置 → v2 转换路径。
+///
+/// **没有**旧扁平 accessor（systemPrompt / userPrompt / providerId / modelId / temperature / variables）——
+/// 访问 Tool 字段必须通过 `kind` 的 pattern matching 或 kind-aware 编辑器。
+///
 public struct Tool: Identifiable, Sendable, Codable, Equatable {
     public let id: String
     public var name: String
-    public var icon: String              // emoji 或 SF Symbol 名
+    public var icon: String
     public var description: String?
-    public var systemPrompt: String?
-    public var userPrompt: String
-    public var providerId: String        // 指向 Configuration.providers 中的 Provider.id
-    public var modelId: String?          // nil 则使用 Provider.defaultModel
-    public var temperature: Double?
+    public var kind: ToolKind
+    public var visibleWhen: ToolMatcher?
     public var displayMode: DisplayMode
-    public var variables: [String: String]
-    /// 浮条上的显示样式（图标 / 名称 / 图标+名称）；默认 `.icon`
+    public var outputBinding: OutputBinding?
+    public var permissions: [Permission]
+    public var provenance: Provenance
+    public var budget: ToolBudget?
+    public var hotkey: String?
     public var labelStyle: ToolLabelStyle
+    public var tags: [String]
 
-    /// 构造工具定义
-    /// - Parameters:
-    ///   - id: 工具唯一标识，用于持久化与路由
-    ///   - name: 工具显示名称
-    ///   - icon: emoji 或 SF Symbol 名称
-    ///   - description: 工具用途的可选描述
-    ///   - systemPrompt: 可选的系统提示词
-    ///   - userPrompt: 用户提示词模板（含 `{{selection}}` 等占位符）
-    ///   - providerId: 关联的 Provider.id
-    ///   - modelId: 指定模型，nil 时使用 Provider.defaultModel
-    ///   - temperature: 采样温度，nil 时沿用服务端默认
-    ///   - displayMode: 结果展示模式
-    ///   - variables: 用户自定义变量，渲染 prompt 时注入
-    ///   - labelStyle: 浮条显示样式，默认 `.icon`
+    /// v2 主初始化器
     public init(
-        id: String, name: String, icon: String, description: String?,
-        systemPrompt: String?, userPrompt: String,
-        providerId: String, modelId: String?, temperature: Double?,
-        displayMode: DisplayMode, variables: [String: String],
-        labelStyle: ToolLabelStyle = .icon
+        id: String,
+        name: String,
+        icon: String,
+        description: String?,
+        kind: ToolKind,
+        visibleWhen: ToolMatcher?,
+        displayMode: DisplayMode,
+        outputBinding: OutputBinding?,
+        permissions: [Permission],
+        provenance: Provenance,
+        budget: ToolBudget?,
+        hotkey: String?,
+        labelStyle: ToolLabelStyle,
+        tags: [String]
     ) {
         self.id = id
         self.name = name
         self.icon = icon
         self.description = description
-        self.systemPrompt = systemPrompt
-        self.userPrompt = userPrompt
-        self.providerId = providerId
-        self.modelId = modelId
-        self.temperature = temperature
+        self.kind = kind
+        self.visibleWhen = visibleWhen
         self.displayMode = displayMode
-        self.variables = variables
+        self.outputBinding = outputBinding
+        self.permissions = permissions
+        self.provenance = provenance
+        self.budget = budget
+        self.hotkey = hotkey
         self.labelStyle = labelStyle
+        self.tags = tags
     }
 
-    // MARK: - Codable（自定义 decode 以兼容老版本 config.json）
-
-    /// 与合成版保持一致，显式声明以便下面的 `init(from:)` 使用
-    private enum CodingKeys: String, CodingKey {
-        case id, name, icon, description, systemPrompt, userPrompt
-        case providerId, modelId, temperature, displayMode, variables, labelStyle
-    }
-
-    /// 自定义 decode：`labelStyle` 旧配置里不存在时回退到 `.icon`
+    /// 校验 Tool 的类型不变量
     ///
-    /// 其余字段仍按合成 Codable 的语义处理（non-optional 字段缺失依然会抛错——
-    /// 这与项目现有约定一致：schemaVersion 升级时才引入破坏性变更）。
-    public init(from decoder: any Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.id = try container.decode(String.self, forKey: .id)
-        self.name = try container.decode(String.self, forKey: .name)
-        self.icon = try container.decode(String.self, forKey: .icon)
-        self.description = try container.decodeIfPresent(String.self, forKey: .description)
-        self.systemPrompt = try container.decodeIfPresent(String.self, forKey: .systemPrompt)
-        self.userPrompt = try container.decode(String.self, forKey: .userPrompt)
-        self.providerId = try container.decode(String.self, forKey: .providerId)
-        self.modelId = try container.decodeIfPresent(String.self, forKey: .modelId)
-        self.temperature = try container.decodeIfPresent(Double.self, forKey: .temperature)
-        self.displayMode = try container.decode(DisplayMode.self, forKey: .displayMode)
-        self.variables = try container.decode([String: String].self, forKey: .variables)
-        // 缺失或非法值时回退到 .icon，保持向后兼容
-        self.labelStyle = try container.decodeIfPresent(ToolLabelStyle.self, forKey: .labelStyle) ?? .icon
+    /// **与 decoder 校验的关系**：decoder 对 JSON 输入做同样检查（`init(from:)`），但
+    /// public `init(id:...)` 非 throws、允许代码侧临时构造非法对象（测试 fixture /
+    /// 默认值 / migrator 输出）。`validate()` 是写入边界的守护——
+    /// `ConfigurationStore.save()` 在落盘前对所有 tool 调用一次。
+    ///
+    /// 当前校验项（与 decoder 对齐）：
+    /// 1. `outputBinding != nil && outputBinding.primary != displayMode` → throw
+    ///    （单一事实源：同时存在两个可能冲突的字段时，ExecutionEngine 只会读其中一个）
+    ///
+    /// - Throws: `SliceError.configuration(.validationFailed(msg))`，msg 包含 tool id、两个字段名与冲突的值
+    public func validate() throws {
+        // outputBinding 存在时 primary 必须与 displayMode 一致
+        if let ob = outputBinding, ob.primary != displayMode {
+            throw SliceError.configuration(.validationFailed(
+                "Tool '\(id)': outputBinding.primary (\(ob.primary.rawValue)) "
+                + "must equal displayMode (\(displayMode.rawValue))"
+            ))
+        }
     }
-}
 
-/// 结果展示模式（MVP v0.1 只实现 .window，另外两种预留给 v0.2+）
-public enum DisplayMode: String, Sendable, Codable, CaseIterable {
-    case window    // A - 独立浮窗
-    case bubble    // B - v0.2
-    case replace   // C - v0.2
-}
+    // MARK: - Codable（手写 init/encode；除了保持字段 round-trip，额外校验 displayMode / outputBinding.primary 一致性）
+    //
+    // P2b 修复：Tool 既有 displayMode（non-optional）又有 outputBinding.primary（同 enum，可 nil）。
+    // 自动合成 Codable 会让 JSON 里声明 displayMode="window" + outputBinding.primary="replace" 的
+    // Tool 通过解码，未来 ExecutionEngine 只能读其中一个，另一个默默被忽略 → 单一事实源违反。
+    // 这里显式手写 Codable 加一致性校验；encode 也同步手写保证两端对称。
+    //
+    // **JSON shape contract**：只锁定**字段名**与自动合成一致（`test_tool_goldenJSON_promptKind_usesKindDiscriminator`
+    // 已覆盖关键 key 名），**不**把 CodingKeys 声明顺序作为 API 契约——JSON 里 key 的实际顺序由
+    // `JSONEncoder.outputFormatting`（当前配置含 `.sortedKeys`）决定，与 CodingKeys 枚举顺序无关。
 
-/// 浮条（FloatingToolbar）上单个工具的显示样式
-///
-/// UI 层在渲染工具按钮时读取此字段决定绘制图标、名称或二者组合。
-/// 仅影响浮条外观，不影响命令面板（命令面板本就是图标 + 名称列表）或执行逻辑。
-public enum ToolLabelStyle: String, Sendable, Codable, CaseIterable {
-    /// 只显示图标（emoji / SF Symbol）——MVP 默认风格，最紧凑
-    case icon
-    /// 只显示工具名称的短缩写（最多 4 个中文字或首个英文单词）
-    case name
-    /// 图标 + 短缩写并排显示
-    case iconAndName
+    private enum CodingKeys: String, CodingKey {
+        case id, name, icon, description, kind, visibleWhen, displayMode, outputBinding,
+             permissions, provenance, budget, hotkey, labelStyle, tags
+    }
+
+    /// 手写解码器，负责字段读入 + displayMode/outputBinding.primary 一致性校验
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decode(String.self, forKey: .id)
+        self.name = try c.decode(String.self, forKey: .name)
+        self.icon = try c.decode(String.self, forKey: .icon)
+        self.description = try c.decodeIfPresent(String.self, forKey: .description)
+        self.kind = try c.decode(ToolKind.self, forKey: .kind)
+        self.visibleWhen = try c.decodeIfPresent(ToolMatcher.self, forKey: .visibleWhen)
+        self.displayMode = try c.decode(DisplayMode.self, forKey: .displayMode)
+        self.outputBinding = try c.decodeIfPresent(OutputBinding.self, forKey: .outputBinding)
+        self.permissions = try c.decode([Permission].self, forKey: .permissions)
+        self.provenance = try c.decode(Provenance.self, forKey: .provenance)
+        self.budget = try c.decodeIfPresent(ToolBudget.self, forKey: .budget)
+        self.hotkey = try c.decodeIfPresent(String.self, forKey: .hotkey)
+        self.labelStyle = try c.decode(ToolLabelStyle.self, forKey: .labelStyle)
+        self.tags = try c.decode([String].self, forKey: .tags)
+
+        // 单一事实源：outputBinding 存在时，其 primary 必须与 displayMode 一致
+        if let ob = self.outputBinding, ob.primary != self.displayMode {
+            let primary = ob.primary.rawValue
+            let display = self.displayMode.rawValue
+            throw DecodingError.dataCorrupted(.init(
+                codingPath: c.codingPath,
+                debugDescription:
+                    "Tool.outputBinding.primary (\(primary)) must equal displayMode (\(display))"
+            ))
+        }
+    }
+
+    /// 手写编码器；输出字段名与自动合成保持一致（单元测试里的 golden JSON 已锁定 shape）
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(self.id, forKey: .id)
+        try c.encode(self.name, forKey: .name)
+        try c.encode(self.icon, forKey: .icon)
+        try c.encodeIfPresent(self.description, forKey: .description)
+        try c.encode(self.kind, forKey: .kind)
+        try c.encodeIfPresent(self.visibleWhen, forKey: .visibleWhen)
+        try c.encode(self.displayMode, forKey: .displayMode)
+        try c.encodeIfPresent(self.outputBinding, forKey: .outputBinding)
+        try c.encode(self.permissions, forKey: .permissions)
+        try c.encode(self.provenance, forKey: .provenance)
+        try c.encodeIfPresent(self.budget, forKey: .budget)
+        try c.encodeIfPresent(self.hotkey, forKey: .hotkey)
+        try c.encode(self.labelStyle, forKey: .labelStyle)
+        try c.encode(self.tags, forKey: .tags)
+    }
 }

@@ -20,12 +20,10 @@ public enum SelectionContentType: String, Codable, Sendable, CaseIterable {
 
 /// 选中文字的来源渠道；从旧 `SelectionPayload.Source` 提升到独立类型便于复用
 ///
-/// **命名说明**：命名有意避开 `SelectionCapture` 模块的既有 `public protocol SelectionSource`
-/// （见 `SelectionCapture/SelectionSource.swift`，语义是"读取器接口"，被 AXSelectionSource /
-/// ClipboardSelectionSource 实现）。两者名字同但语义正交；为不触动 `SelectionCapture/` 同时
-/// 让测试链（`SelectionCaptureTests @testable import SliceCore` + `SelectionCapture` 同时存在
-/// 时 Swift 解析会混淆）保持绿色，v2 enum 命名为 `SelectionOrigin`。
-public enum SelectionOrigin: String, Codable, Sendable, CaseIterable {
+/// **命名说明**：`SelectionSource` 是 spec canonical 的来源枚举。
+/// 它与 `SelectionCapture` 模块的 `SelectionReader` 读取器接口语义正交；
+/// `SelectionReader` 继续由 AXSelectionSource / ClipboardSelectionSource 实现。
+public enum SelectionSource: String, Codable, Sendable, CaseIterable {
     /// 通过 AX API 直接读取
     case accessibility
     /// 通过模拟 Cmd+C + 剪贴板备份恢复获取

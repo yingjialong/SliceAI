@@ -33,6 +33,9 @@ public struct ProviderEditorView: View {
     /// Test connection 后的状态消息：成功绿/灰、失败红；成功 2 秒自动消失
     @State private var testMessage: ProviderStatusMessage?
 
+    /// Base URL 输入校验提示；非 nil 时展示红色错误文本
+    @State private var baseURLMessage: ProviderStatusMessage?
+
     /// Test 是否进行中；为 true 时禁用按钮 + 显示"测试中…"
     @State private var isTesting: Bool = false
 
@@ -73,7 +76,8 @@ public struct ProviderEditorView: View {
         }
         .task {
             // 视图首次出现时同步 Base URL 字符串态
-            baseURLText = provider.baseURL.absoluteString
+            baseURLText = provider.baseURL?.absoluteString ?? ""
+            validateBaseURLInput(baseURLText)
             // 预读已有 API Key，同时存入 savedKey 供 Test 回退
             if let existing = await onLoadKey() {
                 apiKey = existing
@@ -97,19 +101,19 @@ public struct ProviderEditorView: View {
                     .font(SliceFont.body)
             }
 
-            // Base URL 行：中间态编辑，失焦或回车时尝试解析
+            // Base URL 行：中间态编辑，实时校验；非法值不会悄悄沿用旧 URL。
             SettingsRow("Base URL") {
                 TextField("https://api.openai.com/v1", text: $baseURLText)
                     .textFieldStyle(.plain)
                     .multilineTextAlignment(.trailing)
-                    .foregroundColor(SliceColor.textPrimary)
+                    .foregroundColor(baseURLMessage == nil ? SliceColor.textPrimary : SliceColor.error)
                     .font(SliceFont.body)
                     .onChange(of: baseURLText) { _, newValue in
-                        // 实时解析，仅有效 URL 才回写，避免存入非法值
-                        if let url = URL(string: newValue) {
-                            provider.baseURL = url
-                        }
+                        validateBaseURLInput(newValue)
                     }
+            }
+            if let msg = baseURLMessage {
+                statusLabel(msg)
             }
 
             // 默认模型行（最后一行无分隔线，借助 SettingsRow 内置分隔）
@@ -210,7 +214,16 @@ public struct ProviderEditorView: View {
         isTesting = true
         testMessage = ProviderStatusMessage(text: "测试中…", isError: false)
         do {
-            try await onTestKey(key, provider.baseURL, provider.defaultModel)
+            guard let baseURL = provider.baseURL else {
+                testMessage = ProviderStatusMessage(
+                    text: "测试失败：Base URL 未配置",
+                    isError: true
+                )
+                isTesting = false
+                print("[ProviderEditorView] testKey: baseURL is nil, skip test")
+                return
+            }
+            try await onTestKey(key, baseURL, provider.defaultModel)
             testMessage = ProviderStatusMessage(text: "连接成功", isError: false)
             isTesting = false
             print("[ProviderEditorView] testKey: success")
@@ -232,6 +245,32 @@ public struct ProviderEditorView: View {
             )
             isTesting = false
         }
+    }
+
+    /// 校验 Base URL 文本，并把有效值同步回 provider。
+    ///
+    /// 无效输入会把 `provider.baseURL` 置 nil，避免 UI 文本已经变成坏值时仍静默保留旧 URL；
+    /// `ConfigurationStore` 的 validate 会阻止需要 baseURL 的 provider 被错误落盘。
+    /// - Parameter rawValue: 用户在 TextField 中输入的 URL 字符串。
+    private func validateBaseURLInput(_ rawValue: String) {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            provider.baseURL = nil
+            baseURLMessage = providerRequiresBaseURL ? .error("Base URL 不能为空") : nil
+            return
+        }
+        guard let url = URL(string: trimmed), url.scheme != nil else {
+            provider.baseURL = nil
+            baseURLMessage = .error("Base URL 格式无效")
+            return
+        }
+        provider.baseURL = url
+        baseURLMessage = nil
+    }
+
+    /// 当前 Provider 协议族是否要求显式 Base URL。
+    private var providerRequiresBaseURL: Bool {
+        provider.kind == .openAICompatible || provider.kind == .ollama
     }
 
     // MARK: - 辅助视图
@@ -257,4 +296,10 @@ public struct ProviderEditorView: View {
 private struct ProviderStatusMessage: Equatable, Sendable {
     let text: String
     let isError: Bool
+
+    /// 构造错误状态消息。
+    /// - Parameter text: 要展示的错误文案。
+    static func error(_ text: String) -> ProviderStatusMessage {
+        ProviderStatusMessage(text: text, isError: true)
+    }
 }

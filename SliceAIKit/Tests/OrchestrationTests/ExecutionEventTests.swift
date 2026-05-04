@@ -38,7 +38,7 @@ final class ExecutionEventTests: XCTestCase {
             .sideEffectTriggered(.copyToClipboard),
             .finished(report: .stub()),
             .failed(.configuration(.validationFailed("test"))),
-            .notImplemented(reason: "PresentationMode.bubble not in M2 scope")
+            .notImplemented(reason: "DisplayMode.bubble not in M2 scope")
         ]
         // .permissionWouldBeRequested 与 .sideEffectSkippedDryRun 是 dry-run 专属事件，
         // 由 ExecutionEngine Step 2.5 / Step 7 在 dry-run 路径下 yield；

@@ -3,7 +3,7 @@ import Foundation
 import SliceCore
 
 /// 读取一次选中文字的抽象来源
-public protocol SelectionSource: Sendable {
+public protocol SelectionReader: Sendable {
     /// 读取当前选中文字；拿不到返回 nil
     func readSelection() async throws -> SelectionReadResult?
 }

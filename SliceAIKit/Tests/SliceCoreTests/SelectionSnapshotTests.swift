@@ -64,10 +64,10 @@ final class SelectionSnapshotTests: XCTestCase {
         ])
     }
 
-    func test_selectionOrigin_rawValues() {
-        XCTAssertEqual(SelectionOrigin.accessibility.rawValue, "accessibility")
-        XCTAssertEqual(SelectionOrigin.clipboardFallback.rawValue, "clipboardFallback")
-        XCTAssertEqual(SelectionOrigin.inputBox.rawValue, "inputBox")
+    func test_selectionSource_rawValues() {
+        XCTAssertEqual(SelectionSource.accessibility.rawValue, "accessibility")
+        XCTAssertEqual(SelectionSource.clipboardFallback.rawValue, "clipboardFallback")
+        XCTAssertEqual(SelectionSource.inputBox.rawValue, "inputBox")
     }
 
     // 显式断言：SelectionSnapshot 与 SelectionPayload 是 **两个不同的类型**

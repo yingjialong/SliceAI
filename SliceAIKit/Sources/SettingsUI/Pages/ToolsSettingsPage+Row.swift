@@ -86,8 +86,8 @@ struct ToolRow: View {
                     .font(SliceFont.subheadline)
                     .foregroundColor(SliceColor.textPrimary)
 
-                // 描述优先，无描述时展示 userPrompt 截断预览
-                let subtitle = tool.description ?? String(tool.userPrompt.prefix(40))
+                // 描述优先；无描述时从 PromptTool.userPrompt 读取预览，非 prompt 类型用名称兜底。
+                let subtitle = toolSubtitle
                 Text(subtitle)
                     .font(SliceFont.caption)
                     .foregroundColor(SliceColor.textSecondary)
@@ -116,6 +116,17 @@ struct ToolRow: View {
         .padding(.vertical, SliceSpacing.base)
         .contentShape(Rectangle())
         .onTapGesture { onToggle() }
+    }
+
+    /// 列表副标题：优先使用描述，其次展示 prompt 的 userPrompt 预览
+    private var toolSubtitle: String {
+        if let description = tool.description, !description.isEmpty {
+            return description
+        }
+        if case .prompt(let promptTool) = tool.kind {
+            return String(promptTool.userPrompt.prefix(40))
+        }
+        return tool.name
     }
 
     /// 拖拽把手：`line.3.horizontal` 图标 + `.onDrag`

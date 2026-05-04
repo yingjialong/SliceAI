@@ -3,16 +3,16 @@ import XCTest
 
 final class OutputBindingTests: XCTestCase {
 
-    // MARK: - PresentationMode
+    // MARK: - DisplayMode
 
-    func test_presentationMode_allCases_stable() {
-        XCTAssertEqual(Set(PresentationMode.allCases), [.window, .bubble, .replace, .file, .silent, .structured])
+    func test_displayMode_allCases_stable() {
+        XCTAssertEqual(Set(DisplayMode.allCases), [.window, .bubble, .replace, .file, .silent, .structured])
     }
 
-    func test_presentationMode_codable() throws {
-        for mode in PresentationMode.allCases {
+    func test_displayMode_codable() throws {
+        for mode in DisplayMode.allCases {
             let data = try JSONEncoder().encode(mode)
-            let decoded = try JSONDecoder().decode(PresentationMode.self, from: data)
+            let decoded = try JSONDecoder().decode(DisplayMode.self, from: data)
             XCTAssertEqual(mode, decoded)
         }
     }

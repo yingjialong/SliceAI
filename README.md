@@ -6,9 +6,9 @@ SliceAI 让你在任何 Mac 应用里选中文字后，通过快捷工具栏或 
 
 ## Status
 
-v0.1 开发中。参见 [docs/superpowers/plans](docs/superpowers/plans/) 跟踪进度。
+v0.2.0 Phase 0 底层重构已完成本地验收：v2 数据模型、Orchestration 执行引擎、Capabilities 能力边界已接入真实 App 触发链。参见 [docs/v2-refactor-master-todolist.md](docs/v2-refactor-master-todolist.md) 跟踪后续 Phase。
 
-## Features (MVP v0.1)
+## Features (MVP v0.2)
 
 - 划词后自动弹出浮条工具栏（PopClip 风格）
 - `⌥Space` 快捷键唤起中央命令面板
@@ -33,7 +33,40 @@ open SliceAI.xcodeproj
 - Xcode 26 或更新
 - Swift 6.0
 
+## Architecture Modules
+
+| 模块 | 职责 |
+|---|---|
+| `SliceAIApp` | macOS App 薄壳：菜单栏、Onboarding、全局触发监听、Composition Root、ResultPanel 生命周期。 |
+| `SliceCore` | 领域模型与配置：`Tool` / `Provider` / `Configuration` / `ExecutionSeed` / `ResolvedExecutionContext` / 权限 / 输出绑定。 |
+| `Orchestration` | v2 执行引擎：`ExecutionEngine`、上下文采集、权限闭环、PromptExecutor、OutputDispatcher、成本记账、审计日志。 |
+| `Capabilities` | Phase 1+ 能力边界：`PathSandbox`、MCP client 协议、Skill registry 协议和生产侧 mock。 |
+| `LLMProviders` | OpenAI 兼容协议实现与 provider factory，负责 Chat Completions / SSE 流式解析。 |
+| `SelectionCapture` | 选区捕获：AX 主路径 + Cmd+C fallback，统一产出 `SelectionPayload`。 |
+| `HotkeyManager` | Carbon `RegisterEventHotKey` 全局快捷键注册与解析。 |
+| `Windowing` | FloatingToolbar、CommandPalette、ResultPanel 与屏幕定位算法。 |
+| `SettingsUI` | SwiftUI 设置界面、KeychainStore、Provider / Tool 编辑器、配置即时保存。 |
+| `DesignSystem` / `Permissions` | 设计 token、主题管理、共享控件与 Accessibility onboarding / monitor。 |
+
 ## 项目修改变动记录
+
+### 2026-05-04 · Phase 0 M3 · Switch to V2
+
+**范围**：plan `docs/superpowers/plans/2026-04-28-phase-0-m3-switch-to-v2.md`，分支 `feature/phase-0-m3-switch-to-v2`
+
+**主要变更**：
+- **触发链切到 v2**：`AppDelegate` 的浮条与 `⌥Space` 命令面板执行入口改为构造 `ExecutionSeed`，通过 `ExecutionEngine.execute(tool:seed:)` 消费 `ExecutionEvent` stream，再由 `ExecutionEventConsumer` 翻译到既有 `ResultPanel`。
+- **配置切到 `config-v2.json`**：`AppContainer.bootstrap()` 启动期 eager load `ConfigurationStore.current()`；首次启动写入默认 v2 配置，已有 `config.json` 时通过 migrator 迁移，旧 `config.json` 保持兼容不被覆写。
+- **删除 v1 冲突类型族**：移除旧 `ToolExecutor`、`Tool` / `Provider` / `Configuration` / `ConfigurationStore` / `DefaultConfiguration` v1 文件；`V2*` 类型回归 spec canonical 名称。
+- **命名回归 spec**：`PresentationMode` → `DisplayMode`，`SelectionOrigin` → `SelectionSource`；保留 `SelectionReader` 作为读取器接口，避免与来源枚举混淆。
+- **ResultPanel single-flight**：新增 `InvocationGate` 与 `ResultPanelWindowSinkAdapter`，旧 invocation 的 chunk / terminal event 不会污染新 invocation。
+- **Provider factory 升级**：`LLMProviderFactory` 直接接收 canonical `Provider`，并在读取 Keychain 前先做 provider kind / baseURL preflight，避免配置错误被误报为 API Key 缺失。
+
+**验证状态**：
+- CLI gate：`swift build`、`swift test --parallel --enable-code-coverage`、`xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`、`swiftlint lint --strict` 已通过。
+- M3.4 grep validation：v1 / `V2*` / `PresentationMode` / `SelectionOrigin` 源码测试范围 0 命中。
+- M3.5 13 项手工回归：用户反馈剩余项均已测试通过；2026-05-04 已记录安全子集实机证据。
+- M3.6：本地文档归档、最后 4 关 gate、`SliceAI-0.2.0.dmg` 打包、SHA256、DMG 挂载结构校验与临时安装 / 启动校验已完成；SHA256 为 `2855758e11d02abb7137999577a74bdcb497d41812efe645b1d335ee04d60f84`。远端 PR / tag / GitHub Release 需执行前确认。
 
 ### 2026-04-27 · Phase 0 M2 · Orchestration + Capabilities 骨架
 

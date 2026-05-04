@@ -30,6 +30,9 @@ jobs:
         working-directory: SliceAIKit
         run: swift test --parallel --enable-code-coverage
 
+      - name: Build SliceAI app target
+        run: xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build
+
       - name: Install SwiftLint
         run: brew install swiftlint
 

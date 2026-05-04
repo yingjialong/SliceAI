@@ -24,7 +24,7 @@ public final class CommandPalettePanel {
     ///   - tools: 可供筛选与选择的工具列表
     ///   - preview: 可选的选区预览文本，若为空则不显示预览行
     ///   - onPick: 用户选中某工具后的回调（在主线程触发）
-    public func show(tools: [Tool], preview: String?, onPick: @escaping (Tool) -> Void) {
+    public func show(tools: [Tool], preview: String?, onPick: @escaping @MainActor (Tool) -> Void) {
         // 固定面板尺寸 560×420pt，比老版宽 80pt，更接近 Raycast 黄金比例
         let size = CGSize(width: 560, height: 420)
         // 主屏幕可见区为基准；垂直取 minY + height * 0.55 达到"居中偏上 30%"效果
@@ -90,7 +90,7 @@ public final class CommandPalettePanel {
 private struct PaletteContent: View {
     let tools: [Tool]
     let preview: String
-    let onPick: (Tool) -> Void
+    let onPick: @MainActor (Tool) -> Void
     let onCancel: () -> Void
 
     /// 搜索输入

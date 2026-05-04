@@ -44,7 +44,7 @@ public enum ExecutionEvent: Sendable {
     /// 主流程失败（任何 step 错误统一收敛到此 case）
     case failed(SliceError)
 
-    /// M2 范围 placeholder：还未实现的 PresentationMode / ToolKind 分支返回此事件
+    /// M2 范围 placeholder：还未实现的 DisplayMode / ToolKind 分支返回此事件
     case notImplemented(reason: String)
 
     /// dry-run 路径下 PermissionBroker.gate 返回 `.wouldRequireConsent` 时 yield；

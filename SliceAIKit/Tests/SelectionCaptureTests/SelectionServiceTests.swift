@@ -6,11 +6,11 @@ import XCTest
 ///
 /// 通过注入不同组合的 YieldingSource 覆盖 SelectionService 的四类分支：
 /// 主路径成功 / 主路径返回 nil / 主路径抛错 / 主备均失败
-private struct YieldingSource: SelectionSource {
+private struct YieldingSource: SelectionReader {
     let result: SelectionReadResult?
     let throwsError: (any Error)?
 
-    /// 构造一个可受控的 SelectionSource 测试替身
+    /// 构造一个可受控的 SelectionReader 测试替身
     init(result: SelectionReadResult? = nil, throwsError: (any Error)? = nil) {
         self.result = result
         self.throwsError = throwsError

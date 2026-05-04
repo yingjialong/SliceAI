@@ -8,7 +8,7 @@ import Foundation
 /// 这样 ProviderResolutionError 的 case 可以独立演进，不污染 SliceCore 的 SliceError 命名空间。
 public enum ProviderResolutionError: Error, Sendable, Equatable {
 
-    /// `.fixed` 形态找不到对应 V2Provider id；与 `SliceError.configuration(.referencedProviderMissing)`
+    /// `.fixed` 形态找不到对应 Provider id；与 `SliceError.configuration(.referencedProviderMissing)`
     /// 语义平行——ExecutionEngine 在 Step 4 catch 后 wrap 为后者
     case notFound(providerId: String)
 

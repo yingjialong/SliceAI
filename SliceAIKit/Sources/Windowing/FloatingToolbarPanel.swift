@@ -60,7 +60,7 @@ public final class FloatingToolbarPanel {
         maxTools: Int = 6,
         size: ToolbarSize = .compact,
         autoDismissSeconds: Int = 5,
-        onPick: @escaping (Tool) -> Void
+        onPick: @escaping @MainActor (Tool) -> Void
     ) {
         // 把 autoDismissSeconds 存成实例字段，供 resumeAutoDismiss 回调复用
         // （否则拖动结束后无法恢复成"用户设置的秒数"）
@@ -193,7 +193,7 @@ public final class FloatingToolbarPanel {
         split: ToolSplit,
         metrics: ToolbarMetrics,
         panel: NSPanel,
-        onPick: @escaping (Tool) -> Void
+        onPick: @escaping @MainActor (Tool) -> Void
     ) -> ToolbarContent {
         ToolbarContent(
             directTools: split.direct,
@@ -305,7 +305,7 @@ private struct ToolbarContent: View {
     /// 尺寸档位对应的像素参数
     let metrics: FloatingToolbarPanel.ToolbarMetrics
     /// 工具点击回调（含从更多菜单触发）
-    let onPick: (Tool) -> Void
+    let onPick: @MainActor (Tool) -> Void
     /// 拖动开始时暂停自动关闭计时
     let pauseAutoDismiss: () -> Void
     /// 拖动结束时恢复自动关闭计时

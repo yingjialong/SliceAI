@@ -6,7 +6,7 @@ import XCTest
 ///
 /// 覆盖范围：
 /// 1. `.window` 模式 chunk 顺序与计数（Array == 严格 FIFO）
-/// 2. 五个非 `.window` 模式各自返回 `.notImplemented(reason:)`，且 reason 含模式名
+/// 2. 五个非 `.window` 模式在 v0.2 阶段 fallback 到 window sink 并返回 `.delivered`
 /// 3. `.window` 调用真的转发到注入的 sink（spy WindowSink 验证 args）
 /// 4. 不同 invocationId 在 sink 内严格隔离（不串流）
 /// 5. WindowSink 抛错时 `OutputDispatcher.handle(...)` 透传
@@ -35,45 +35,47 @@ final class OutputDispatcherTests: XCTestCase {
         XCTAssertEqual(received, ["a", "b", "c"], "sink 应保留 chunk 原始顺序")
     }
 
-    // MARK: - Cell 2: 五个非 .window 模式各自 .notImplemented
+    // MARK: - Cell 2: 五个非 .window 模式 fallback 到 .window sink
 
-    /// `.bubble` 模式应返回 .notImplemented，reason 含模式关键字
-    func test_handle_bubbleMode_returnsNotImplemented() async throws {
-        try await assertNotImplemented(mode: .bubble, expectedReasonContains: "bubble")
+    /// `.bubble` 模式应 fallback 到 window sink，并返回 .delivered
+    func test_handle_bubbleMode_fallsBackToWindowSink() async throws {
+        try await assertFallsBack(mode: .bubble)
     }
 
-    /// `.replace` 模式应返回 .notImplemented，reason 含模式关键字
-    func test_handle_replaceMode_returnsNotImplemented() async throws {
-        try await assertNotImplemented(mode: .replace, expectedReasonContains: "replace")
+    /// `.replace` 模式应 fallback 到 window sink，并返回 .delivered
+    func test_handle_replaceMode_fallsBackToWindowSink() async throws {
+        try await assertFallsBack(mode: .replace)
     }
 
-    /// `.file` 模式应返回 .notImplemented，reason 含模式关键字
-    func test_handle_fileMode_returnsNotImplemented() async throws {
-        try await assertNotImplemented(mode: .file, expectedReasonContains: "file")
+    /// `.file` 模式应 fallback 到 window sink，并返回 .delivered
+    func test_handle_fileMode_fallsBackToWindowSink() async throws {
+        try await assertFallsBack(mode: .file)
     }
 
-    /// `.silent` 模式应返回 .notImplemented，reason 含模式关键字
-    func test_handle_silentMode_returnsNotImplemented() async throws {
-        try await assertNotImplemented(mode: .silent, expectedReasonContains: "silent")
+    /// `.silent` 模式应 fallback 到 window sink，并返回 .delivered
+    func test_handle_silentMode_fallsBackToWindowSink() async throws {
+        try await assertFallsBack(mode: .silent)
     }
 
-    /// `.structured` 模式应返回 .notImplemented，reason 含模式关键字
-    func test_handle_structuredMode_returnsNotImplemented() async throws {
-        try await assertNotImplemented(mode: .structured, expectedReasonContains: "structured")
+    /// `.structured` 模式应 fallback 到 window sink，并返回 .delivered
+    func test_handle_structuredMode_fallsBackToWindowSink() async throws {
+        try await assertFallsBack(mode: .structured)
     }
 
-    /// 防御回归：非 .window 模式调用 sink 应该是零次（验证 dispatcher 不会"误投"）
-    func test_handle_nonWindowModes_doNotTouchWindowSink() async throws {
+    /// 防御回归：非 .window 模式在真实 sink 未实现前必须 fallback，避免用户丢输出。
+    func test_handle_nonWindowModes_fallbacksToWindowSink() async throws {
         let sink = SpyWindowSink()
         let sut = OutputDispatcher(windowSink: sink)
 
         // 遍历所有非 .window 模式各调一次
-        for mode in PresentationMode.allCases where mode != .window {
-            _ = try await sut.handle(chunk: "ignored", mode: mode, invocationId: UUID())
+        for mode in DisplayMode.allCases where mode != .window {
+            let outcome = try await sut.handle(chunk: "fallback", mode: mode, invocationId: UUID())
+            XCTAssertEqual(outcome, .delivered, "\(mode) fallback 成功时应返回 .delivered")
         }
 
         let calls = await sink.calls
-        XCTAssertTrue(calls.isEmpty, "非 .window 模式不应触达 windowSink，实际调用 \(calls.count) 次")
+        XCTAssertEqual(calls.count, 5, "五个非 .window 模式都应触达 windowSink，实际调用 \(calls.count) 次")
+        XCTAssertTrue(calls.allSatisfy { $0.chunk == "fallback" }, "fallback chunk 应原样透传")
     }
 
     // MARK: - Cell 3: .window 调用透传到 sink
@@ -102,9 +104,9 @@ final class OutputDispatcherTests: XCTestCase {
         let id2 = UUID()
 
         // 交错投递：id1 → id2 → id1
-        try await sut.handle(chunk: "x", mode: .window, invocationId: id1)
-        try await sut.handle(chunk: "y", mode: .window, invocationId: id2)
-        try await sut.handle(chunk: "z", mode: .window, invocationId: id1)
+        _ = try await sut.handle(chunk: "x", mode: .window, invocationId: id1)
+        _ = try await sut.handle(chunk: "y", mode: .window, invocationId: id2)
+        _ = try await sut.handle(chunk: "z", mode: .window, invocationId: id1)
 
         let chunks1 = await sink.receivedChunks(for: id1)
         let chunks2 = await sink.receivedChunks(for: id2)
@@ -140,27 +142,20 @@ final class OutputDispatcherTests: XCTestCase {
 
     // MARK: - Helpers
 
-    /// 参数化辅助：对指定 `mode` 断言返回 `.notImplemented` 且 reason 含关键字
+    /// 参数化辅助：对指定 `mode` 断言 fallback 到 window sink 且返回 `.delivered`
     ///
-    /// - Parameters:
-    ///   - mode: 要测试的 PresentationMode
-    ///   - expectedReasonContains: reason 必须含的子串（一般是模式名小写）
-    private func assertNotImplemented(
-        mode: PresentationMode,
-        expectedReasonContains: String
-    ) async throws {
-        let sink = InMemoryWindowSink()
+    /// - Parameter mode: 要测试的非 window `DisplayMode`
+    private func assertFallsBack(mode: DisplayMode) async throws {
+        let sink = SpyWindowSink()
         let sut = OutputDispatcher(windowSink: sink)
-        let outcome = try await sut.handle(chunk: "test", mode: mode, invocationId: UUID())
+        let invocationId = UUID()
+        let outcome = try await sut.handle(chunk: "test", mode: mode, invocationId: invocationId)
 
-        guard case .notImplemented(let reason) = outcome else {
-            XCTFail("\(mode) 应返回 .notImplemented，实际 \(outcome)")
-            return
-        }
-        XCTAssertTrue(
-            reason.contains(expectedReasonContains),
-            "reason 应含模式关键字 '\(expectedReasonContains)'，实际：\(reason)"
-        )
+        XCTAssertEqual(outcome, .delivered, "\(mode) fallback 成功时应返回 .delivered")
+        let calls = await sink.calls
+        XCTAssertEqual(calls.count, 1, "\(mode) 应调用 windowSink 一次")
+        XCTAssertEqual(calls.first?.chunk, "test", "chunk 应原样透传")
+        XCTAssertEqual(calls.first?.invocationId, invocationId, "invocationId 应原样透传")
     }
 }
 

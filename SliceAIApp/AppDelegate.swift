@@ -29,10 +29,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// 默认级别为 `.info`，Console.app 需要在菜单栏开启 "Action → Include Info
     /// Messages"；命令行可用：
     /// `log stream --predicate 'subsystem == "com.sliceai.app"' --level info`
-    private static let log = Logger(subsystem: "com.sliceai.app", category: "AppDelegate")
+    static let log = Logger(subsystem: "com.sliceai.app", category: "AppDelegate")
 
-    /// 应用的 DI 组合根，生命周期与 AppDelegate 相同
-    let container: AppContainer
+    /// 异步装配的依赖容器；启动 Task 完成前为 nil
+    private(set) var container: AppContainer?
+
+    /// 启动装配 Task；保留引用便于生命周期追踪
+    private var startupTask: Task<Void, Never>?
 
     /// 全局鼠标抬起监视器句柄；移除时需要 `NSEvent.removeMonitor`
     /// 声明为 Any? 而非 NSObject? 是 AppKit API 的约定
@@ -48,6 +51,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// mouseUp 之后的 debounce Task，保证同一次操作只触发一次划词捕获
     private var debounceTask: Task<Void, Never>?
 
+    /// 当前正在消费的 v2 ExecutionEngine stream；新 invocation 会先取消旧 stream
+    var streamTask: Task<Void, Never>?
+
     /// 菜单栏控制器；由 applicationDidFinishLaunching 创建
     private var menuBarController: MenuBarController?
 
@@ -57,22 +63,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// 当前打开的 Onboarding 窗口；完成或跳过后置 nil
     private var onboardingWindow: NSWindow?
 
-    /// 构造：创建并持有 AppContainer；其余子系统在 didFinishLaunching 中装配
+    /// 构造：同步阶段只初始化空状态；真实依赖在 didFinishLaunching 内异步装配
     override init() {
-        self.container = AppContainer()
         super.init()
     }
 
     /// 应用启动完成回调：安装菜单栏、判断权限并决定走 onboarding 还是直接接线
     func applicationDidFinishLaunching(_ notification: Notification) {
-        Self.log.info("applicationDidFinishLaunching")
+        Self.log.info("applicationDidFinishLaunching (async bootstrap)")
 
-        // 1. 菜单栏图标与菜单；创建后立即评估 provider 配置状态（是否需要显示小红点）
+        // 启动期先不创建菜单栏和触发链；bootstrap 成功后再进入既有启动逻辑。
+        startupTask = Task { @MainActor in
+            do {
+                let container = try await AppContainer.bootstrap()
+                self.container = container
+                self.completeStartup(container: container)
+            } catch {
+                self.showStartupErrorAlertAndExit(error)
+            }
+        }
+    }
+
+    /// 应用退出前清理异步任务和全局事件监视器，避免 AppKit monitor 句柄遗留到生命周期末尾。
+    func applicationWillTerminate(_ notification: Notification) {
+        startupTask?.cancel()
+        debounceTask?.cancel()
+        streamTask?.cancel()
+        removeMouseMonitors()
+    }
+
+    /// 装配完成后执行既有启动逻辑：菜单栏、权限分流和主题同步。
+    /// - Parameter container: bootstrap 成功创建的依赖容器
+    private func completeStartup(container: AppContainer) {
+        // 1. 菜单栏图标与菜单；创建后立即评估 provider 配置状态（是否需要显示小红点）。
         menuBarController = MenuBarController(container: container, delegate: self)
         menuBarController?.refreshConfigStateIndicator()
 
-        // 2. 权限监控：先启动轮询再根据当前状态分流
-        //    未授予辅助功能 → 展示 onboarding；授予后再 wireRuntime
+        // 2. 权限监控：先启动轮询再根据当前状态分流。
         container.accessibilityMonitor.startMonitoring()
         let trusted = container.accessibilityMonitor.isTrusted
         Self.log.info("AX trusted=\(trusted, privacy: .public)")
@@ -83,14 +110,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             wireRuntime()
         }
 
-        // 3. 异步同步 ThemeManager 初始模式（init 是同步的无法 await），并启动主题跟踪
+        // 3. 异步同步 ThemeManager 初始模式（init 是同步的无法 await），并启动主题跟踪。
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let cfg = await self.container.configStore.current()
-            self.container.themeManager.setMode(cfg.appearance)
-            self.applyAppearanceToAllWindows()
-            self.startTrackingTheme()
+            do {
+                let cfg = try await container.configStore.current()
+                container.themeManager.setMode(cfg.appearance)
+                self.applyAppearanceToAllWindows()
+                self.startTrackingTheme()
+            } catch {
+                Self.log.info("theme bootstrap: config load failed \(error.localizedDescription, privacy: .private)")
+            }
         }
+    }
+
+    /// 启动失败：弹出错误并退出，避免半初始化状态继续响应触发链。
+    /// - Parameter error: bootstrap 期间上抛的配置、迁移或 IO 错误
+    private func showStartupErrorAlertAndExit(_ error: any Error) {
+        let alert = NSAlert()
+        alert.messageText = "SliceAI 启动失败"
+        alert.informativeText = (error as? SliceError)?.userMessage ?? error.localizedDescription
+        alert.addButton(withTitle: "退出")
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
+        NSApp.terminate(nil)
     }
 
     // MARK: - 主题跟踪
@@ -100,6 +143,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// 当 mode == .auto 时 nsAppearance 为 nil，窗口自动跟随系统外观；
     /// light/dark 则强制指定对应外观。
     private func applyAppearanceToAllWindows() {
+        guard let container else { return }
         let appearance = container.themeManager.nsAppearance
         NSApp.windows.forEach { $0.appearance = appearance }
     }
@@ -111,6 +155,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ///   2. 递归重新订阅，保证后续变化仍能触发。
     /// 此模式是 Swift Observation 框架的标准订阅惯用法。
     private func startTrackingTheme() {
+        guard let container else { return }
         withObservationTracking {
             // 读取 mode 以注册观察依赖；实际值不在这里使用
             _ = container.themeManager.mode
@@ -129,6 +174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// 接线运行时触发链：全局热键 + 鼠标抬起监视器
     func wireRuntime() {
+        guard let container else { return }
         Self.log.info("wireRuntime: start")
         reloadHotkey()
         installMouseMonitor()
@@ -152,11 +198,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ///     提交 804010f）。未来可由 Settings 面板上的错误指示来暴露；
     ///   - 回调中显式跳回 MainActor 以保持 UI 操作安全。
     func reloadHotkey() {
+        guard let container else { return }
         // 先清空旧注册——必须同步完成，避免与下面 async register 产生窗口期
         container.hotkeyRegistrar.unregisterAll()
-        Task { [weak self] in
-            guard let self else { return }
-            let cfg = await self.container.configStore.current()
+        Task { @MainActor [weak self] in
+            guard let self, let container = self.container else { return }
+            let cfg: Configuration
+            do {
+                cfg = try await container.configStore.current()
+            } catch {
+                Self.log.info("hotkey: config load failed \(error.localizedDescription, privacy: .private)")
+                return
+            }
             guard cfg.triggers.commandPaletteEnabled else {
                 Self.log.info("hotkey: commandPaletteEnabled=false, skip")
                 return
@@ -169,7 +222,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
             do {
-                _ = try self.container.hotkeyRegistrar.register(hk) { [weak self] in
+                _ = try container.hotkeyRegistrar.register(hk) { [weak self] in
                     // Carbon 回调已经在主线程，但 Swift 6 严格并发需要显式跳回 MainActor
                     Task { @MainActor in self?.showCommandPalette() }
                 }
@@ -190,6 +243,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ///   - `global monitor` 不会收到本应用的事件，这正是划词场景需要的；
     ///     监视器回调是 @Sendable，需显式跳回 MainActor 再读写 lastMouseDownLocation。
     private func installMouseMonitor() {
+        // wireRuntime 可能在启动授权完成、onboarding 完成、设置热键回调等路径被重复调用；
+        // 先移除旧 monitor，保证全局 mouseDown/mouseUp 回调始终只有一组。
+        removeMouseMonitors()
+
         // 记录 mouseDown 起点；locationInWindow 在全局监视器语境下即为屏幕坐标
         mouseDownMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] ev in
             let loc = ev.locationInWindow
@@ -222,11 +279,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Self.log.info("installMouseMonitor: monitors installed (mouseDown + mouseUp)")
     }
 
+    /// 移除已安装的全局鼠标监视器。
+    ///
+    /// AppKit 返回的 monitor token 必须交回 `NSEvent.removeMonitor`，否则重复接线会叠加回调。
+    private func removeMouseMonitors() {
+        if let mouseDownMonitor {
+            NSEvent.removeMonitor(mouseDownMonitor)
+            self.mouseDownMonitor = nil
+        }
+        if let globalMouseMonitor {
+            NSEvent.removeMonitor(globalMouseMonitor)
+            self.globalMouseMonitor = nil
+        }
+        lastMouseDownLocation = nil
+    }
+
     /// 鼠标抬起事件处理：读配置 → 取消旧 debounce → 按延迟启动捕获
     private func onMouseUp() {
         Task { @MainActor [weak self] in
-            guard let self else { return }
-            let cfg = await self.container.configStore.current()
+            guard let self, let container = self.container else { return }
+            let cfg: Configuration
+            do {
+                cfg = try await container.configStore.current()
+            } catch {
+                Self.log.info("mouseUp: config load failed \(error.localizedDescription, privacy: .private)")
+                return
+            }
             guard cfg.triggers.floatingToolbarEnabled else {
                 Self.log.info("onMouseUp: floatingToolbarEnabled=false, skip")
                 return
@@ -246,6 +324,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// 尝试捕获选中文字并按配置过滤后展示浮条
     /// - Parameter cfg: 触发时刻的配置快照，避免与用户编辑产生竞态
     private func tryCaptureAndShowToolbar(_ cfg: Configuration) async {
+        guard let container else { return }
         // spec §1.4 #2 / §3.1 / §7.2 都要求 mouseUp 路径走 "AX 优先 → Cmd+C
         // fallback 透明降级"，否则 Sublime / VSCode / Figma / Slack 等不暴露 AX
         // 的应用根本拿不到选中文字。
@@ -305,82 +384,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// 显示命令面板：读取当前配置 + 可选地预取一次选区预览
     func showCommandPalette() {
         Task { @MainActor [weak self] in
-            guard let self else { return }
-            let cfg = await self.container.configStore.current()
+            guard let self, let container = self.container else { return }
+            let cfg: Configuration
+            do {
+                cfg = try await container.configStore.current()
+            } catch {
+                Self.log.info("commandPalette: config load failed \(error.localizedDescription, privacy: .private)")
+                return
+            }
             // 预览不是必选；单路失败允许为空字符串显示
-            let payload = try? await self.container.selectionService.capture()
-            self.container.commandPalette.show(
+            let payload = try? await container.selectionService.capture()
+            container.commandPalette.show(
                 tools: cfg.tools,
                 preview: payload?.text
             ) { [weak self] tool in
                 guard let self else { return }
                 // 只有在确实拿到选区时才执行工具；否则仅关闭面板
                 if let payload {
-                    self.execute(tool: tool, payload: payload)
+                    self.execute(tool: tool, payload: payload, triggerSource: .commandPalette)
                 }
             }
         }
-    }
-
-    // MARK: - 执行工具
-
-    /// 触发一次工具执行：先启 stream task，再开结果窗并把 task.cancel 挂到 onDismiss
-    /// - Parameters:
-    ///   - tool: 要执行的工具定义
-    ///   - payload: 选中文字及其来源上下文
-    func execute(tool: SliceCore.Tool, payload: SelectionPayload) {
-        let streamTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            do {
-                let stream = try await self.container.toolExecutor.execute(tool: tool, payload: payload)
-                for try await chunk in stream {
-                    self.container.resultPanel.append(chunk.delta)
-                }
-                self.container.resultPanel.finish()
-            } catch {
-                self.handleStreamError(error, tool: tool, payload: payload)
-            }
-        }
-        // open panel：anchor = 选区屏幕坐标；onDismiss 捕获 streamTask 引用以便 cancel stream；
-        // onRegenerate：先 cancel 旧 stream，再重新 execute 同一 tool + payload
-        container.resultPanel.open(
-            toolName: tool.name,
-            model: tool.modelId ?? "default",
-            anchor: payload.screenPoint,
-            onDismiss: { streamTask.cancel() },
-            onRegenerate: { [weak self] in
-                streamTask.cancel()
-                Self.log.info("onRegenerate: re-running tool=\(tool.name, privacy: .public)")
-                self?.execute(tool: tool, payload: payload)
-            }
-        )
-    }
-
-    /// 统一处理 stream task 的错误：取消错误静默退出，其他错误映射到 SliceError 展示给用户
-    /// - Parameters:
-    ///   - error: stream task 抛出的原始错误
-    ///   - tool: 触发本次执行的工具（用于重试 closure 捕获）
-    ///   - payload: 本次执行的选区 payload（用于重试 closure 捕获）
-    private func handleStreamError(_ error: Error, tool: SliceCore.Tool, payload: SelectionPayload) {
-        // 用户主动 dismiss panel 触发 task.cancel()：静默退出，panel 已不可见
-        if error is CancellationError || (error as? URLError)?.code == .cancelled {
-            return
-        }
-        // 映射到 SliceError；developerContext 内的字符串 payload 已在 SliceError 层脱敏
-        let sliceError: SliceError
-        if let err = error as? SliceError {
-            sliceError = err
-        } else {
-            sliceError = .provider(.invalidResponse(String(describing: error)))
-        }
-        container.resultPanel.fail(
-            with: sliceError,
-            onRetry: { [weak self] in
-                guard let self else { return }
-                self.execute(tool: tool, payload: payload)
-            },
-            onOpenSettings: { [weak self] in self?.showSettings() }
-        )
     }
 
     // MARK: - Windows
@@ -392,6 +416,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.activate(ignoringOtherApps: true)
             return
         }
+        guard let container else { return }
         // NSHostingController 承载 SwiftUI 设置视图；ViewModel 由容器复用
         // 注入 themeManager 使设置页内的 @Environment(ThemeManager.self) 可用
         let rootView = SettingsScene(viewModel: container.settingsViewModel)
@@ -415,6 +440,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// 中自行添加。首次划词若未配置 Provider，会命中 ResultPanel 的错误态，
     /// 其"打开设置"按钮会引导用户到设置页。
     func showOnboarding() {
+        guard let container else { return }
         let view = OnboardingFlow(
             accessibilityMonitor: container.accessibilityMonitor,
             onFinish: { [weak self] in

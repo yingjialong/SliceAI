@@ -1,4 +1,5 @@
 import Capabilities
+import LLMProviders
 import SliceCore
 import XCTest
 @testable import Orchestration
@@ -9,12 +10,12 @@ import XCTest
 /// 1. 流元素顺序：[chunk]* + completed
 /// 2. 空 chunk 路径：仅 completed
 /// 3. 未授权：keychain 空 / 空字符串
-/// 4. 协议族限制：anthropic / gemini / ollama 抛 .validationFailed
-/// 5. .openAICompatible + nil baseURL：抛 .validationFailed（防御性 guard，正常 V2Provider 不会到这里）
+/// 4. 协议族校验已下沉到具体 LLMProviderFactory；PromptExecutor 在读 Keychain 前跑 factory preflight
+/// 5. .openAICompatible + nil baseURL 同样由 factory preflight 拒绝
 /// 6. 渲染：变量注入、systemPrompt 包含
 /// 7. 透传：temperature / maxTokens / model
 /// 8. UsageStats 估算：input/output > 0
-/// 9. V2Provider → v1 Provider 适配等价
+/// 9. LLMProviderFactory 直接接收 Provider
 /// 10. 错误透传：factory.make 抛错 / stream 同步抛错 / stream 中途抛错
 final class PromptExecutorTests: XCTestCase {
 
@@ -84,13 +85,13 @@ final class PromptExecutorTests: XCTestCase {
         )
     }
 
-    /// 构造一个 .openAICompatible 的 V2Provider，apiKeyRef = "keychain:<id>"
-    private func makeOpenAIV2Provider(
+    /// 构造一个 .openAICompatible 的 Provider，apiKeyRef = "keychain:<id>"
+    private func makeOpenAIProvider(
         id: String = "test-openai",
         defaultModel: String = "gpt-5",
         baseURL: URL? = URL(string: "https://api.openai.com/v1") // swiftlint:disable:this force_unwrapping
-    ) -> V2Provider {
-        V2Provider(
+    ) -> Provider {
+        Provider(
             id: id,
             kind: .openAICompatible,
             name: "Test OpenAI",
@@ -127,7 +128,7 @@ final class PromptExecutorTests: XCTestCase {
         let stream = await executor.run(
             promptTool: makePromptTool(),
             resolved: makeResolved(),
-            provider: makeOpenAIV2Provider()
+            provider: makeOpenAIProvider()
         )
         let elements = try await collect(stream)
 
@@ -154,7 +155,7 @@ final class PromptExecutorTests: XCTestCase {
         let stream = await executor.run(
             promptTool: makePromptTool(),
             resolved: makeResolved(),
-            provider: makeOpenAIV2Provider()
+            provider: makeOpenAIProvider()
         )
         let elements = try await collect(stream)
 
@@ -179,7 +180,7 @@ final class PromptExecutorTests: XCTestCase {
         let stream = await executor.run(
             promptTool: makePromptTool(),
             resolved: makeResolved(),
-            provider: makeOpenAIV2Provider()
+            provider: makeOpenAIProvider()
         )
         await assertThrows(stream) { error in
             guard case SliceError.provider(.unauthorized) = error else {
@@ -198,7 +199,7 @@ final class PromptExecutorTests: XCTestCase {
         let stream = await executor.run(
             promptTool: makePromptTool(),
             resolved: makeResolved(),
-            provider: makeOpenAIV2Provider()
+            provider: makeOpenAIProvider()
         )
         await assertThrows(stream) { error in
             guard case SliceError.provider(.unauthorized) = error else {
@@ -207,108 +208,151 @@ final class PromptExecutorTests: XCTestCase {
         }
     }
 
-    // MARK: - Test 5/6/7: 协议族限制
+    // MARK: - Test 4.5: 生产 factory preflight 必须早于 Keychain
 
-    /// V2Provider.kind == .anthropic → 抛 .configuration(.validationFailed)
-    func test_run_anthropicKind_throwsValidationFailed() async {
-        let v2 = V2Provider(
+    /// unsupported provider kind 应在读 Keychain 前报配置错误，不能误报为 API Key 缺失。
+    func test_run_openAIProviderFactoryUnsupportedKind_validatesBeforeKeychain() async {
+        let provider = Provider(
+            id: "claude",
+            kind: .anthropic,
+            name: "Claude",
+            baseURL: nil,
+            apiKeyRef: "keychain:missing-claude",
+            defaultModel: "claude-sonnet-4-6",
+            capabilities: []
+        )
+        let executor = PromptExecutor(
+            keychain: MockKeychain(),
+            llmProviderFactory: OpenAIProviderFactory()
+        )
+
+        let stream = await executor.run(
+            promptTool: makePromptTool(),
+            resolved: makeResolved(),
+            provider: provider
+        )
+        await assertThrows(stream) { error in
+            guard case SliceError.configuration(.validationFailed(let message)) = error else {
+                return XCTFail("应先抛配置校验错误，实际：\(error)")
+            }
+            XCTAssertEqual(message, "OpenAIProviderFactory only supports kind=openAICompatible")
+        }
+    }
+
+    /// openAICompatible provider 缺 baseURL 时也应在读 Keychain 前报配置错误。
+    func test_run_openAIProviderFactoryNilBaseURL_validatesBeforeKeychain() async {
+        let provider = makeOpenAIProvider(baseURL: nil)
+        let executor = PromptExecutor(
+            keychain: MockKeychain(),
+            llmProviderFactory: OpenAIProviderFactory()
+        )
+
+        let stream = await executor.run(
+            promptTool: makePromptTool(),
+            resolved: makeResolved(),
+            provider: provider
+        )
+        await assertThrows(stream) { error in
+            guard case SliceError.configuration(.validationFailed(let message)) = error else {
+                return XCTFail("应先抛配置校验错误，实际：\(error)")
+            }
+            XCTAssertEqual(message, "OpenAIProviderFactory requires non-nil baseURL")
+        }
+    }
+
+    // MARK: - Test 5/6/7: 协议族透传到 factory
+
+    /// Provider.kind == .anthropic 时 PromptExecutor 不再自行拒绝，而是透传给 factory
+    func test_run_anthropicKind_passesProviderToFactory() async throws {
+        let provider = Provider(
             id: "claude", kind: .anthropic, name: "Claude",
             baseURL: nil, apiKeyRef: "keychain:claude", defaultModel: "claude-sonnet-4-6",
             capabilities: []
         )
+        let factory = MockLLMProviderFactory(provider: MockLLMProvider())
         let executor = PromptExecutor(
             keychain: MockKeychain(["claude": "sk-anthropic"]),
-            llmProviderFactory: MockLLMProviderFactory(provider: MockLLMProvider())
+            llmProviderFactory: factory
         )
 
         let stream = await executor.run(
             promptTool: makePromptTool(),
             resolved: makeResolved(),
-            provider: v2
+            provider: provider
         )
-        await assertThrows(stream) { error in
-            guard case SliceError.configuration(.validationFailed(let msg)) = error else {
-                return XCTFail("应抛 .configuration(.validationFailed)，实际：\(error)")
-            }
-            XCTAssertTrue(msg.contains("openAICompatible"), "msg 应解释 M2 限制：\(msg)")
-            XCTAssertTrue(msg.contains("claude"), "msg 应包含 provider id：\(msg)")
-        }
+        _ = try await collect(stream)
+
+        XCTAssertEqual(factory.capturedProvider, provider)
     }
 
-    /// V2Provider.kind == .gemini → 同样抛 .validationFailed
-    func test_run_geminiKind_throwsValidationFailed() async {
-        let v2 = V2Provider(
+    /// Provider.kind == .gemini 时 PromptExecutor 同样只负责透传
+    func test_run_geminiKind_passesProviderToFactory() async throws {
+        let provider = Provider(
             id: "gem", kind: .gemini, name: "Gemini",
             baseURL: nil, apiKeyRef: "keychain:gem", defaultModel: "gemini-2.5",
             capabilities: []
         )
+        let factory = MockLLMProviderFactory(provider: MockLLMProvider())
         let executor = PromptExecutor(
             keychain: MockKeychain(["gem": "sk-google"]),
-            llmProviderFactory: MockLLMProviderFactory(provider: MockLLMProvider())
+            llmProviderFactory: factory
         )
 
         let stream = await executor.run(
             promptTool: makePromptTool(),
             resolved: makeResolved(),
-            provider: v2
+            provider: provider
         )
-        await assertThrows(stream) { error in
-            guard case SliceError.configuration(.validationFailed) = error else {
-                return XCTFail("应抛 .configuration(.validationFailed)，实际：\(error)")
-            }
-        }
+        _ = try await collect(stream)
+
+        XCTAssertEqual(factory.capturedProvider, provider)
     }
 
-    /// V2Provider.kind == .ollama → 同样抛 .validationFailed
-    /// （注意 ollama 在 V2Provider decoder 里要求非 nil baseURL，因此这里直接通过 init 构造）
-    func test_run_ollamaKind_throwsValidationFailed() async {
-        let v2 = V2Provider(
+    /// Provider.kind == .ollama 时 PromptExecutor 同样只负责透传
+    /// （注意 ollama 在 Provider decoder 里要求非 nil baseURL，因此这里直接通过 init 构造）
+    func test_run_ollamaKind_passesProviderToFactory() async throws {
+        let provider = Provider(
             id: "ollama", kind: .ollama, name: "Ollama",
             baseURL: URL(string: "http://localhost:11434"), // swiftlint:disable:this force_unwrapping
             apiKeyRef: "keychain:ollama", defaultModel: "llama3",
             capabilities: []
         )
+        let factory = MockLLMProviderFactory(provider: MockLLMProvider())
         let executor = PromptExecutor(
             keychain: MockKeychain(["ollama": "no-key-needed"]),
-            llmProviderFactory: MockLLMProviderFactory(provider: MockLLMProvider())
+            llmProviderFactory: factory
         )
 
         let stream = await executor.run(
             promptTool: makePromptTool(),
             resolved: makeResolved(),
-            provider: v2
+            provider: provider
         )
-        await assertThrows(stream) { error in
-            guard case SliceError.configuration(.validationFailed) = error else {
-                return XCTFail("应抛 .configuration(.validationFailed)，实际：\(error)")
-            }
-        }
+        _ = try await collect(stream)
+
+        XCTAssertEqual(factory.capturedProvider, provider)
     }
 
-    // MARK: - Test 8: nil baseURL 防御性兜底
+    // MARK: - Test 8: nil baseURL 透传到 factory
 
-    /// V2Provider.kind == .openAICompatible + baseURL == nil → 抛 .validationFailed
-    /// 注：正常路径 V2Provider decoder/validate 已要求 .openAICompatible 必有 baseURL，
-    /// 此用例验证 PromptExecutor 在构造路径绕过 validate 的场景下仍能 fail-fast。
-    func test_run_openAICompatibleNilBaseURL_throwsValidationFailed() async {
-        // V2Provider public init 不做校验（仅 validate() / decoder 做），可构造非法对象
-        let v2 = makeOpenAIV2Provider(baseURL: nil)
+    /// Provider.kind == .openAICompatible + baseURL == nil 时仍应原样交给 factory 处理
+    func test_run_openAICompatibleNilBaseURL_passesProviderToFactory() async throws {
+        // Provider public init 不做校验（仅 validate() / decoder 做），可构造非法对象
+        let provider = makeOpenAIProvider(baseURL: nil)
+        let factory = MockLLMProviderFactory(provider: MockLLMProvider())
         let executor = PromptExecutor(
             keychain: MockKeychain(["test-openai": "sk-abc"]),
-            llmProviderFactory: MockLLMProviderFactory(provider: MockLLMProvider())
+            llmProviderFactory: factory
         )
 
         let stream = await executor.run(
             promptTool: makePromptTool(),
             resolved: makeResolved(),
-            provider: v2
+            provider: provider
         )
-        await assertThrows(stream) { error in
-            guard case SliceError.configuration(.validationFailed(let msg)) = error else {
-                return XCTFail("应抛 .configuration(.validationFailed)，实际：\(error)")
-            }
-            XCTAssertTrue(msg.contains("nil baseURL"), "msg 应解释 nil baseURL：\(msg)")
-        }
+        _ = try await collect(stream)
+
+        XCTAssertEqual(factory.capturedProvider, provider)
     }
 
     // MARK: - Test 9: prompt 渲染（variables 注入）
@@ -330,7 +374,7 @@ final class PromptExecutorTests: XCTestCase {
             urlString: "https://example.com/page"
         )
 
-        let stream = await executor.run(promptTool: promptTool, resolved: resolved, provider: makeOpenAIV2Provider())
+        let stream = await executor.run(promptTool: promptTool, resolved: resolved, provider: makeOpenAIProvider())
         _ = try await collect(stream)
 
         guard let req = llm.capturedRequest else { return XCTFail("LLM 未收到 request") }
@@ -361,7 +405,7 @@ final class PromptExecutorTests: XCTestCase {
         let stream = await executor.run(
             promptTool: promptTool,
             resolved: makeResolved(selectionText: "Hi"),
-            provider: makeOpenAIV2Provider()
+            provider: makeOpenAIProvider()
         )
         _ = try await collect(stream)
 
@@ -387,7 +431,7 @@ final class PromptExecutorTests: XCTestCase {
         let stream = await executor.run(
             promptTool: makePromptTool(temperature: 0.7, maxTokens: 256),
             resolved: makeResolved(),
-            provider: makeOpenAIV2Provider()
+            provider: makeOpenAIProvider()
         )
         _ = try await collect(stream)
 
@@ -396,7 +440,7 @@ final class PromptExecutorTests: XCTestCase {
         XCTAssertEqual(req.maxTokens, 256)
     }
 
-    /// ChatRequest.model 在 ProviderSelection.fixed.modelId 为 nil 时回 V2Provider.defaultModel
+    /// ChatRequest.model 在 ProviderSelection.fixed.modelId 为 nil 时回 Provider.defaultModel
     func test_run_modelComesFromProviderDefault() async throws {
         let llm = MockLLMProvider(chunks: [ChatChunk(delta: "ok")])
         let factory = MockLLMProviderFactory(provider: llm)
@@ -404,18 +448,17 @@ final class PromptExecutorTests: XCTestCase {
             keychain: MockKeychain(["test-openai": "sk-abc"]),
             llmProviderFactory: factory
         )
-        let v2 = makeOpenAIV2Provider(defaultModel: "gpt-4o-mini")
+        let provider = makeOpenAIProvider(defaultModel: "gpt-4o-mini")
 
-        let stream = await executor.run(promptTool: makePromptTool(), resolved: makeResolved(), provider: v2)
+        let stream = await executor.run(promptTool: makePromptTool(), resolved: makeResolved(), provider: provider)
         _ = try await collect(stream)
 
         guard let req = llm.capturedRequest else { return XCTFail("LLM 未收到 request") }
         XCTAssertEqual(req.model, "gpt-4o-mini")
     }
 
-    /// ChatRequest.model 应优先用 ProviderSelection.fixed.modelId，覆盖 provider.defaultModel——
-    /// 与 v1 SliceCore/ToolExecutor.swift 的 `tool.modelId ?? provider.defaultModel` 同口径。
-    /// M3 切换到 V2 链路后用户工具级 modelId 不应被静默换成 provider.defaultModel。
+    /// ChatRequest.model 应优先用 ProviderSelection.fixed.modelId，覆盖 provider.defaultModel。
+    /// M3 切换到新执行链路后用户工具级 modelId 不应被静默换成 provider.defaultModel。
     func test_run_modelOverridesProviderDefault_whenSelectionFixedHasModelId() async throws {
         let llm = MockLLMProvider(chunks: [ChatChunk(delta: "ok")])
         let factory = MockLLMProviderFactory(provider: llm)
@@ -424,7 +467,7 @@ final class PromptExecutorTests: XCTestCase {
             llmProviderFactory: factory
         )
         // provider.defaultModel = "gpt-4o-mini"；工具级 override = "gpt-4-turbo"
-        let v2 = makeOpenAIV2Provider(defaultModel: "gpt-4o-mini")
+        let provider = makeOpenAIProvider(defaultModel: "gpt-4o-mini")
         let promptToolWithOverride = PromptTool(
             systemPrompt: nil,
             userPrompt: "Process: {{selection}}",
@@ -435,7 +478,7 @@ final class PromptExecutorTests: XCTestCase {
             variables: [:]
         )
 
-        let stream = await executor.run(promptTool: promptToolWithOverride, resolved: makeResolved(), provider: v2)
+        let stream = await executor.run(promptTool: promptToolWithOverride, resolved: makeResolved(), provider: provider)
         _ = try await collect(stream)
 
         guard let req = llm.capturedRequest else { return XCTFail("LLM 未收到 request") }
@@ -460,7 +503,7 @@ final class PromptExecutorTests: XCTestCase {
         let stream = await executor.run(
             promptTool: makePromptTool(userPrompt: userPrompt),
             resolved: makeResolved(),
-            provider: makeOpenAIV2Provider()
+            provider: makeOpenAIProvider()
         )
         let elements = try await collect(stream)
 
@@ -478,30 +521,26 @@ final class PromptExecutorTests: XCTestCase {
         }
     }
 
-    // MARK: - Test 13: V2Provider → v1 Provider 适配等价
+    // MARK: - Test 13: LLMProviderFactory 直接接收 Provider
 
-    /// 验证 factory 收到的 v1 Provider 字段与 V2Provider 一致（id / name / baseURL / apiKeyRef / defaultModel）
-    func test_run_v2ToV1ProviderAdapter_fieldsEqual() async throws {
+    /// 验证 factory 收到原始 Provider，不再经过 v1 Provider adapter
+    func test_run_factoryReceivesProviderDirectly() async throws {
         let llm = MockLLMProvider(chunks: [ChatChunk(delta: "ok")])
         let factory = MockLLMProviderFactory(provider: llm)
         let executor = PromptExecutor(
             keychain: MockKeychain(["test-openai": "sk-key-xyz"]),
             llmProviderFactory: factory
         )
-        let v2 = makeOpenAIV2Provider(
+        let provider = makeOpenAIProvider(
             id: "test-openai",
             defaultModel: "gpt-5"
         )
 
-        let stream = await executor.run(promptTool: makePromptTool(), resolved: makeResolved(), provider: v2)
+        let stream = await executor.run(promptTool: makePromptTool(), resolved: makeResolved(), provider: provider)
         _ = try await collect(stream)
 
-        guard let v1 = factory.capturedProvider else { return XCTFail("factory 未捕获 Provider") }
-        XCTAssertEqual(v1.id, v2.id)
-        XCTAssertEqual(v1.name, v2.name)
-        XCTAssertEqual(v1.baseURL, v2.baseURL)
-        XCTAssertEqual(v1.apiKeyRef, v2.apiKeyRef)
-        XCTAssertEqual(v1.defaultModel, v2.defaultModel)
+        guard let captured = factory.capturedProvider else { return XCTFail("factory 未捕获 Provider") }
+        XCTAssertEqual(captured, provider)
         // API Key 透传
         XCTAssertEqual(factory.capturedAPIKey, "sk-key-xyz")
     }
@@ -522,7 +561,7 @@ final class PromptExecutorTests: XCTestCase {
         let stream = await executor.run(
             promptTool: makePromptTool(),
             resolved: makeResolved(),
-            provider: makeOpenAIV2Provider()
+            provider: makeOpenAIProvider()
         )
         await assertThrows(stream) { error in
             guard case SliceError.provider(.serverError(let code)) = error else {
@@ -543,7 +582,7 @@ final class PromptExecutorTests: XCTestCase {
         let stream = await executor.run(
             promptTool: makePromptTool(),
             resolved: makeResolved(),
-            provider: makeOpenAIV2Provider()
+            provider: makeOpenAIProvider()
         )
         await assertThrows(stream) { error in
             guard case SliceError.provider(.networkTimeout) = error else {
@@ -566,7 +605,7 @@ final class PromptExecutorTests: XCTestCase {
         let stream = await executor.run(
             promptTool: makePromptTool(),
             resolved: makeResolved(),
-            provider: makeOpenAIV2Provider()
+            provider: makeOpenAIProvider()
         )
         var collected: [PromptStreamElement] = []
         var caughtError: (any Error)?
@@ -607,7 +646,7 @@ final class PromptExecutorTests: XCTestCase {
         )
         let promptTool = makePromptTool()
         let resolved = makeResolved()
-        let provider = makeOpenAIV2Provider()
+        let provider = makeOpenAIProvider()
 
         // 关键：stream 必须**仅**被 consumer task 持有；如果 main test func 也持引用，
         // consumer break 后 stream var 仍存活，AsyncThrowingStream onTermination 不会触发，

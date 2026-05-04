@@ -5,16 +5,16 @@ import SliceCore
 /// ProviderResolverProtocol / DefaultProviderResolver 单元测试
 ///
 /// 覆盖：
-/// 1. `.fixed` 路径：按 providerId 命中正确 V2Provider
+/// 1. `.fixed` 路径：按 providerId 命中正确 Provider
 /// 2. `.fixed` 路径：providerId 不存在时抛 `.notFound`
-/// 3. `.fixed` 路径：传入 modelId 不影响返回的 V2Provider（M2 resolver 不消费 modelId）
+/// 3. `.fixed` 路径：传入 modelId 不影响返回的 Provider（M2 resolver 不消费 modelId）
 /// 4. `.capability` 路径：在 M2 范围内抛 `.notImplemented(.capabilityRouting)`
 /// 5. `.cascade` 路径：在 M2 范围内抛 `.notImplemented(.cascadeRouting)`
 final class ProviderResolverTests: XCTestCase {
 
     // MARK: - .fixed 路径
 
-    /// `.fixed` 命中：按 providerId 正确返回对应的 V2Provider
+    /// `.fixed` 命中：按 providerId 正确返回对应的 Provider
     func test_resolve_fixed_returnsProviderById() async throws {
         // 准备：配置包含 openai-1 + claude-1 两个 provider
         let openai = MockProvider.openAIStub(id: "openai-1")
@@ -45,10 +45,10 @@ final class ProviderResolverTests: XCTestCase {
         }
     }
 
-    /// `.fixed` modelId 幂等性：无论 modelId 是否传入，返回同一 V2Provider
+    /// `.fixed` modelId 幂等性：无论 modelId 是否传入，返回同一 Provider
     ///
     /// M2 resolver 不消费 modelId——modelId fallback 语义在 PromptExecutor（Task 11）处理；
-    /// 本测试确保 resolver 对 modelId=nil 与 modelId="gpt-5-mini" 返回完全相同的 V2Provider。
+    /// 本测试确保 resolver 对 modelId=nil 与 modelId="gpt-5-mini" 返回完全相同的 Provider。
     func test_resolve_fixed_returnsSameProviderRegardlessOfModelId() async throws {
         // 准备：defaultModel 为 gpt-5 的 openai-1
         let provider = MockProvider.openAIStub(id: "openai-1", defaultModel: "gpt-5")
@@ -61,7 +61,7 @@ final class ProviderResolverTests: XCTestCase {
             .fixed(providerId: "openai-1", modelId: "gpt-5-mini")
         )
 
-        // 断言：两次结果相同；defaultModel 保持 gpt-5（selection 的 modelId 未被 bake 进 V2Provider）
+        // 断言：两次结果相同；defaultModel 保持 gpt-5（selection 的 modelId 未被 bake 进 Provider）
         XCTAssertEqual(resolvedNil, resolvedExplicit)
         XCTAssertEqual(resolvedNil.defaultModel, "gpt-5")
     }

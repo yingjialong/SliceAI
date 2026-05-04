@@ -45,13 +45,10 @@ public struct UsageStats: Sendable, Equatable {
 
 /// Prompt 执行器：渲染 prompt → 取 API Key → 调 LLMProvider 流式
 ///
-/// **来源**：本类型由 v1 `SliceCore/ToolExecutor.swift` 的 `execute` 主流程**复制并改造**而来
-/// （§C-7 复制非替换；ToolExecutor.swift 在本阶段保留不动，M3 rename pass 删除）。
+/// **来源**：本类型由 legacy prompt 执行流程**复制并改造**而来。
 /// 关键差异：
 /// 1. 入参类型从 v1 `Tool` / `SelectionPayload` 改为 v2 `PromptTool` / `ResolvedExecutionContext`；
-/// 2. 入参 `provider: V2Provider`（而非 v1 `Provider`），内部用 helper 适配为 v1 `Provider` 视图，
-///    再调既有 `LLMProviderFactory.make(for:apiKey:)`（M2 阶段 LLMProviderFactory zero-touch；
-///    M3 一并升级到 V2Provider）；
+/// 2. 入参 `provider: Provider`，直接传给 `LLMProviderFactory.make(for:apiKey:)`；
 /// 3. 流元素从 `ChatChunk` 改为 `PromptStreamElement`，在 stream 末尾追加一次 `.completed(UsageStats)`。
 ///
 /// **协议族支持范围（M2）**：仅 `.openAICompatible`；其他 kind（`.anthropic` / `.gemini` / `.ollama`）
@@ -65,15 +62,15 @@ public struct UsageStats: Sendable, Equatable {
 ///   跨边界把工作交给 actor-isolated `runInternal`，从而合法访问 `self.keychain` / `self.llmProviderFactory`。
 public actor PromptExecutor {
 
-    /// Keychain 访问协议，按 v1 `Provider.keychainAccount` 的 account 名读取 API Key
+    /// Keychain 访问协议，按 `Provider.keychainAccount` 的 account 名读取 API Key
     private let keychain: any KeychainAccessing
-    /// LLM Provider 工厂（v1 类型）；M3 升级到 V2Provider 后本字段类型变更、`toV1Provider` helper 删除
+    /// LLM Provider 工厂，直接消费 Provider
     private let llmProviderFactory: any LLMProviderFactory
 
     /// 构造 PromptExecutor
     /// - Parameters:
     ///   - keychain: Keychain 访问实现（生产用真实 Keychain，测试注入 Fake）
-    ///   - llmProviderFactory: 创建 LLMProvider 实例的工厂（M2 仍用 v1 形态，M3 升级 V2Provider）
+    ///   - llmProviderFactory: 创建 LLMProvider 实例的工厂
     public init(
         keychain: any KeychainAccessing,
         llmProviderFactory: any LLMProviderFactory
@@ -105,12 +102,12 @@ public actor PromptExecutor {
     /// - Parameters:
     ///   - promptTool: PromptTool 配置（systemPrompt / userPrompt / variables / temperature / maxTokens）
     ///   - resolved: ContextCollector 已解析的执行上下文（提供 selection.text / frontApp 用于变量注入）
-    ///   - provider: V2Provider 配置；M2 仅支持 `kind == .openAICompatible`
+    ///   - provider: Provider 配置；M2 仅支持 `kind == .openAICompatible`
     /// - Returns: AsyncThrowingStream of `PromptStreamElement`
     public func run(
         promptTool: PromptTool,
         resolved: ResolvedExecutionContext,
-        provider: V2Provider
+        provider: Provider
     ) -> AsyncThrowingStream<PromptStreamElement, any Error> {
         // 注：stream closure 是 @Sendable 非 actor-isolated；闭包内必须用 Task { [weak self] in ... }
         // 跨边界跳进 actor，才能访问 self.keychain / self.llmProviderFactory（actor state）
@@ -150,10 +147,10 @@ public actor PromptExecutor {
 
     // MARK: - Actor-isolated 主流程
 
-    /// `run` 内部承载主流程的 actor-isolated 方法；与 v1 ToolExecutor.execute 步骤一一对应
+    /// `run` 内部承载主流程的 actor-isolated 方法。
     ///
     /// 步骤分解：
-    /// 1. V2Provider → v1 Provider 适配（限定 .openAICompatible）
+    /// 1. provider preflight：先检查协议族 / endpoint，再读 Keychain
     /// 2. 解析 keychainAccount + 读取 API Key（空字符串视为缺失）
     /// 3. 注入内置变量（覆盖同名工具变量）
     /// 4. 渲染 systemPrompt / userPrompt → ChatMessage 数组
@@ -164,14 +161,15 @@ public actor PromptExecutor {
     private func runInternal(
         promptTool: PromptTool,
         resolved: ResolvedExecutionContext,
-        provider: V2Provider,
+        provider: Provider,
         continuation: AsyncThrowingStream<PromptStreamElement, any Error>.Continuation
     ) async throws {
-        // 1. V2Provider → v1 Provider 适配
-        let v1Provider = try toV1Provider(provider)
+        // 1. provider preflight：先检查协议族 / endpoint，再读 Keychain。
+        //    这样 unsupported kind 不会被误报为"未配置 API Key"。
+        try llmProviderFactory.validate(provider: provider)
 
         // 2. 解析 Keychain account；非 keychain: 前缀或空 API Key 一律按未授权处理
-        guard let account = v1Provider.keychainAccount else {
+        guard let account = provider.keychainAccount else {
             throw SliceError.provider(.unauthorized)
         }
         // 取消短路：keychain 实现（含生产 Keychain）可能不响应 cooperative cancel；
@@ -184,17 +182,17 @@ public actor PromptExecutor {
         }
 
         // 3. 注入内置变量
-        //    约定：内置变量总是覆盖同名工具变量（与 v1 ToolExecutor 行为一致），避免用户配置
+        //    约定：内置变量总是覆盖同名工具变量，避免用户配置
         //    `variables = ["selection": "..."]` 把真实选区盖掉
         let messages = renderMessages(promptTool: promptTool, resolved: resolved)
 
-        // 5. 构造 ChatRequest
-        //    model 选择：promptTool.provider.fixed.modelId 优先，缺省 fall back v1Provider.defaultModel。
-        //    与 v1 SliceCore/ToolExecutor.swift 的 `tool.modelId ?? provider.defaultModel` 同口径——
+        // 4. 构造 ChatRequest
+        //    model 选择：promptTool.provider.fixed.modelId 优先，缺省 fall back provider.defaultModel。
+        //    与 legacy 执行器的 `tool.modelId ?? provider.defaultModel` 同口径——
         //    ProviderResolver 当前不消费 modelId（见 ProviderResolverProtocol 文档），由本层解析；
-        //    M3 切换到 V2 链路后用户工具级 modelId 不再被静默换成 provider.defaultModel。
+        //    M3 切换到新执行链路后用户工具级 modelId 不再被静默换成 provider.defaultModel。
         let selectedModel = Self.resolveModel(
-            selection: promptTool.provider, fallback: v1Provider.defaultModel
+            selection: promptTool.provider, fallback: provider.defaultModel
         )
         let request = ChatRequest(
             model: selectedModel,
@@ -203,12 +201,12 @@ public actor PromptExecutor {
             maxTokens: promptTool.maxTokens
         )
 
-        // 估算 inputTokens（M2：所有 message content 字符数累加 / 4；下限 1，避免空输入算成 0）
+        // 5. 估算 inputTokens（M2：所有 message content 字符数累加 / 4；下限 1，避免空输入算成 0）
         let inputCharCount = messages.reduce(0) { $0 + $1.content.count }
         let inputTokens = max(1, inputCharCount / 4)
 
         // 6. 工厂创建 LLMProvider 实例 + 启动流式调用
-        let llm = try llmProviderFactory.make(for: v1Provider, apiKey: apiKey)
+        let llm = try llmProviderFactory.make(for: provider, apiKey: apiKey)
         // 取消短路：llm.stream 内部立即发起 URLSession 连接 / token 消耗；
         // consumer drop iterator 时让 task.cancel() 在网络握手前抛错，避免计费。
         try Task.checkCancellation()
@@ -232,7 +230,7 @@ public actor PromptExecutor {
     /// 渲染 ChatMessage 数组：注入内置变量 + 应用 mustache 模板
     ///
     /// 拆出 helper 是为了让 `runInternal` 的函数体长度落在 swiftlint 80 行硬上限以内，
-    /// 同时保持渲染逻辑可单独测试 / 阅读。返回数组顺序与 v1 ToolExecutor 一致：
+    /// 同时保持渲染逻辑可单独测试 / 阅读。返回数组顺序与 legacy 执行器一致：
     /// 若 systemPrompt 非空，先 system 后 user；否则只有 user。
     private func renderMessages(
         promptTool: PromptTool,
@@ -256,7 +254,7 @@ public actor PromptExecutor {
         return messages
     }
 
-    /// 解析工具级 model override：与 v1 ToolExecutor 同口径
+    /// 解析工具级 model override：与 legacy 执行器同口径
     ///
     /// `nonisolated` + `private static`：纯函数，无 actor 状态依赖，不引入 actor hop。
     /// pipeline / capability / cascade 三种 selection 形态都没有顶层 modelId override 概念，
@@ -270,32 +268,4 @@ public actor PromptExecutor {
         return fallback
     }
 
-    /// V2Provider → v1 Provider 适配
-    ///
-    /// **范围限制（M2）**：仅 `.openAICompatible` 通过；其他 kind 抛 `.validationFailed`，
-    /// caller（ExecutionEngine Step 6）通过 `for try await` 第一次 `next()` 即拿到错误，
-    /// 走 `finishFailure` 路径输出 `.failed` 事件。
-    /// 严禁 `fatalError` / `!` 强解包：V2Provider 在 init / decode 时虽已校验 `.openAICompatible`
-    /// 必须有 baseURL，但仍用 `guard let` 兜底（防御性，避免 V2Provider 来源不经 decoder 时崩）。
-    private func toV1Provider(_ v2: V2Provider) throws -> Provider {
-        guard v2.kind == .openAICompatible else {
-            throw SliceError.configuration(.validationFailed(
-                "PromptExecutor M2 only supports .openAICompatible providers; "
-                + "\(v2.id) is .\(v2.kind.rawValue)"
-            ))
-        }
-        guard let baseURL = v2.baseURL else {
-            throw SliceError.configuration(.validationFailed(
-                "V2Provider \(v2.id) (.openAICompatible) has nil baseURL"
-            ))
-        }
-        // v1 Provider 的 5 参数 init：id / name / baseURL / apiKeyRef / defaultModel
-        return Provider(
-            id: v2.id,
-            name: v2.name,
-            baseURL: baseURL,
-            apiKeyRef: v2.apiKeyRef,
-            defaultModel: v2.defaultModel
-        )
-    }
 }

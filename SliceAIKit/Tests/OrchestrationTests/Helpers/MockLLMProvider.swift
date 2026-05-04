@@ -92,7 +92,7 @@ final class MockLLMProviderFactory: LLMProviderFactory, @unchecked Sendable {
     /// 锁保护捕获状态
     private let state = OSAllocatedUnfairLock<State>(initialState: .init())
 
-    /// 测试可读：最后一次 make 收到的 v1 Provider
+    /// 测试可读：最后一次 make 收到的 Provider
     var capturedProvider: Provider? {
         state.withLock { $0.capturedProvider }
     }

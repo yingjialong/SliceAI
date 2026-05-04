@@ -270,18 +270,30 @@ public struct ToolsSettingsPage: View {
     private func addTool() {
         let newId = "tool-\(Int(Date().timeIntervalSince1970))"
         let providerId = viewModel.configuration.providers.first?.id ?? ""
+        let prompt = PromptTool(
+            systemPrompt: nil,
+            userPrompt: "{{selection}}",
+            contexts: [],
+            provider: .fixed(providerId: providerId, modelId: nil),
+            temperature: 0.7,
+            maxTokens: nil,
+            variables: [:]
+        )
         let newTool = Tool(
             id: newId,
             name: "新工具",
             icon: "wand.and.stars",
             description: nil,
-            systemPrompt: nil,
-            userPrompt: "{{selection}}",
-            providerId: providerId,
-            modelId: nil,
-            temperature: nil,
+            kind: .prompt(prompt),
+            visibleWhen: nil,
             displayMode: .window,
-            variables: [:]
+            outputBinding: nil,
+            permissions: [],
+            provenance: .firstParty,
+            budget: nil,
+            hotkey: nil,
+            labelStyle: .icon,
+            tags: []
         )
         print("[ToolsSettingsPage] addTool: id=\(newId)")
         viewModel.configuration.tools.append(newTool)
@@ -364,7 +376,7 @@ private struct ToolReorderDropDelegate: DropDelegate {
     /// 用于判断光标落在本行上半 / 下半的行高估算值
     let rowHeight: CGFloat
 
-    /// 全局工具数组的 @Binding；delegate 在 performDrop 里 mutate
+    /// 全局 v2 工具数组的 @Binding；delegate 在 performDrop 里 mutate
     @Binding var tools: [Tool]
 
     /// 当前被拖的 Tool.id；由外层 `.onDrag` 写入，commit 后置 nil

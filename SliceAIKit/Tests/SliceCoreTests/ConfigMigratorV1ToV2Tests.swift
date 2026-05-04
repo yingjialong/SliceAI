@@ -56,7 +56,7 @@ final class ConfigMigratorV1ToV2Tests: XCTestCase {
         XCTAssertEqual(v2.triggers.commandPaletteEnabled, true)
         XCTAssertEqual(v2.triggers.minimumSelectionLength, 1)
         XCTAssertEqual(v2.triggers.triggerDelayMs, 150)
-        // v1 fixture 未提供这些字段 → 用 DefaultConfiguration 默认
+        // v1 fixture 未提供这些字段 → 用 v2 默认值补齐
         XCTAssertEqual(v2.triggers.floatingToolbarMaxTools, 6)
         XCTAssertEqual(v2.triggers.floatingToolbarSize, .compact)
         XCTAssertEqual(v2.triggers.floatingToolbarAutoDismissSeconds, 5)
@@ -122,7 +122,7 @@ final class ConfigMigratorV1ToV2Tests: XCTestCase {
     // 背景：`LegacyConfigV1` 结构有 `schemaVersion: Int` 字段但历史 migrator 从未校验。
     // 如果用户手改 config.json 把 schemaVersion 改成 2（或更新版本）而其他字段碰巧
     // 能通过 LegacyConfigV1.Decodable，migrator 仍然会盲目把它当 v1 迁移——字段含义错乱，
-    // v2 配置被错误生成且覆盖（V2ConfigurationStore.load 会接着写 v2 文件）。
+    // v2 配置被错误生成且覆盖（ConfigurationStore.load 会接着写 v2 文件）。
     // 本组测试锁定"非 v1 schemaVersion → throw，拒绝盲目迁移"的不变量。
 
     /// schemaVersion 不等于 1 时 migrate() 必须 throw，避免把未来版本/非 v1 文件当 v1 处理
@@ -151,7 +151,7 @@ final class ConfigMigratorV1ToV2Tests: XCTestCase {
         }
     }
 
-    func test_migrate_unknownPresentationModeFallsBackToWindow() throws {
+    func test_migrate_unknownDisplayModeFallsBackToWindow() throws {
         // 手工构造一个 v1 结构含非标 displayMode
         let badJSON = #"""
         {
