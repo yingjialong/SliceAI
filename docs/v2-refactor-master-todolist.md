@@ -15,11 +15,11 @@
 
 | 字段 | 值 |
 |---|---|
-| 最后更新 | 2026-05-02 |
+| 最后更新 | 2026-05-04 |
 | 当前 Phase | **Phase 0**（底层重构） |
-| 当前 Milestone | **M3 实施中**：M3.0–M3.4 CLI 自动化验收已完成；M3.5 手工回归待执行 |
-| 下一个动作 | 执行 **M3.5 13 项手工回归**；全部通过后进入 M3.6 文档归档 + `v0.2.0` DMG / release |
-| 阻塞 | M3.5 需要用户在真实 macOS 桌面环境执行 GUI / Accessibility / Provider / config 场景 |
+| 当前 Milestone | **M3 实施中**：M3.0–M3.4 CLI 自动化验收已完成；M3.5 安全子集已部分通过 |
+| 下一个动作 | 继续执行 **M3.5 手工回归剩余项**：Safari、Retry/Open Settings、自定义变量、AX 降级、配置迁移/删除/权限类场景；全部通过后进入 M3.6 文档归档 + `v0.2.0` DMG / release |
+| 阻塞 | M3.5 剩余项涉及真实 macOS 桌面、Accessibility、清空 API Key、删除/移动 app support、chmod 等操作，破坏性步骤需 action-time 用户确认 |
 
 **Milestone 状态**
 
@@ -29,7 +29,7 @@
 |---|---|---|
 | 0 | M1 | ✅ 已 merge 入 main（merge commit `5cdf0f7`，2026-04-25） |
 | 0 | M2 | ✅ 已完成：Orchestration + Capabilities 骨架落地 |
-| 0 | M3 | ⏳ 实施中：代码切换 + CLI 验收完成；等待 M3.5 手工回归 |
+| 0 | M3 | ⏳ 实施中：代码切换 + CLI 验收完成；M3.5 安全子集部分通过 |
 | 1 | — | ⏳ 设计已 Freeze，plan 未写 |
 | 2–5 | — | 🟦 Directional，进入前需重新 spec |
 
@@ -201,10 +201,10 @@
 | M3.0 Step 3 | `V2*` 正名回 spec canonical | ✅ 已完成 | `Tool` / `Provider` / `Configuration` / `ConfigurationStore` / `DefaultConfiguration` |
 | M3.0 Step 4 | `PresentationMode` → `DisplayMode` | ✅ 已完成 | raw values / JSON wire shape 保持不变 |
 | M3.0 Step 5 | `SelectionOrigin` → `SelectionSource` | ✅ 已完成 | `SelectionReader` / `AXSelectionSource` / `ClipboardSelectionSource` 保持不变 |
-| M3.2 | 触发链端到端验收 | ⏳ 部分完成 | CLI targeted tests 完成；Safari / `⌥Space` / cancel / single-flight stress 待手工 |
-| M3.3 | 4 个启动场景验证 | ⏳ 部分完成 | `ConfigurationStoreTests` 完成；真实 app/config 文件场景待手工 |
+| M3.2 | 触发链端到端验收 | ⏳ 部分完成 | CLI targeted tests、TextEdit 浮条、`⌥Space`、DeepSeek 真实调用已通过；Safari / cancel / single-flight stress 待手工 |
+| M3.3 | 4 个启动场景验证 | ⏳ 部分完成 | `ConfigurationStoreTests`、真实 `config-v2.json` 读写子集完成；删除/迁移/全新安装/不可写场景待手工 |
 | M3.4 | grep validation 收尾 | ✅ CLI 已完成 | v1 / V2* / `PresentationMode` / `SelectionOrigin` 源码测试范围 0 命中 |
-| M3.5 | 13 项手工回归 | ⏳ 下一步 | 用户在真实 macOS 桌面环境执行 |
+| M3.5 | 13 项手工回归 | ⏳ 部分完成 | 安全子集通过：Provider/Tool 写盘、TextEdit 浮条、`⌥Space`、ResultPanel 成功态操作子集、DeepSeek 调用；剩余项待执行 |
 | M3.6 | 文档归档 + `v0.2.0` DMG / release | ⏳ 待 M3.5 全过 | 不要在 M3.5 前提前 release |
 
 **Exit criteria（DoD）**：
@@ -242,19 +242,19 @@
 
 **13 项回归清单**：
 
-- [ ] 1. Safari 划词 → 浮条 → Translate → ResultPanel 正常流式输出。
-- [ ] 2. `⌥Space` → 命令面板 → 选择工具 → ResultPanel 正常流式输出。
-- [ ] 3. ResultPanel 操作：Regenerate / Copy / Pin / Close / Retry / Open Settings 均与 v0.1 行为等价；Regenerate 时旧 invocation 不应污染新输出。
+- [ ] 1. Safari 划词 → 浮条 → Translate → ResultPanel 正常流式输出。（TextEdit 浮条已通过；Safari 待测）
+- [x] 2. `⌥Space` → 命令面板 → 选择工具 → ResultPanel 正常流式输出。（2026-05-04 TextEdit + deepSeek 通过）
+- [ ] 3. ResultPanel 操作：Regenerate / Copy / Pin / Close / Retry / Open Settings 均与 v0.1 行为等价；Regenerate 时旧 invocation 不应污染新输出。（Copy / Pin / Unpin / Regenerate / Close 成功态子集已通过；Retry / Open Settings 待测）
 - [ ] 4. Accessibility 降级：关闭 AX 后划词不弹虚假浮条、`⌥Space` 不走 startupError；恢复 AX 后在 AX 文本不可读 app 中验证 Cmd+C fallback 命中。
 - [ ] 5. 清空 API Key 后触发工具，应出现可理解的配置错误提示；验证后恢复 API Key。
-- [ ] 6. 修改 Tool / Provider 后立即写入 `config-v2.json` 且执行生效；不得写坏旧 `config.json`。
+- [ ] 6. 修改 Tool / Provider 后立即写入 `config-v2.json` 且执行生效；不得写坏旧 `config.json`。（Provider 切 deepSeek 已通过并执行生效；Tool prompt 修改待测）
 - [ ] 7. 删除 `config-v2.json` 后重启，app 能从旧 `config.json` 重新 migrate；旧 `config.json` 内容不变。
 - [ ] 8. 切回旧分支 / 旧 build，旧 app 仍能读取原 `config.json` 正常工作。
-- [ ] 9. 编辑自定义变量并在 prompt 中使用 `{{key}}`，验证 `config-v2.json` 写盘且执行时占位符被替换。
+- [ ] 9. 编辑自定义变量并在 prompt 中使用 `{{key}}`，验证 `config-v2.json` 写盘且执行时占位符被替换。（既有 `language=English` 被使用；编辑变量待测）
 - [ ] 10. 全新安装场景：临时移走整个 app support 目录后启动，自动生成 `config-v2.json` / `cost.sqlite` / `audit.jsonl`，且不生成 `config.json`。
 - [ ] 11. v1 `displayMode = "bubble"` / `"replace"` 经 migrator 后仍 fallback 到 ResultPanel 流式，不报 `.notImplemented`。
 - [ ] 12. app support 目录不可写时启动，应弹 “SliceAI 启动失败” NSAlert 并退出；验证后恢复目录权限。
-- [ ] 13. ToolEditorView 切换 Provider 时清空旧 `modelId`；`config-v2.json` 中对应 prompt provider 的 `modelId` 为 `null` 或缺省。
+- [ ] 13. ToolEditorView 切换 Provider 时清空旧 `modelId`；`config-v2.json` 中对应 prompt provider 的 `modelId` 为 `null` 或缺省。（切换后 `modelId=null` 已观察到；先设置旧 modelId 再切 Provider 的完整路径待测）
 
 **恢复配置**：
 
@@ -658,3 +658,16 @@ fi
 - implementation record：`docs/Task-detail/2026-04-28-phase-0-m3-implementation.md`
 
 **下一步**：执行 §3.3 的 M3.5 13 项手工回归；全部通过后再进入 M3.6。不要提前打 `v0.2.0`。
+
+### 2026-05-04 — Phase 0 M3.5 安全子集实机回归部分通过
+
+- 用户在真实 `SliceAI.app` 中新增并保存 DeepSeek OpenAI-compatible Provider，Provider 连接测试成功。
+- 已通过 Settings UI 把 `中译英` Tool 的 Provider 从 `oneApi` 切到 `deepSeek`；`config-v2.json` 写入 `provider-1777873129`，`modelId = null`，旧 `config.json` 未出现 deepSeek 相关字样。
+- 已在 TextEdit 中验证：
+  - `⌥Space` 命令面板能读取选中文本并执行 `中译英`。
+  - 鼠标划词后浮条出现，点击 `中译英` 后 ResultPanel 正常显示。
+  - ResultPanel 成功态 Copy / Pin / Unpin / Regenerate / Close 子集可用。
+- 三次真实调用均写入 `audit.jsonl` 与 `cost.sqlite`，均为 `tool_id = translate`、`provider_id = provider-1777873129`、`model = deepseek-v4-flash`。
+- 仍未完成：Safari 专项、Retry / Open Settings、AX 降级、清空 API Key、删除 / 迁移 / 全新安装 / 不可写 app support、旧 build 兼容、编辑自定义变量、先设置旧 modelId 再切 provider。
+
+**下一步**：继续 M3.5 剩余项；涉及清空 Keychain API Key、删除/移动 app support、chmod、关闭 Accessibility 的步骤必须在执行前获得用户确认。全 13 项通过前不要进入 M3.6。

@@ -30,16 +30,16 @@ status: in_progress
 - [x] M3.1.B：SliceAI app target 加 Orchestration / Capabilities 依赖 + CI 增加 xcodebuild gate。
 - [x] M3.1.C-1：新增 `InvocationGate` + `ResultPanelWindowSinkAdapter`。
 - [x] M3.1.C+D：AppContainer additive 装配 + AppDelegate async bootstrap UX 原子提交。
-- [ ] M3.1.E：冒烟验证（自动化部分完成；手工 GUI 触发链 / 启动失败弹窗待人工确认）。
+- [ ] M3.1.E：冒烟验证（自动化部分完成；命令面板 / TextEdit 浮条 / 真实 LLM 子集已通过；Safari / 启动失败弹窗待人工确认）。
 - [x] M3.0 Step 1：caller 切换 + ExecutionEventConsumer + SettingsUI binding + automated tests/gates。
-- [ ] M3.0 Step 1 手工 smoke：Safari 划词 / 命令面板 / 启动失败弹窗（待人工确认）。
+- [ ] M3.0 Step 1 手工 smoke：命令面板 + TextEdit 浮条已通过；Safari 划词 / 启动失败弹窗待人工确认。
 - [x] M3.0 Step 2：删除 v1 类型族 + SelectionReader + LLMProviderFactory 升级。
 - [x] M3.0 Step 3：V2* rename 回 spec 正名。
 - [x] M3.0 Step 4：PresentationMode → DisplayMode。
 - [x] M3.0 Step 5：SelectionOrigin → SelectionSource。
 - [x] M3.2/M3.3/M3.4：CLI 自动化验收完成（4 关 gate、targeted tests、grep validation）。
-- [ ] M3.2/M3.3：手工 GUI / 真实 LLM / 真实启动场景待人工确认。
-- [ ] M3.5：13 项手工回归。
+- [ ] M3.2/M3.3：手工 GUI / 真实 LLM 子集已通过；真实启动场景待人工确认。
+- [ ] M3.5：13 项手工回归（安全子集已部分通过；破坏性/权限类场景待确认后执行）。
 - [ ] M3.6：文档归档 + v0.2.0 release。
 
 ## 当前实施记录
@@ -398,6 +398,29 @@ Step 4 已把 `PresentationMode` 恢复为 spec canonical `DisplayMode`。Step 5
 
 ### 手工未覆盖项
 
-- M3.2：Safari 划词真实触发链、`⌥Space` 命令面板真实触发、取消流式输出、single-flight stress 未执行。
+- M3.2：Safari 划词真实触发链、取消流式输出、single-flight stress 未执行；`⌥Space` 命令面板与 TextEdit 浮条真实触发已在 2026-05-04 安全子集中通过。
 - M3.3：启动场景 A-D 涉及真实 app 与真实 config 文件，未执行，避免改动用户真实配置状态。
-- 真实 LLM provider GUI 流式调用未执行，避免产生外部请求和用户环境副作用。
+- 真实 LLM provider GUI 流式调用已在 2026-05-04 通过 DeepSeek 安全子集覆盖；破坏性配置 / 启动场景仍未执行。
+
+## M3.5 安全子集手工回归记录
+
+### 2026-05-04
+
+执行环境：用户已启动 Debug `SliceAI.app`，并在 Settings → Providers 手工保存 DeepSeek 兼容 Provider；API Key 未写入文档、命令或仓库文件。
+
+已验证通过：
+
+- Provider 配置：Settings → Providers 中新增 `deepSeek`，Base URL 为 `https://api.deepseek.com/v1`，默认模型为 `deepseek-v4-flash`；用户反馈“测试连接成功”。
+- Tool 配置即时生效：Settings → Tools → `中译英` 的 Provider 从 `oneApi` 切到 `deepSeek`；`config-v2.json` 中 `translate.kind.prompt.provider.fixed.providerId = provider-1777873129`，`modelId = null`，旧 `config.json` 未出现 `deepSeek` / `api.deepseek` / `provider-1777873129` 字样。
+- `⌥Space` 命令面板：在 TextEdit 选中 `Hello SliceAI regression test.` 后，通过系统事件触发 `option+space`，命令面板正确展示选中文本与 6 个工具；选择 `中译英` 后 ResultPanel 正常显示结果。
+- TextEdit 浮条路径：鼠标拖拽选中文本后浮条显示 `英译中` / `中译英` / `语法检查` / `解释` / More；点击 `中译英` 后 ResultPanel 正常显示结果。
+- 真实 LLM 调用链：三次调用均写入 `audit.jsonl` 与 `cost.sqlite`，记录均为 `tool_id = translate`、`provider_id = provider-1777873129`、`model = deepseek-v4-flash`、`input_tokens = 46`、`output_tokens = 7`、`usd = 0.000053`。
+- ResultPanel 成功态操作子集：Copy 写入剪贴板内容 `Hello SliceAI regression test.`；Pin / Unpin 图标和 Help 文案正确切换；Regenerate 触发第二条独立 invocation 且结果区域重置后重新显示；Close 点击后结果窗关闭。
+
+未标记全过的原因：
+
+- Step 1 仍未在 Safari 中验证，当前只覆盖 TextEdit 浮条。
+- Step 3 的 Retry / Open Settings 未覆盖；Close 点击后 Computer Use 返回 `noWindowsAvailable`，视觉上符合“窗口已关闭”，但工具层返回值需后续复核，不作为失败。
+- Step 4 / 5 / 7 / 8 / 10 / 11 / 12 涉及关闭 AX、清空或删除配置、切旧 build、移动 app support、修改目录权限等本地破坏性或权限类操作，需在 action-time 获得用户确认后再执行。
+- Step 9 自定义变量编辑尚未执行；当前仅验证了既有 `language = English` 变量参与 prompt。
+- Step 13 provider switch 清空 modelId 只覆盖了“切换后 modelId 为 null”的结果，未覆盖“先设置旧 modelId 再切换 provider”的完整场景。
