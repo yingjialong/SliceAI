@@ -6,7 +6,7 @@ SliceAI 让你在任何 Mac 应用里选中文字后，通过快捷工具栏或 
 
 ## Status
 
-v0.2.0 Phase 0 底层重构已完成本地验收：v2 数据模型、Orchestration 执行引擎、Capabilities 能力边界已接入真实 App 触发链。参见 [docs/v2-refactor-master-todolist.md](docs/v2-refactor-master-todolist.md) 跟踪后续 Phase。
+v0.2.0 Phase 0 底层重构已正式发布：v2 数据模型、Orchestration 执行引擎、Capabilities 能力边界已接入真实 App 触发链。Release: <https://github.com/yingjialong/SliceAI/releases/tag/v0.2.0>。参见 [docs/v2-refactor-master-todolist.md](docs/v2-refactor-master-todolist.md) 跟踪后续 Phase。
 
 ## Features (MVP v0.2)
 
@@ -66,7 +66,7 @@ open SliceAI.xcodeproj
 - CLI gate：`swift build`、`swift test --parallel --enable-code-coverage`、`xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`、`swiftlint lint --strict` 已通过。
 - M3.4 grep validation：v1 / `V2*` / `PresentationMode` / `SelectionOrigin` 源码测试范围 0 命中。
 - M3.5 13 项手工回归：用户反馈剩余项均已测试通过；2026-05-04 已记录安全子集实机证据。
-- M3.6：本地文档归档、最后 4 关 gate、`SliceAI-0.2.0.dmg` 打包、SHA256、DMG 挂载结构校验与临时安装 / 启动校验已完成；SHA256 为 `2855758e11d02abb7137999577a74bdcb497d41812efe645b1d335ee04d60f84`。远端 PR / tag / GitHub Release 需执行前确认。
+- M3.6：本地文档归档、最后 4 关 gate、`SliceAI-0.2.0.dmg` 打包、SHA256、DMG 挂载结构校验与临时安装 / 启动校验已完成；PR #3 已 merge，`v0.2.0` tag 已发布，GitHub Release 已正式发布。Release DMG SHA256 为 `2d7749a1405e1ec4051b90b8b3ee5e029f5819e18a2cf69eda074f2de5b98aea`。
 
 ### 2026-04-27 · Phase 0 M2 · Orchestration + Capabilities 骨架
 
