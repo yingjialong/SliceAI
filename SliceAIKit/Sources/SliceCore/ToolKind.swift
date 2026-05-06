@@ -133,14 +133,14 @@ public struct PipelineTool: Sendable, Codable, Equatable {
 public enum PipelineStep: Sendable, Equatable, Codable {
     case tool(toolRef: String, input: String)
     case prompt(inline: PromptTool, input: String)
-    case mcp(ref: MCPToolRef, args: [String: String])
+    case mcp(ref: MCPToolRef, args: MCPJSONValue.Object)
     case transform(TransformOp)
     case branch(condition: ConditionExpr, onTrue: String, onFalse: String)
 
     private enum CodingKeys: String, CodingKey { case tool, prompt, mcp, transform, branch }
     private struct ToolRepr: Codable, Equatable { let toolRef: String; let input: String }
     private struct PromptRepr: Codable, Equatable { let inline: PromptTool; let input: String }
-    private struct MCPRepr: Codable, Equatable { let ref: MCPToolRef; let args: [String: String] }
+    private struct MCPRepr: Codable, Equatable { let ref: MCPToolRef; let args: MCPJSONValue.Object }
     private struct BranchRepr: Codable, Equatable {
         let condition: ConditionExpr
         let onTrue: String

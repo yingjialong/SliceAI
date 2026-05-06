@@ -4,6 +4,15 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 
 ---
 
+## Task 39 · Phase 1 M1 Task 1 · SliceCore MCP JSON Contract
+
+- **时间**：2026-05-06
+- **描述**：为 Phase 1 MCP 上下文能力建立 SliceCore 的 JSON/value contract：任意 JSON 参数、MCP content/result、tool descriptor、transport enum，并把 `callMCP` / `PipelineStep.mcp` 参数从字符串字典升级为结构化 JSON 对象。
+- **详情**：[docs/Task-detail/2026-05-06-phase-1-m1-task-1-mcp-json-contract.md](Task-detail/2026-05-06-phase-1-m1-task-1-mcp-json-contract.md)
+- **结果**：完成。SliceCore MCP JSON/value contract 已落地，指定测试和 `SliceCoreTests` 均通过，已提交 commit。
+
+---
+
 ## Task 38 · Phase 1 MCP + Context 主干设计与计划准备
 
 - **时间**：2026-05-06

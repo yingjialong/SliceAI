@@ -55,10 +55,22 @@ public struct MCPDescriptor: Identifiable, Sendable, Codable, Equatable {
 public enum MCPTransport: String, Sendable, Codable, CaseIterable {
     /// 标准输入输出
     case stdio
+    /// Streamable HTTP
+    case streamableHTTP = "streamable-http"
     /// Server-Sent Events
     case sse
     /// WebSocket
     case websocket
+
+    /// Phase 1 设置页是否允许新建该 transport。
+    public var isCreatableInPhase1Settings: Bool {
+        switch self {
+        case .stdio, .streamableHTTP, .sse:
+            return true
+        case .websocket:
+            return false
+        }
+    }
 }
 
 /// MCP server 能力声明

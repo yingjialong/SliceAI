@@ -35,6 +35,29 @@ final class MCPDescriptorTests: XCTestCase {
         XCTAssertEqual(d, decoded)
     }
 
+    /// 验证 streamable HTTP transport 使用 MCP 约定的 kebab-case wire value。
+    func test_mcpTransport_streamableHTTP_decodesAndEncodes() throws {
+        let data = Data(#""streamable-http""#.utf8)
+
+        let transport = try JSONDecoder().decode(MCPTransport.self, from: data)
+        let encoded = try JSONEncoder().encode(transport)
+        let json = try XCTUnwrap(String(data: encoded, encoding: .utf8))
+
+        XCTAssertEqual(transport, .streamableHTTP)
+        XCTAssertEqual(json, #""streamable-http""#)
+        XCTAssertTrue(transport.isCreatableInPhase1Settings)
+    }
+
+    /// 验证 websocket 可解码历史配置，但 Phase 1 设置页不能新建。
+    func test_mcpTransport_websocket_decodesButIsNotCreatableInSettings() throws {
+        let data = Data(#""websocket""#.utf8)
+
+        let transport = try JSONDecoder().decode(MCPTransport.self, from: data)
+
+        XCTAssertEqual(transport, .websocket)
+        XCTAssertFalse(transport.isCreatableInPhase1Settings)
+    }
+
     func test_mcpToolRef_hashable_forSet() {
         let a = MCPToolRef(server: "s", tool: "t")
         let b = MCPToolRef(server: "s", tool: "t")

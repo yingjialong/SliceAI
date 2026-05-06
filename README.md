@@ -50,6 +50,25 @@ open SliceAI.xcodeproj
 
 ## 项目修改变动记录
 
+### 2026-05-06 · Phase 1 M1 Task 1 · SliceCore MCP JSON Contract
+
+**范围**：worktree `.worktrees/phase-1-mcp-context`，M1 Task 1
+
+**主要变更**：
+- 新增 `MCPJSONValue` transparent raw JSON 值类型，支持 null / bool / number / string / array / object、字符串叶子变量渲染和 secret-like key 摘要脱敏。
+- 新增 `MCPContentItem`、`MCPCallResult`、`MCPToolDescriptor`，将 MCP content/result/tool schema contract 放入 SliceCore；`resource` 与 `resource_link` wire shape 按 MCP 2025-06-18 schema 约束。
+- `SideEffect.callMCP` 与 `PipelineStep.mcp` 参数升级为 `MCPJSONValue.Object`，可表达嵌套 JSON。
+- `MCPTransport` 新增 `streamable-http`，并通过 `isCreatableInPhase1Settings` 保留 websocket 可解码但不可在 Phase 1 设置中新建的约束。
+
+**验证状态**：
+- 已按 TDD 先写失败测试并确认红灯。
+- `swift test --filter SliceCoreTests.MCPJSONValueTests`
+- `swift test --filter SliceCoreTests.MCPContentItemTests`
+- `swift test --filter SliceCoreTests.MCPDescriptorTests`
+- `swift test --filter SliceCoreTests.OutputBindingTests`
+- `swift test --filter SliceCoreTests.ToolKindTests`
+- `swift test --filter SliceCoreTests`
+
 ### 2026-05-04 · Phase 0 M3 · Switch to V2
 
 **范围**：plan `docs/superpowers/plans/2026-04-28-phase-0-m3-switch-to-v2.md`，分支 `feature/phase-0-m3-switch-to-v2`

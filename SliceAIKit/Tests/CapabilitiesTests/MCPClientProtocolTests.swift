@@ -69,9 +69,10 @@ final class MCPClientProtocolTests: XCTestCase {
     /// responses[refEcho] 命中 → call 返回该 MCPCallResult；args 字典内容不影响匹配（Mock 不验 args）
     func test_call_happyPath_returnsInjectedResponse() async throws {
         let expected = MCPCallResult(
-            content: ["echo: hi"],
+            content: [.text("echo: hi")],
+            structuredContent: nil,
             isError: false,
-            meta: ["latency_ms": "12"]
+            meta: ["latency_ms": .string("12")]
         )
         let client = MockMCPClient(responses: [refEcho: expected])
 
@@ -85,7 +86,9 @@ final class MCPClientProtocolTests: XCTestCase {
 
     /// responses 不含目标 ref → throw .toolNotFound，且关联值原样回传
     func test_call_unknownRef_throwsToolNotFound() async throws {
-        let client = MockMCPClient(responses: [refEcho: .init(content: ["x"], isError: false)])
+        let client = MockMCPClient(responses: [
+            refEcho: .init(content: [.text("x")], structuredContent: nil, isError: false, meta: nil)
+        ])
 
         do {
             _ = try await client.call(ref: refUnknown, args: [:])
@@ -103,9 +106,10 @@ final class MCPClientProtocolTests: XCTestCase {
     /// meta 非 nil 的 round-trip：encode → decode 等价
     func test_mcpCallResult_codable_withMeta_roundTrips() throws {
         let original = MCPCallResult(
-            content: ["a", "b"],
+            content: [.text("a"), .text("b")],
+            structuredContent: .object(["ok": .bool(true)]),
             isError: true,
-            meta: ["k1": "v1", "k2": "v2"]
+            meta: ["k1": .string("v1"), "k2": .string("v2")]
         )
 
         let data = try JSONEncoder().encode(original)
@@ -116,7 +120,7 @@ final class MCPClientProtocolTests: XCTestCase {
 
     /// meta 为 nil 的 round-trip：必须能正常 encode / decode（验证 Optional 字段不会在 JSON 里丢失语义）
     func test_mcpCallResult_codable_withoutMeta_roundTrips() throws {
-        let original = MCPCallResult(content: ["solo"], isError: false, meta: nil)
+        let original = MCPCallResult(content: [.text("solo")], structuredContent: nil, isError: false, meta: nil)
 
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(MCPCallResult.self, from: data)
@@ -205,7 +209,9 @@ final class MCPClientProtocolTests: XCTestCase {
     /// 多次 call 后 callCount 应累加；包括失败的 .toolNotFound 也计数
     /// （契约：callCount 是"caller 发起调用次数"，不是"成功次数"）
     func test_call_callCount_incrementsForBothSuccessAndFailure() async throws {
-        let client = MockMCPClient(responses: [refEcho: .init(content: ["ok"], isError: false)])
+        let client = MockMCPClient(responses: [
+            refEcho: .init(content: [.text("ok")], structuredContent: nil, isError: false, meta: nil)
+        ])
 
         // 起始：0
         let countBefore = await client.callCount

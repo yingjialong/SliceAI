@@ -244,10 +244,13 @@ public actor JSONLAuditLog: AuditLogProtocol {
             // （MCPClientProtocol 文档已承认这点）；audit jsonl 是持久化 + 可分享给第三方支持
             // 的载体，落盘时不应原样保留。invocation_id 路由仍可反查 toolId → mcpAllowlist
             // 配置，排障 cardinality 不丢失。
-            // params values 同 runAppIntent，必脱敏。
-            let scrubbedParams = params.mapValues(Redaction.scrub)
+            // params 是任意 JSON；递归脱敏字符串叶子，并按 object key 兜住明文 secret。
+            let scrubbedParams = scrubMCPJSONValue(.object(params))
             let scrubbedRef = MCPToolRef(server: "<redacted>", tool: "<redacted>")
-            return .callMCP(ref: scrubbedRef, params: scrubbedParams)
+            guard case .object(let scrubbedObject) = scrubbedParams else {
+                return .callMCP(ref: scrubbedRef, params: [:])
+            }
+            return .callMCP(ref: scrubbedRef, params: scrubbedObject)
 
         case .writeMemory(let tool, let entry):
             // tool 是 toolId（与 .invocationCompleted 同口径处理）
@@ -261,5 +264,40 @@ public actor JSONLAuditLog: AuditLogProtocol {
             // voice 是预设 voice id（如 "com.apple.voice.compact.zh-CN.Tingting"），保留
             return .tts(voice: voice)
         }
+    }
+
+    /// 递归脱敏 MCP JSON 值；敏感 object key 的值直接替换，其他字符串继续走通用 scrub。
+    private func scrubMCPJSONValue(_ value: MCPJSONValue) -> MCPJSONValue {
+        switch value {
+        case .string(let string):
+            return .string(Redaction.scrub(string))
+        case .array(let values):
+            return .array(values.map(scrubMCPJSONValue))
+        case .object(let object):
+            var scrubbed: MCPJSONValue.Object = [:]
+            scrubbed.reserveCapacity(object.count)
+            for (key, nestedValue) in object {
+                if Self.isSecretLikeMCPKey(key) {
+                    scrubbed[key] = .string("<redacted>")
+                } else {
+                    scrubbed[key] = scrubMCPJSONValue(nestedValue)
+                }
+            }
+            return .object(scrubbed)
+        case .null, .bool, .number:
+            return value
+        }
+    }
+
+    /// 判断 MCP JSON object key 是否看起来承载 secret。
+    private static func isSecretLikeMCPKey(_ key: String) -> Bool {
+        let normalized = key.lowercased()
+        return normalized.contains("token")
+            || normalized.contains("secret")
+            || normalized.contains("password")
+            || normalized.contains("apikey")
+            || normalized.contains("api_key")
+            || normalized.contains("authorization")
+            || normalized.contains("credential")
     }
 }

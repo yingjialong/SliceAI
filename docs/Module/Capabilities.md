@@ -7,7 +7,7 @@
 ## 功能范围
 
 - SecurityKit：`PathSandbox`、`PathSandboxError`。
-- MCP：`MCPClientProtocol`、`MockMCPClient`、`MCPCallResult`、`MCPClientError`。
+- MCP：`MCPClientProtocol`、`MockMCPClient`、`MCPClientError`；工具引用与调用结果复用 SliceCore 的 `MCPToolRef` / `MCPCallResult`。
 - Skills：`SkillRegistryProtocol`、`MockSkillRegistry`、`Skill`。
 
 ## 技术实现
@@ -20,7 +20,7 @@
 4. 硬禁止前缀优先拦截，如 Keychains、`.ssh`、Cookies、`/private/etc`。
 5. 按 `.read` / `.write` 角色匹配默认白名单和用户白名单。
 
-MCP 与 Skill 当前以 protocol + mock 的形式存在，目的是让 `Orchestration.ExecutionEngine` 在 Phase 0 就能稳定装配 10 个依赖，并为 Phase 1 / Phase 2 保留清晰替换点。
+MCP 与 Skill 当前以 protocol + mock 的形式存在，目的是让 `Orchestration.ExecutionEngine` 在 Phase 0 就能稳定装配 10 个依赖，并为 Phase 1 / Phase 2 保留清晰替换点。Task 1 只把 MCP JSON/value contract 下沉到 SliceCore，Capabilities 仍保持当前 protocol + mock 形态，不声明 Task 2 的真实 MCP client 语义已完成。
 
 ## 关键接口
 

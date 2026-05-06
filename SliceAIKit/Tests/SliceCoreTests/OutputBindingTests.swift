@@ -79,11 +79,26 @@ final class OutputBindingTests: XCTestCase {
         let ref = MCPToolRef(server: "slack", tool: "send")
         let binding = OutputBinding(
             primary: .window,
-            sideEffects: [.copyToClipboard, .callMCP(ref: ref, params: ["channel": "#general"])]
+            sideEffects: [.copyToClipboard, .callMCP(ref: ref, params: ["channel": .string("#general")])]
         )
         let data = try JSONEncoder().encode(binding)
         let decoded = try JSONDecoder().decode(OutputBinding.self, from: data)
         XCTAssertEqual(binding, decoded)
+    }
+
+    /// 验证 SideEffect.callMCP 可接受嵌套 JSON params，而不是仅字符串字典。
+    func test_sideEffectCallMCP_acceptsNestedJSONParams() throws {
+        let ref = MCPToolRef(server: "search", tool: "query")
+        let effect = SideEffect.callMCP(ref: ref, params: [
+            "query": .string("{{selection}}"),
+            "limit": .number(3),
+            "filters": .object(["safe": .bool(true)])
+        ])
+
+        let data = try JSONEncoder().encode(effect)
+        let decoded = try JSONDecoder().decode(SideEffect.self, from: data)
+
+        XCTAssertEqual(decoded, effect)
     }
 
     // MARK: - Decoder negative tests（canonical 单键 + 未知键拒绝；Task 3/8 同款纪律）

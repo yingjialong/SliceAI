@@ -50,7 +50,7 @@ final class ToolKindTests: XCTestCase {
                     provider: .fixed(providerId: "openai", modelId: nil),
                     temperature: nil, maxTokens: nil, variables: [:]
                 ), input: "{{selection}}"),
-                .mcp(ref: MCPToolRef(server: "anki", tool: "createNote"), args: ["deck": "English"])
+                .mcp(ref: MCPToolRef(server: "anki", tool: "createNote"), args: ["deck": .string("English")])
             ],
             onStepFail: .abort
         )
@@ -152,12 +152,26 @@ final class ToolKindTests: XCTestCase {
 
     func test_pipelineStep_goldenJSON_mcp_nestedStruct() throws {
         let enc = JSONEncoder(); enc.outputFormatting = [.sortedKeys]
-        let step = PipelineStep.mcp(ref: MCPToolRef(server: "anki", tool: "createNote"), args: ["deck": "English"])
+        let step = PipelineStep.mcp(ref: MCPToolRef(server: "anki", tool: "createNote"), args: ["deck": .string("English")])
         let json = try XCTUnwrap(String(data: try enc.encode(step), encoding: .utf8))
         XCTAssertTrue(json.hasPrefix(#"{"mcp":{"#), "got: \(json)")
         XCTAssertTrue(json.contains(#""server":"anki""#))
         XCTAssertTrue(json.contains(#""tool":"createNote""#))
         XCTAssertFalse(json.contains("\"_0\""))
+    }
+
+    /// 验证 PipelineStep.mcp 可接受嵌套 JSON args，而不是仅字符串字典。
+    func test_pipelineStepMCP_acceptsNestedJSONArgs() throws {
+        let step = PipelineStep.mcp(ref: MCPToolRef(server: "search", tool: "query"), args: [
+            "query": .string("{{selection}}"),
+            "limit": .number(3),
+            "filters": .object(["safe": .bool(true)])
+        ])
+
+        let data = try JSONEncoder().encode(step)
+        let decoded = try JSONDecoder().decode(PipelineStep.self, from: data)
+
+        XCTAssertEqual(decoded, step)
     }
 
     func test_pipelineStep_goldenJSON_branch_nestedStruct() throws {
