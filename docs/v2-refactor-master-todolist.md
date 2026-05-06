@@ -15,11 +15,11 @@
 
 | 字段 | 值 |
 |---|---|
-| 最后更新 | 2026-05-05 |
+| 最后更新 | 2026-05-06 |
 | 当前 Phase | **Phase 1 准备期**（MCP + Context 主干） |
-| 当前 Milestone | **Phase 0 已完成并发布 v0.2.0，Phase 1 前本地收尾已完成** |
-| 下一个动作 | 用 `superpowers:brainstorming` 复核 Phase 1 设计，并起草 `docs/superpowers/plans/YYYY-MM-DD-phase-1-mcp-context.md` |
-| 阻塞 | Phase 1 plan 尚未起草；进入实现前必须先完成 brainstorming、plan、review 到 APPROVED / COMMENT |
+| 当前 Milestone | **Phase 1 design spec 已起草，等待用户 review** |
+| 下一个动作 | 用户 review `docs/superpowers/specs/2026-05-06-phase-1-mcp-context-design.md`；确认后用 `superpowers:writing-plans` 起草 `docs/superpowers/plans/2026-05-06-phase-1-mcp-context.md` |
+| 阻塞 | Phase 1 plan 尚未起草；进入实现前必须先完成 spec review、plan、plan review 到 APPROVED / COMMENT |
 
 **Milestone 状态**
 
@@ -30,7 +30,7 @@
 | 0 | M1 | ✅ 已 merge 入 main（merge commit `5cdf0f7`，2026-04-25） |
 | 0 | M2 | ✅ 已完成：Orchestration + Capabilities 骨架落地 |
 | 0 | M3 | ✅ 已完成并发布：PR #3 merged，`v0.2.0` tag + GitHub Release |
-| 1 | — | ⏳ 设计已 Freeze，plan 未写 |
+| 1 | — | ⏳ design spec 已起草，待用户 review；plan 未写 |
 | 2–5 | — | 🟦 Directional，进入前需重新 spec |
 
 ---
@@ -305,13 +305,14 @@ fi
 
 **目标**：把 Phase 0 的 `ContextProvider` / `MCPClient` / `AgentExecutor` 填实；用户可以在 Settings 加 MCP server，并在 Tool 勾选哪些 MCP tool 可用；Per-Tool Hotkey 生效。
 
-**状态**：**设计已 Freeze**，**plan 未写**。
+**状态**：**设计已 Freeze**，**brainstorming design spec 已起草**，**plan 未写**。
 
 **Entry criteria**（启动 plan 起草的前置条件）：
 
 - [x] Phase 0 全部 milestone merge（v0.2 已发布）
-- [ ] 用 superpowers:brainstorming skill 走一遍 Phase 1 设计（spec 已 freeze 但细节需要再走一遍）
-- [ ] 产出 `docs/superpowers/plans/YYYY-MM-DD-phase-1-mcp-context.md`
+- [x] 用 superpowers:brainstorming skill 走一遍 Phase 1 设计（spec 已 freeze 但细节需要再走一遍）
+- [ ] 用户 review `docs/superpowers/specs/2026-05-06-phase-1-mcp-context-design.md`
+- [ ] 产出 `docs/superpowers/plans/2026-05-06-phase-1-mcp-context.md`
 - [ ] plan 过一轮 Codex review，直到 APPROVED / COMMENT
 
 **Early validation（Phase 1 早期验收，不是启动门槛）**——按 spec §5.3 定位，在首个真实 Agent Tool `web-search-summarize` 开发阶段实测：
@@ -704,3 +705,12 @@ fi
 - 当前进入 Phase 1 前的唯一产品动作是 planning：先 brainstorming，再写 Phase 1 MCP + Context plan，再做 plan review。
 
 **下一步**：启动 Phase 1 planning，首个动作是 `superpowers:brainstorming`。
+
+### 2026-05-06 — Phase 1 MCP + Context design spec 起草
+
+- 按 `superpowers:brainstorming` 完成 Phase 1 设计复核，范围确认采用完整 v0.3 DoD，总 plan 内部拆 M1-M4。
+- 推荐并确认执行方案为"主干先行 + 里程碑验收"：M1 MCP 配置与 stdio、M2 Context 与 Permission、M3 AgentExecutor 与工具调用 UI、M4 HTTP transport / Per-Tool Hotkey / 5 server E2E / 发布准备。
+- 新增 design spec：`docs/superpowers/specs/2026-05-06-phase-1-mcp-context-design.md`。
+- MCP 远程传输口径修正：当前 MCP 官方最新规范以 `Streamable HTTP` 为标准远程传输，旧 `HTTP+SSE` 只作为兼容路径；Phase 1 不再把旧 SSE 当作新设计主线。
+
+**下一步**：用户 review design spec；确认后用 `superpowers:writing-plans` 起草 `docs/superpowers/plans/2026-05-06-phase-1-mcp-context.md` 并做 plan review。

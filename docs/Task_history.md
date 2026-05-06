@@ -4,6 +4,15 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 
 ---
 
+## Task 38 · Phase 1 MCP + Context 主干设计与计划准备
+
+- **时间**：2026-05-06
+- **描述**：按 `superpowers:brainstorming` 流程复核 Phase 1 MCP + Context 主干设计，明确采用"主干先行 + M1-M4 里程碑验收"方案，并在写 implementation plan 前产出独立 design spec。
+- **详情**：[docs/Task-detail/2026-05-06-phase-1-mcp-context-planning.md](Task-detail/2026-05-06-phase-1-mcp-context-planning.md)
+- **结果**：进行中。Phase 1 总范围已确认覆盖完整 v0.3 DoD；design spec 已起草，等待用户 review 后进入 implementation plan 与 plan review。
+
+---
+
 ## Task 37 · Phase 1 前收尾
 
 - **时间**：2026-05-05
