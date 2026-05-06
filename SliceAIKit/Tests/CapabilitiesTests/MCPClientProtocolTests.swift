@@ -5,7 +5,7 @@ import XCTest
 /// `MCPClientProtocol` 契约 + `MockMCPClient` 行为测试。
 ///
 /// 覆盖矩阵（与 plan §2003 对齐）：
-/// 1. tools-happy        —— 注入 [d: [ref1, ref2]] → tools(for: d) 返回完整数组
+/// 1. tools-happy        —— 注入 [d: [tool1, tool2]] → tools(for: d) 返回完整数组
 /// 2. tools-empty        —— 空 registry → tools(for: 任意 d) 返回 []
 /// 3. call-happy         —— responses[ref] 命中 → 返回该 MCPCallResult
 /// 4. call-notFound      —— ref 不在 responses → throw .toolNotFound(ref:)
@@ -17,27 +17,57 @@ final class MCPClientProtocolTests: XCTestCase {
     // MARK: - Fixtures
 
     /// 测试常用 descriptor / ref 常量；放静态属性避免每个测试重复构造。
-    private let serverA = MCPDescriptor(id: "stdio://server-a")
-    private let serverB = MCPDescriptor(id: "stdio://server-b")
+    private let serverA = SliceCore.MCPDescriptor(
+        id: "server-a",
+        transport: .stdio,
+        command: "npx",
+        args: ["-y", "@modelcontextprotocol/server-a"],
+        url: nil,
+        env: nil,
+        capabilities: [.tools(["echo", "sum"])],
+        provenance: .selfManaged(userAcknowledgedAt: Date(timeIntervalSince1970: 100))
+    )
+    private let serverB = SliceCore.MCPDescriptor(
+        id: "server-b",
+        transport: .sse,
+        command: nil,
+        args: nil,
+        url: URL(string: "https://mcp.example.com/events"),
+        env: nil,
+        capabilities: [.tools(["remote"])],
+        provenance: .firstParty
+    )
 
-    private let refEcho = MCPToolRef(server: "stdio://server-a", tool: "echo")
-    private let refSum = MCPToolRef(server: "stdio://server-a", tool: "sum")
-    private let refUnknown = MCPToolRef(server: "stdio://server-a", tool: "ghost")
+    private let refEcho = MCPToolRef(server: "server-a", tool: "echo")
+    private let refSum = MCPToolRef(server: "server-a", tool: "sum")
+    private let refUnknown = MCPToolRef(server: "server-a", tool: "ghost")
+
+    /// 构造测试用 MCPToolDescriptor，避免每个用例重复 schema 样板。
+    private func toolDescriptor(ref: MCPToolRef, title: String) -> MCPToolDescriptor {
+        MCPToolDescriptor(
+            ref: ref,
+            title: title,
+            description: "Test tool",
+            inputSchema: ["type": .string("object")]
+        )
+    }
 
     // MARK: - 1. tools happy
 
-    /// 注入 [serverA: [refEcho, refSum]] → tools(for: serverA) 应原样返回（顺序保留）
+    /// 注入 [serverA: [echo, sum]] → tools(for: serverA) 应原样返回（顺序保留）
     func test_tools_happyPath_returnsInjectedToolsInOrder() async throws {
         // 给定：server-a 上注册 echo + sum 两个工具
+        let echoTool = toolDescriptor(ref: refEcho, title: "Echo")
+        let sumTool = toolDescriptor(ref: refSum, title: "Sum")
         let client = MockMCPClient(
-            tools: [serverA: [refEcho, refSum]]
+            tools: [serverA: [echoTool, sumTool]]
         )
 
         // 当：查询 server-a 的工具
         let result = try await client.tools(for: serverA)
 
         // 则：返回与注入完全一致（含顺序）
-        XCTAssertEqual(result, [refEcho, refSum])
+        XCTAssertEqual(result, [echoTool, sumTool])
     }
 
     // MARK: - 2. tools empty
@@ -55,8 +85,9 @@ final class MCPClientProtocolTests: XCTestCase {
     /// 注入 server-a 但查 server-b → 仍返回 [] 而不是 throw
     /// （字典 miss 等价于 empty registry，行为统一）
     func test_tools_unknownDescriptor_returnsEmptyArray() async throws {
+        let echoTool = toolDescriptor(ref: refEcho, title: "Echo")
         let client = MockMCPClient(
-            tools: [serverA: [refEcho]]
+            tools: [serverA: [echoTool]]
         )
 
         let result = try await client.tools(for: serverB)
@@ -77,7 +108,7 @@ final class MCPClientProtocolTests: XCTestCase {
         let client = MockMCPClient(responses: [refEcho: expected])
 
         // 当：用任意 args 调 echo（Mock 故意忽略 args）
-        let result = try await client.call(ref: refEcho, args: ["text": "hi"])
+        let result = try await client.call(ref: refEcho, args: ["text": .string("hi")])
 
         XCTAssertEqual(result, expected)
     }
@@ -178,7 +209,7 @@ final class MCPClientProtocolTests: XCTestCase {
     ///   的字符串（典型攻击面：用户 server.id 含 token-like / 路径 / 工程名）。
     /// - `.transportFailed` / `.decodingFailed` 的 reason 可能携带 server 路径 / underlying error。
     /// 三 case 与 `SliceError.developerContext` 对带 String / 路径 payload 的 case 同口径。
-    func test_mcpClientError_developerContext_redactsStringPayloads() {
+    func test_mcpClientError_developerContext_redactsToolRefs() throws {
         // 用一个带"路径 / 项目名 / token-like"特征的 ref 来挑战 toolNotFound 脱敏
         let suspiciousRef = MCPToolRef(
             server: "stdio:///Users/me/projects/secret-project/.mcp/server",
@@ -226,10 +257,68 @@ final class MCPClientProtocolTests: XCTestCase {
             // 期望 throw，不打 XCTFail
         }
         // 又 1 次成功
-        _ = try await client.call(ref: refEcho, args: ["k": "v"])
+        _ = try await client.call(ref: refEcho, args: ["k": .string("v")])
 
         // 累计应为 3（2 成功 + 1 失败）
         let countAfter = await client.callCount
         XCTAssertEqual(countAfter, 3, "callCount 应累计 3 次（含 1 次失败）")
+    }
+
+    // MARK: - 8. canonical SliceCore descriptor
+
+    /// `MockMCPClient` 必须以 SliceCore canonical MCPDescriptor 作为 registry key，并返回 MCPToolDescriptor。
+    func test_mockMCPClient_usesSliceCoreDescriptor() async throws {
+        let descriptor = SliceCore.MCPDescriptor(
+            id: "brave",
+            transport: .stdio,
+            command: "npx",
+            args: ["-y", "@modelcontextprotocol/server-brave-search"],
+            url: nil,
+            env: nil,
+            capabilities: [.tools(["brave_web_search"])],
+            provenance: .selfManaged(userAcknowledgedAt: Date(timeIntervalSince1970: 1))
+        )
+        let ref = MCPToolRef(server: "brave", tool: "brave_web_search")
+        let descriptorForTool = MCPToolDescriptor(
+            ref: ref,
+            title: "Brave Web Search",
+            description: "Search the web",
+            inputSchema: ["type": .string("object")]
+        )
+        let result = MCPCallResult(content: [.text("ok")], structuredContent: nil, isError: false, meta: nil)
+        let client = MockMCPClient(tools: [descriptor: [descriptorForTool]], responses: [ref: result])
+
+        let tools = try await client.tools(for: descriptor)
+        _ = try await client.call(ref: ref, args: ["q": .string("SliceAI")])
+        let callCount = await client.callCount
+        let lastToolsDescriptor = await client.lastToolsDescriptor
+
+        XCTAssertEqual(tools, [descriptorForTool])
+        XCTAssertEqual(callCount, 1)
+        XCTAssertEqual(lastToolsDescriptor, descriptor)
+    }
+
+    // MARK: - 9. structured call arguments
+
+    /// `MockMCPClient.call` 必须记录完整结构化 JSON 参数，而不是退化为字符串字典。
+    func test_mockMCPClient_recordsStructuredArguments() async throws {
+        let expected = MCPCallResult(content: [.text("ok")], structuredContent: nil, isError: false, meta: nil)
+        let arguments: MCPJSONValue.Object = [
+            "q": .string("SliceAI"),
+            "limit": .number(3),
+            "filters": .object([
+                "fresh": .bool(true),
+                "tags": .array([.string("swift"), .string("mcp")])
+            ])
+        ]
+        let client = MockMCPClient(responses: [refEcho: expected])
+
+        let result = try await client.call(ref: refEcho, args: arguments)
+        let lastArguments = await client.lastArguments
+        let callCount = await client.callCount
+
+        XCTAssertEqual(result, expected)
+        XCTAssertEqual(lastArguments, arguments)
+        XCTAssertEqual(callCount, 1)
     }
 }

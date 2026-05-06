@@ -43,6 +43,7 @@
 | `MCPJSONValue` | MCP 任意 JSON 值类型，Codable 使用透明 raw JSON，不使用 Swift enum wrapper。 |
 | `MCPCallResult` | MCP tool call 结果契约，包含 content、structuredContent、isError 与 meta；wire JSON 使用 MCP Result 规范的 `_meta` key。 |
 | `MCPToolDescriptor` | MCP tools/list 的 tool descriptor 契约，后续 AgentExecutor 只消费 `inputSchema`。 |
+| `MCPDescriptor` | MCP server canonical 描述符，可作为字典 key；`Equatable` / `Hashable` 均按稳定 `id` 身份判断，不把 capabilities/provenance 扩散为 Hashable 依赖。 |
 
 ## 运行逻辑
 

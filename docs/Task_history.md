@@ -4,6 +4,15 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 
 ---
 
+## Task 40 · Phase 1 M1 Task 2 · MCP Client Protocol Uses Canonical Descriptor
+
+- **时间**：2026-05-07
+- **描述**：将 Capabilities 的 `MCPClientProtocol` 收敛到 SliceCore canonical `MCPDescriptor` / `MCPToolDescriptor` / `MCPJSONValue.Object`，删除重复 descriptor，并增强 `MockMCPClient` 的结构化参数记录与错误脱敏测试。
+- **详情**：[docs/Task-detail/2026-05-07-phase-1-m1-task-2-mcp-client-protocol-canonical-descriptor.md](Task-detail/2026-05-07-phase-1-m1-task-2-mcp-client-protocol-canonical-descriptor.md)
+- **结果**：完成。目标测试、全量 `swift test` 与 `git diff --check` 已通过，已提交 commit。
+
+---
+
 ## Task 39 · Phase 1 M1 Task 1 · SliceCore MCP JSON Contract
 
 - **时间**：2026-05-06

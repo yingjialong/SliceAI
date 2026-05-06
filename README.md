@@ -50,6 +50,24 @@ open SliceAI.xcodeproj
 
 ## 项目修改变动记录
 
+### 2026-05-07 · Phase 1 M1 Task 2 · MCP Client Protocol Uses Canonical Descriptor
+
+**范围**：worktree `.worktrees/phase-1-mcp-context`，M1 Task 2
+
+**主要变更**：
+- `MCPClientProtocol` 删除 Capabilities 内重复 `MCPDescriptor`，改为直接使用 SliceCore canonical `MCPDescriptor`。
+- `tools(for:)` 返回 `MCPToolDescriptor`，`call(ref:args:)` 接收 `MCPJSONValue.Object`，协议可承载 MCP tools/list schema 和结构化 JSON 参数。
+- `MockMCPClient` 改为 `[MCPDescriptor: [MCPToolDescriptor]]` / `[MCPToolRef: MCPCallResult]` 注入，并记录 `callCount`、`lastArguments`、`lastToolsDescriptor`。
+- `MCPDescriptor` 的 `Equatable` / `Hashable` 均按稳定 `id` 身份判断，避免同一 server 配置更新后无法命中 mock registry。
+- `MCPClientError.developerContext` 增加针对 tool ref 的脱敏回归测试，避免泄露原始 server/tool 名称。
+
+**验证状态**：
+- 已按 TDD 先写失败测试并确认红灯。
+- `swift test --filter SliceCoreTests.MCPDescriptorTests`
+- `swift test --filter CapabilitiesTests.MCPClientProtocolTests`
+- `swift test`
+- `git diff --check`
+
 ### 2026-05-06 · Phase 1 M1 Task 1 · SliceCore MCP JSON Contract
 
 **范围**：worktree `.worktrees/phase-1-mcp-context`，M1 Task 1

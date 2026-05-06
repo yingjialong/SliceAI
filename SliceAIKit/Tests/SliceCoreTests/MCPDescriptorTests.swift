@@ -3,6 +3,7 @@ import XCTest
 
 final class MCPDescriptorTests: XCTestCase {
 
+    /// stdio descriptor 的 Codable round-trip 必须逐字段保持一致，不能依赖 id-only Equatable。
     func test_stdio_descriptor_codable() throws {
         let d = MCPDescriptor(
             id: "postgres",
@@ -16,9 +17,18 @@ final class MCPDescriptorTests: XCTestCase {
         )
         let data = try JSONEncoder().encode(d)
         let decoded = try JSONDecoder().decode(MCPDescriptor.self, from: data)
-        XCTAssertEqual(d, decoded)
+
+        XCTAssertEqual(decoded.id, d.id)
+        XCTAssertEqual(decoded.transport, d.transport)
+        XCTAssertEqual(decoded.command, d.command)
+        XCTAssertEqual(decoded.args, d.args)
+        XCTAssertEqual(decoded.url, d.url)
+        XCTAssertEqual(decoded.env, d.env)
+        XCTAssertEqual(decoded.capabilities, d.capabilities)
+        XCTAssertEqual(decoded.provenance, d.provenance)
     }
 
+    /// SSE descriptor 的 Codable round-trip 必须逐字段保持一致，不能依赖 id-only Equatable。
     func test_sse_descriptor_codable() throws {
         let d = MCPDescriptor(
             id: "remote-mcp",
@@ -32,7 +42,15 @@ final class MCPDescriptorTests: XCTestCase {
         )
         let data = try JSONEncoder().encode(d)
         let decoded = try JSONDecoder().decode(MCPDescriptor.self, from: data)
-        XCTAssertEqual(d, decoded)
+
+        XCTAssertEqual(decoded.id, d.id)
+        XCTAssertEqual(decoded.transport, d.transport)
+        XCTAssertEqual(decoded.command, d.command)
+        XCTAssertEqual(decoded.args, d.args)
+        XCTAssertEqual(decoded.url, d.url)
+        XCTAssertEqual(decoded.env, d.env)
+        XCTAssertEqual(decoded.capabilities, d.capabilities)
+        XCTAssertEqual(decoded.provenance, d.provenance)
     }
 
     /// 验证 streamable HTTP transport 使用 MCP 约定的 kebab-case wire value。
@@ -62,6 +80,34 @@ final class MCPDescriptorTests: XCTestCase {
         let a = MCPToolRef(server: "s", tool: "t")
         let b = MCPToolRef(server: "s", tool: "t")
         XCTAssertEqual(Set([a, b]).count, 1)
+    }
+
+    /// MCPDescriptor 的身份语义只看稳定本地注册 ID；配置内容变化不应影响字典命中。
+    func test_mcpDescriptor_identityUsesStableIDForEqualityAndHashing() throws {
+        let original = MCPDescriptor(
+            id: "brave",
+            transport: .stdio,
+            command: "npx",
+            args: ["-y", "@modelcontextprotocol/server-brave-search"],
+            url: nil,
+            env: nil,
+            capabilities: [.tools(["brave_web_search"])],
+            provenance: .selfManaged(userAcknowledgedAt: Date(timeIntervalSince1970: 1))
+        )
+        let updated = MCPDescriptor(
+            id: "brave",
+            transport: .sse,
+            command: nil,
+            args: nil,
+            url: try XCTUnwrap(URL(string: "https://mcp.example.com/events")),
+            env: ["BRAVE_API_KEY": "redacted-in-test"],
+            capabilities: [.tools(["brave_web_search", "brave_news_search"]), .resources(["search://history"])],
+            provenance: .firstParty
+        )
+        let toolsByDescriptor = [original: ["brave_web_search"]]
+
+        XCTAssertEqual(original, updated)
+        XCTAssertEqual(toolsByDescriptor[updated], ["brave_web_search"])
     }
 
     func test_mcpCapability_tools_codable() throws {

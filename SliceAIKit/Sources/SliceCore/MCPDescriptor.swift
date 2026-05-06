@@ -7,7 +7,7 @@ import Foundation
 ///
 /// `provenance` 由安装流程写入；`.unknown` 来源的 MCPDescriptor 在**安装流程入口**被拒绝，
 /// 不会被构造出来（D-23 / §3.9.4.2）。
-public struct MCPDescriptor: Identifiable, Sendable, Codable, Equatable {
+public struct MCPDescriptor: Identifiable, Sendable, Codable, Equatable, Hashable {
     /// 本地注册名
     public let id: String
     /// 传输方式
@@ -48,6 +48,16 @@ public struct MCPDescriptor: Identifiable, Sendable, Codable, Equatable {
         self.env = env
         self.capabilities = capabilities
         self.provenance = provenance
+    }
+
+    /// MCPDescriptor 的本地注册身份只由稳定 ID 决定，不按 transport/capabilities/provenance 做内容相等。
+    public static func == (lhs: MCPDescriptor, rhs: MCPDescriptor) -> Bool {
+        lhs.id == rhs.id
+    }
+
+    /// 仅用稳定注册 ID 参与哈希，保持 Equatable/Hashable 身份语义一致。
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
     }
 }
 

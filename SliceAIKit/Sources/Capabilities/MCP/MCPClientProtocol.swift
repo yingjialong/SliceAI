@@ -6,51 +6,28 @@ import SliceCore
 ///
 /// 设计要点（KISS）：
 /// - 只暴露两个动作：`tools(for:)` 询问 server 暴露的工具列表、`call(ref:args:)` 调单个工具。
-/// - 协议本身 + 传输/错误辅助类型（`MCPDescriptor` / `MCPClientError`）
-///   集中在同一文件，方便把"对外契约"作为单点阅读；任一类型语义改动都会落到这里，避免拆散到多文件后
-///   review 时漏看。
-/// - **`MCPToolRef` / `MCPCallResult` 不在本文件**：canonical 定义在 SliceCore，被
+/// - 本文件只定义 client protocol 与 `MCPClientError`；server/tool/result/JSON 等 canonical MCP
+///   值类型来自 SliceCore，避免 Capabilities 再维护一套重复契约。
+/// - **`MCPDescriptor` / `MCPToolDescriptor` / `MCPToolRef` / `MCPCallResult` 不在本文件**：
+///   canonical 定义在 SliceCore，被
 ///   `AgentTool.mcpAllowlist` / `PipelineStep.mcp` / `SideEffect.callMCP` / `ExecutionEvent.toolCallProposed`
 ///   等多处引用——本协议直接 `import SliceCore` 复用，避免"传输层私有类型 vs 领域层 canonical 类型"
 ///   的双向适配；Phase 1 真实 client 接入 AgentTool / SideEffect 时无需做字段名翻译。
-/// - Phase 1 才上真实 stdio / SSE 实现；Task 2 再决定是否把 args 从 `String → String` 扩到任意 JSON。
+/// - Phase 1 才上真实 stdio / SSE 实现；本协议只先锁定 canonical contract。
 public protocol MCPClientProtocol: Sendable {
     /// 查询某个 MCP server 当前暴露的工具列表。
-    /// - Parameter descriptor: server 描述符（含稳定 ID）。
-    /// - Returns: 该 server 暴露的工具引用数组；server 没有工具时返回空数组。
+    /// - Parameter descriptor: SliceCore canonical server 描述符。
+    /// - Returns: 该 server 暴露的工具描述数组；server 没有工具时返回空数组。
     /// - Throws: `MCPClientError.transportFailed` / `.decodingFailed`（M2 Mock 实现不会主动抛错）。
-    func tools(for descriptor: MCPDescriptor) async throws -> [MCPToolRef]
+    func tools(for descriptor: MCPDescriptor) async throws -> [MCPToolDescriptor]
 
     /// 调用 MCP server 暴露的某个工具。
     /// - Parameters:
     ///   - ref: 目标工具引用（必须出现在该 server 之前 `tools(for:)` 返回的列表里）。
-    ///   - args: 传给工具的参数；M2 阶段约定为 `String → String` map（KISS），Phase 1 视真实需求扩展。
+    ///   - args: 传给工具的结构化 JSON 参数。
     /// - Returns: server 返回的结果（见 `MCPCallResult.isError` 区分 server 端业务错误）。
     /// - Throws: `MCPClientError.toolNotFound`（工具不在已知列表）/ `.transportFailed` / `.decodingFailed`。
-    func call(ref: MCPToolRef, args: [String: String]) async throws -> MCPCallResult
-}
-
-// MARK: - MCPDescriptor
-
-/// MCP server 描述符（最小 KISS 版本）。
-///
-/// 仅承载稳定 ID（如 `"stdio://my-server"` / `"sse://localhost:8765"`），用于：
-/// - 让 `MCPClient` 路由到正确的传输层；
-/// - 让 `MCPToolRef.server` 反向定位回 server。
-///
-/// Phase 1 真实 client 落地时，这里可能再加 `transport: enum { .stdio, .sse }` / `endpoint: URL`
-/// 等字段；M2 阶段不需要这些信息——Mock 只用 ID 做 dictionary key。
-public struct MCPDescriptor: Sendable, Equatable, Hashable, Codable {
-    /// MCP server 的稳定 ID。
-    /// 约定形如 `"stdio://my-server"` / `"sse://host:port"`，但 protocol 不强制 schema——
-    /// 真正的解析责任在 Phase 1 的真实 client；M2 把 ID 当不透明字符串处理。
-    public let id: String
-
-    /// 构造一个 MCP server 描述符。
-    /// - Parameter id: server 的稳定 ID。
-    public init(id: String) {
-        self.id = id
-    }
+    func call(ref: MCPToolRef, args: MCPJSONValue.Object) async throws -> MCPCallResult
 }
 
 // MARK: - MCPClientError
