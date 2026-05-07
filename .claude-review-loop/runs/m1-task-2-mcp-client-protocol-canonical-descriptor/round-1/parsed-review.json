@@ -1,0 +1,5 @@
+{
+  "findings": [],
+  "summary": "Task 2 把 Capabilities 内重复的 `MCPDescriptor` 删除并改用 SliceCore canonical 类型；`tools(for:)` 升级为 `[MCPToolDescriptor]`，`call(ref:args:)` 升级为 `MCPJSONValue.Object`，与 `SideEffect.callMCP` / `PipelineStep.mcp` 的结构化参数一致。SliceCore `MCPDescriptor` 的 `Equatable` / `Hashable` 同步改为 id-only 身份语义，并通过 P3 review 已经把 stdio / SSE round-trip 改为字段级断言，避免身份语义削弱字段契约；新增的 id identity 测试明确锁定行为。下游 `AgentTool` / `PipelineStep` / `SideEffect` / `Permission` 引用的是 `MCPToolRef`，不嵌入完整 descriptor，`Configuration` 也未持有 descriptor 列表，因此 id-only `==` 不会污染既有 Codable / Equatable 链路。`MockMCPClient` 通过 actor 隔离 `callCount` / `lastArguments` / `lastToolsDescriptor`，`OSLog` 调用使用 `.private` privacy 且不记录 args，未引入日志泄露面。错误脱敏新增 toolNotFound 反向断言，防止 server/tool 字面量泄漏。文档（README、Module/SliceCore、Module/Capabilities、Task_history、Task-detail）与代码改动同步，未发现行为/安全/正确性回归，未发现超出契约的副作用。",
+  "verdict": "approve"
+}
