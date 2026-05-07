@@ -200,6 +200,39 @@ final class MCPServersViewModelTests: XCTestCase {
         XCTAssertEqual(Set(loaded.servers.map(\.id)), ["old", "existing"])
     }
 
+    /// 新增 server 时如果 id 已存在，不能静默覆盖现有配置。
+    func test_saveNewServerRejectsDuplicateExistingID() async throws {
+        let store = MCPServerStore(fileURL: try makeTemporaryFileURL())
+        let provenance = Provenance.communitySigned(
+            publisher: "slice-test",
+            signedAt: Date(timeIntervalSince1970: 5)
+        )
+        let existing = descriptor(
+            id: "filesystem",
+            command: "/opt/sliceai/bin/filesystem-original-mcp",
+            capabilities: [.tools(["original-list"]), .resources(["files"])],
+            provenance: provenance
+        )
+        let duplicateNewServer = descriptor(
+            id: existing.id,
+            command: "/opt/sliceai/bin/filesystem-duplicate-mcp"
+        )
+        try await store.save(MCPServerConfiguration(
+            schemaVersion: MCPServerStore.currentSchemaVersion,
+            servers: [existing],
+            runnerConfirmations: []
+        ))
+        let viewModel = MCPServersViewModel(store: store, client: MockMCPClient())
+
+        await viewModel.reload()
+        await viewModel.save(duplicateNewServer)
+
+        XCTAssertTrue(viewModel.validationMessage?.contains("重复") ?? false)
+        XCTAssertEqual(viewModel.servers.first?.command, existing.command)
+        let loaded = try await store.load()
+        XCTAssertEqual(loaded.servers, [existing])
+    }
+
     /// 编辑草稿应携带 originalID，并在生成 descriptor 时保留原 capabilities / provenance。
     func test_editorDraftPreservesMetadataWhenIDChanges() throws {
         let provenance = Provenance.communitySigned(
@@ -241,7 +274,10 @@ final class MCPServersViewModelTests: XCTestCase {
         await viewModel.testConnection(id: server.id)
         XCTAssertEqual(viewModel.toolsByServerID[server.id], [tool])
 
-        await viewModel.save(descriptor(id: server.id, command: "/opt/sliceai/bin/filesystem-v2-mcp"))
+        await viewModel.save(
+            descriptor(id: server.id, command: "/opt/sliceai/bin/filesystem-v2-mcp"),
+            replacing: server.id
+        )
 
         XCTAssertNil(viewModel.toolsByServerID[server.id])
     }
@@ -331,7 +367,7 @@ final class MCPServersViewModelTests: XCTestCase {
             await viewModel.save(descriptor(
                 id: server.id,
                 command: "/opt/sliceai/bin/filesystem-v2-mcp"
-            ))
+            ), replacing: server.id)
         }
         try await assertInFlightTestConnectionResultDropped(operationName: "import") { viewModel, server in
             let importData = Data("""

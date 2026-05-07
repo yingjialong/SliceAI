@@ -1,0 +1,31 @@
+{
+  "before": [
+    " M README.md",
+    " M SliceAIKit/Sources/SettingsUI/MCPServersViewModel.swift",
+    " M SliceAIKit/Tests/SettingsUITests/MCPServersViewModelTests.swift",
+    " M docs/Task-detail/2026-05-07-phase-1-m1-task-5-mcp-servers-settings-page.md",
+    " M docs/Task_history.md",
+    " M docs/v2-refactor-master-todolist.md",
+    "?? .claude-review-loop/runs/phase-1-m1-task-5/round-1/metadata.json",
+    "?? .claude-review-loop/runs/phase-1-m1-task-5/round-1/mutation-check.json",
+    "?? .claude-review-loop/runs/phase-1-m1-task-5/round-1/parsed-review.json",
+    "?? .claude-review-loop/runs/phase-1-m1-task-5/round-1/raw-stderr.txt",
+    "?? .claude-review-loop/runs/phase-1-m1-task-5/round-1/raw-stdout.json",
+    "?? docs/Task-detail/claude-loop-phase-1-m1-task-5.md"
+  ],
+  "after": [
+    " M README.md",
+    " M SliceAIKit/Sources/SettingsUI/MCPServersViewModel.swift",
+    " M SliceAIKit/Tests/SettingsUITests/MCPServersViewModelTests.swift",
+    " M docs/Task-detail/2026-05-07-phase-1-m1-task-5-mcp-servers-settings-page.md",
+    " M docs/Task_history.md",
+    " M docs/v2-refactor-master-todolist.md",
+    "?? .claude-review-loop/runs/phase-1-m1-task-5/round-1/metadata.json",
+    "?? .claude-review-loop/runs/phase-1-m1-task-5/round-1/mutation-check.json",
+    "?? .claude-review-loop/runs/phase-1-m1-task-5/round-1/parsed-review.json",
+    "?? .claude-review-loop/runs/phase-1-m1-task-5/round-1/raw-stderr.txt",
+    "?? .claude-review-loop/runs/phase-1-m1-task-5/round-1/raw-stdout.json",
+    "?? docs/Task-detail/claude-loop-phase-1-m1-task-5.md"
+  ],
+  "mutation_detected": false
+}

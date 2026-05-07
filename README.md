@@ -63,12 +63,12 @@ open SliceAI.xcodeproj
 
 **验证状态**：
 - 已按 TDD 先写失败测试并确认红灯。
-- `swift test --filter SettingsUITests.MCPServersViewModelTests`（14 tests）
+- `swift test --filter SettingsUITests.MCPServersViewModelTests`（15 tests）
 - `swift build`
 - `swift test --filter SliceCoreTests.MCPDescriptorTests`
 - `swift test --filter CapabilitiesTests.RoutingMCPClientTests`
 - `swift test --filter SettingsUITests`
-- `swift test`（638 tests）
+- `swift test`（639 tests）
 - `git diff --check`
 
 ### 2026-05-07 · Phase 1 M1 Task 4 · Stdio MCP JSON-RPC Client

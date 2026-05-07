@@ -1,0 +1,16 @@
+{
+  "summary": "本轮主要发现一个 medium 级数据完整性缺陷：在\"添加新 Server\"流程中，如果用户输入的 id 与已存在的某个 server 重复，`MCPServersViewModel.save(_:replacing: nil)` 会静默用新草稿覆盖现有 server（包括 capabilities 与 provenance），没有去重报错。先前 review 修复只在\"改 ID（rename）\"分支抛 `duplicateServerID`，新建分支仍走 `upsert` 直接替换，等同于丢失原有 server 配置且无任何提示。其他状态机（preview generation、testing 计数、原子 update）经逐项验证后均符合 spec，`MCPServerStore.update` 的 actor-原子性、stale preview 失效、并发 save/import/delete 测试都已被覆盖。建议为 add-new 路径加上同样的 duplicate id 检查，并在测试中补一个用例。",
+  "verdict": "needs_attention",
+  "findings": [
+    {
+      "severity": "medium",
+      "title": "Add Server 流程在新 ID 与已存在 server 重复时静默覆盖",
+      "file": "SliceAIKit/Sources/SettingsUI/MCPServersViewModel.swift",
+      "line_start": 232,
+      "line_end": 251,
+      "confidence": 0.9,
+      "evidence": "`replaceOrUpsert(_:replacing:into:)` 仅在 `originalID != nil` 分支检查 `duplicateServerID`；当 `originalID == nil`（即 `MCPServersPage.openNewServerEditor()` 创建的 `MCPServerDraft.new()` 触发的“添加 Server”流程）会直接走 `upsert(_:into:)`，而 `upsert` 的逻辑是 `if let index = servers.firstIndex(where: { $0.id == descriptor.id }) { servers[index] = descriptor }`，即同 id 直接整体替换。结果：用户在 Add Server sheet 中把 id 输成已有 server 的 id（例如再次输入 `filesystem`）后点击保存，原有 server 的 `command` / `args` / `env` / `capabilities` / `provenance` 会被新草稿（默认 `selfManaged`、空 capabilities）静默覆盖，UI 无任何报错或冲突提示。这是一个数据丢失场景：(1) `MCPServerEditorSheet.saveDraft()` 始终传 `draft.originalID`，新建时为 nil；(2) `MCPServersViewModel.save` 调用 `store.update`，update 闭包内 mutate 后立即 saveSync，validation 不会针对 id 已存在抛错（id 唯一性是“同一份配置内不重复”，单 server 仍合法）；(3) `connectionMessage = \"已保存 \\(descriptor.id)\"` 让用户以为新增成功；(4) `clearToolsPreview` 还把原 server 的工具预览一并清空。同上 `test_saveReplacingOriginalID_rejectsDuplicateNewID`（line ~145 of MCPServersViewModelTests.swift）只覆盖了 rename 路径，没有覆盖 add-new 路径。先前 review 修复声明“若新 ID 已被其他 server 使用，抛 `.duplicateServerID` 并转为 `validationMessage`，不静默覆盖”，但实际仅对 rename 生效；与该约束语义不一致。",
+      "recommendation": "在 `replaceOrUpsert` 的 `originalID == nil` 分支也做 duplicate id 检查：若 `servers.contains(where: { $0.id == descriptor.id })`，抛 `MCPServerValidationError.duplicateServerID(id: descriptor.id)`（让 `validationMessage(for:)` 已有的“MCP server id 重复：…”分支直接复用）。同时在 `MCPServersViewModelTests` 增加一条用例：预置一个 server，调用 `viewModel.save(descriptor(id: 已有 id), replacing: nil)`，断言 `validationMessage` 命中“重复”、`servers` 仍保留原 server、磁盘文件未被覆盖。注意：`importClaudeDesktopConfig` 走的是独立的 `Self.merge(existing:imported:)` 路径，仍可保留 import 同 id 覆盖语义；该修复只影响 user-driven add-new 的保存路径。"
+    }
+  ]
+}

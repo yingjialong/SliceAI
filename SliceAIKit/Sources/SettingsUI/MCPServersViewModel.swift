@@ -99,7 +99,7 @@ public final class MCPServersViewModel: ObservableObject {
         }
     }
 
-    /// 保存单个 MCP server descriptor；同 id 时覆盖，新增 id 时追加。
+    /// 保存单个 MCP server descriptor；新增时拒绝重复 id，编辑时按原 id 替换。
     /// - Parameters:
     ///   - descriptor: 待保存的 MCP server descriptor。
     ///   - originalID: 编辑前的 server id；改 id 时用于原子删除旧 id。
@@ -226,7 +226,7 @@ public final class MCPServersViewModel: ObservableObject {
     /// 按编辑来源替换或新增 descriptor。
     /// - Parameters:
     ///   - descriptor: 待保存的 descriptor。
-    ///   - originalID: 编辑前 id；nil 时走普通 upsert。
+    ///   - originalID: 编辑前 id；nil 时视为新增并拒绝重复 id。
     ///   - servers: 被原地更新的 server 数组。
     /// - Throws: 新 id 与其他 server 冲突时抛 `.duplicateServerID`。
     private nonisolated static func replaceOrUpsert(
@@ -235,7 +235,10 @@ public final class MCPServersViewModel: ObservableObject {
         into servers: inout [MCPDescriptor]
     ) throws {
         guard let originalID else {
-            upsert(descriptor, into: &servers)
+            if servers.contains(where: { $0.id == descriptor.id }) {
+                throw MCPServerValidationError.duplicateServerID(id: descriptor.id)
+            }
+            servers.append(descriptor)
             return
         }
 

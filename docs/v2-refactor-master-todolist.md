@@ -366,8 +366,8 @@ fi
 - [x] `swift test --filter SliceCoreTests.MCPDescriptorTests`
 - [x] `swift test --filter CapabilitiesTests.MCPServerStoreTests`
 - [x] `swift test --filter CapabilitiesTests.RoutingMCPClientTests`
-- [x] `swift test --filter SettingsUITests.MCPServersViewModelTests`
-- [x] `swift test`
+- [x] `swift test --filter SettingsUITests.MCPServersViewModelTests`（15 tests）
+- [x] `swift test`（639 tests）
 - [x] Task 5 二次 code-quality 复审 APPROVED
 
 **下一步**：进入 M2 Task 6（PermissionGraph case-aware coverage）。
@@ -745,8 +745,9 @@ fi
 - 已按 `superpowers:subagent-driven-development` + TDD 完成 M1 Task 1-5。
 - Task 5 新增 MCP Servers 设置页，支持 stdio server 新增 / 编辑 / 删除、Claude Desktop JSON 导入、`tools/list` 测试连接和工具预览。
 - code-quality review 两轮修复均已完成：原子 update、metadata 保留、save/import 失败保留 sheet 输入、stale preview 失效、同一 server 并发测试 loading 计数。
+- `claude-review-loop` Round 1 发现新增 server 重复 id 会静默覆盖现有配置；已修复为新增路径拒绝重复 id，导入路径仍保留同 id 覆盖语义。
 - 旧 HTTP+SSE 偏差已修正：`.sse` 仅保留解码兼容，不允许 Phase 1 新建或连接；M4 只实现 Streamable HTTP。
-- 验证：`swift build`、`swift test --filter SettingsUITests.MCPServersViewModelTests`（14 tests）、`swift test`（638 tests）、`git diff --check` 均通过。
+- 验证：`swift build`、`swift test --filter SettingsUITests.MCPServersViewModelTests`（15 tests）、`swift test`（639 tests）、`git diff --check` 均通过。
 - Task 5 二次 code-quality 复审结论：`APPROVED`。
 
 **下一步**：启动 M2 Task 6：PermissionGraph case-aware coverage。

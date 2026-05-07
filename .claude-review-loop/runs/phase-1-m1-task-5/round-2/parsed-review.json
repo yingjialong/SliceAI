@@ -1,0 +1,5 @@
+{
+  "findings": [],
+  "summary": "Round-1 Add-Server duplicate-id fix is correctly applied (`MCPServersViewModel.replaceOrUpsert` nil-originalID branch now throws `.duplicateServerID`) and regression-tested by `test_saveNewServerRejectsDuplicateExistingID`. Cumulative diff review against base 28f76e0 shows: store-level atomic `update(_:)` serializes save/import/delete, per-server preview generation drops stale `tools/list` results across configuration mutations, per-server testing-counts keep `isTesting` true until all in-flight tests resolve, editor draft preserves capabilities/provenance on rename, sheet keeps user input on failure. The redundant `current == descriptor` comparison inside `isCurrentTestResult` is a no-op (MCPDescriptor Equatable is id-only by design), but generation tracking is the real staleness mechanism, so this is not a correctness defect. SettingsScene change is a minimal entry-point addition with no regression to other pages. No material critical/high/medium findings remain in scope.",
+  "verdict": "approve"
+}
