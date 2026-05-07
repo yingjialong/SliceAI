@@ -1,0 +1,65 @@
+import Foundation
+import SliceCore
+
+/// MCP client facade：按 descriptor transport 路由到具体 transport client。
+public actor RoutingMCPClient: MCPClientProtocol {
+    private let descriptors: @Sendable () async throws -> [MCPDescriptor]
+    private let stdio: any MCPClientProtocol
+    private let streamableHTTP: (any MCPClientProtocol)?
+    private let legacySSE: (any MCPClientProtocol)?
+
+    /// 构造 routing MCP client；M1 阶段只真正启用 stdio transport。
+    public init(
+        descriptors: @escaping @Sendable () async throws -> [MCPDescriptor],
+        stdio: any MCPClientProtocol,
+        streamableHTTP: (any MCPClientProtocol)? = nil,
+        legacySSE: (any MCPClientProtocol)? = nil
+    ) {
+        self.descriptors = descriptors
+        self.stdio = stdio
+        self.streamableHTTP = streamableHTTP
+        self.legacySSE = legacySSE
+    }
+
+    /// 查询工具列表；M4 前远程 transport 一律 fail-fast。
+    public func tools(for descriptor: MCPDescriptor) async throws -> [MCPToolDescriptor] {
+        switch descriptor.transport {
+        case .stdio:
+            return try await stdio.tools(for: descriptor)
+        case .streamableHTTP:
+            _ = streamableHTTP
+            throw MCPClientError.unsupportedTransport(.streamableHTTP)
+        case .sse:
+            _ = legacySSE
+            throw MCPClientError.unsupportedTransport(.sse)
+        case .websocket:
+            throw MCPClientError.unsupportedTransport(.websocket)
+        }
+    }
+
+    /// 按 ref.server 解析 descriptor，再把 tool call 委托给对应 transport client。
+    public func call(ref: MCPToolRef, args: MCPJSONValue.Object) async throws -> MCPCallResult {
+        let descriptor = try await descriptor(for: ref)
+        switch descriptor.transport {
+        case .stdio:
+            return try await stdio.call(ref: ref, args: args)
+        case .streamableHTTP:
+            _ = streamableHTTP
+            throw MCPClientError.unsupportedTransport(.streamableHTTP)
+        case .sse:
+            _ = legacySSE
+            throw MCPClientError.unsupportedTransport(.sse)
+        case .websocket:
+            throw MCPClientError.unsupportedTransport(.websocket)
+        }
+    }
+
+    /// 从 descriptors provider 中解析 ref.server 对应的 descriptor。
+    private func descriptor(for ref: MCPToolRef) async throws -> MCPDescriptor {
+        let availableDescriptors = try await descriptors()
+        guard let descriptor = availableDescriptors.first(where: { $0.id == ref.server }) else {
+            throw MCPClientError.toolNotFound(ref: ref)
+        }
+        return descriptor
+    }
+}

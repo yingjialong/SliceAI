@@ -50,6 +50,27 @@ open SliceAI.xcodeproj
 
 ## 项目修改变动记录
 
+### 2026-05-07 · Phase 1 M1 Task 4 · Stdio MCP JSON-RPC Client
+
+**范围**：worktree `.worktrees/phase-1-mcp-context`，M1 Task 4
+
+**主要变更**：
+- 新增 `MCPJSONRPCRequest` / `MCPJSONRPCResponse` / `MCPJSONRPCError` / `MCPToolsListResult`，锁定 MCP newline-delimited JSON-RPC request、response、error 和 tools/list wire shape。
+- 新增 `StdioMCPClient` actor，按首次 `tools(for:)` / `call(ref:args:)` lazy 启动 stdio 子进程，依次发送 `initialize`、`notifications/initialized`、`tools/list`，并通过 `tools/call` 传递结构化 `MCPJSONValue.Object` arguments。
+- 新增 `MCPDiagnosticLog`，对 stderr 诊断统一脱敏 bearer、`sk-`、Authorization、Cookie 等敏感片段；stdio client 支持默认 5 分钟 idle timeout，测试可注入短 timeout。
+- 新增 `RoutingMCPClient` actor 作为 MCP client facade：`.stdio` 委托给 stdio client；M4 前 `.streamableHTTP`、`.sse`、`.websocket` 均 fail-fast 为 unsupported transport。
+- `MCPClientError` 新增 `.protocolError(code:message:)` 与 `.unsupportedTransport(_:)`，明确区分 JSON-RPC protocol error 与 `MCPCallResult.isError == true` 的工具执行错误。
+
+**验证状态**：
+- 已按 TDD 先写失败测试并确认红灯。
+- `swift test --filter CapabilitiesTests.MCPJSONRPCTests`
+- `swift test --filter CapabilitiesTests.StdioMCPClientTests`
+- `swift test --filter CapabilitiesTests.RoutingMCPClientTests`
+- `swift test --filter CapabilitiesTests.MCPClientProtocolTests`
+- `swift test --filter CapabilitiesTests`
+- `swift test`
+- `git diff --check`
+
 ### 2026-05-07 · Phase 1 M1 Task 3 · MCP Server Store And Claude Desktop Import
 
 **范围**：worktree `.worktrees/phase-1-mcp-context`，M1 Task 3

@@ -4,6 +4,15 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 
 ---
 
+## Task 42 · Phase 1 M1 Task 4 · Stdio MCP JSON-RPC Client
+
+- **时间**：2026-05-07
+- **描述**：实现 M1 stdio MCP JSON-RPC client：JSON-RPC framing、lazy start、initialize、tools/list、tools/call、idle timeout、stderr diagnostic redaction，以及 RoutingMCPClient 的 stdio/远程 transport 路由边界。
+- **详情**：[docs/Task-detail/2026-05-07-phase-1-m1-task-4-stdio-mcp-json-rpc-client.md](Task-detail/2026-05-07-phase-1-m1-task-4-stdio-mcp-json-rpc-client.md)
+- **结果**：完成。Spec compliance review 与 code quality review 均已通过；目标测试、`CapabilitiesTests`、全量 `swift test` 与 `git diff --check` 已通过，已提交 commit。
+
+---
+
 ## Task 41 · Phase 1 M1 Task 3 · MCP Server Store And Claude Desktop Import
 
 - **时间**：2026-05-07
