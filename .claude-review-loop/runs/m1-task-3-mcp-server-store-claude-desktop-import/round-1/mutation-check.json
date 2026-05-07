@@ -1,0 +1,9 @@
+{
+  "before": [
+    "?? docs/Task-detail/claude-loop-m1-task-3-mcp-server-store-claude-desktop-import.md"
+  ],
+  "after": [
+    "?? docs/Task-detail/claude-loop-m1-task-3-mcp-server-store-claude-desktop-import.md"
+  ],
+  "mutation_detected": false
+}

@@ -1,0 +1,16 @@
+{
+  "verdict": "needs_attention",
+  "summary": "Task 3 整体结构合理：fail-closed 校验入口集中、schema 版本校验、duplicate id、unknown provenance、相对路径、远程 transport 都按 spec 落实，错误也不再回显用户路径。但 `MCPServerValidation` 的 runner allowlist 比对只用字符串相等，绝对路径 `/usr/local/bin/npx` 完全绕过 typed runner confirmation —— 与 spec §7 \"未确认 runner...fail closed\" 的安全意图直接冲突。该旁路同时使 `args` 中可执行的任意 npm/PyPI/Python 代码失去用户感知。需要先修这个 HIGH 才能进入 Task 4。",
+  "findings": [
+    {
+      "severity": "high",
+      "title": "Absolute-path invocation bypasses runner typed confirmation (npx/uvx/node/python)",
+      "file": "SliceAIKit/Sources/Capabilities/MCP/MCPServerValidation.swift",
+      "line_start": 87,
+      "line_end": 113,
+      "confidence": 0.9,
+      "evidence": "validateStdio 用 `allowlistedRunners.contains(command)` 做精确字符串匹配，allowlist 是 {\"npx\",\"uvx\",\"node\",\"python\",\"python3\"}。`command = \"npx\"` 必须有 RunnerConfirmation；但 `command = \"/usr/local/bin/npx\"` 或 `/opt/homebrew/bin/npx` 直接走 `validateAbsoluteCommandPath`，只要路径不含 `..` 就通过——根本不要求 typed confirmation。可在 mcp.json 中放入 `{\"command\":\"/usr/local/bin/npx\",\"args\":[\"-y\",\"@evil/mcp-server\"]}`，args 完全不被校验，npx 仍然按用户身份从 npm 拉任意代码并执行。MCPServerStoreTests 也只覆盖 bare command 的 unconfirmedRunner 路径（test_runnerConfirmationRequiredForNpxUvxNodePython 第 188-215 行），没有覆盖绝对路径形式，所以这个旁路完全没被测试守住。\n\n该行为与 docs/superpowers/specs/2026-05-06-phase-1-mcp-context-design.md §7（\"未确认 runner...全部 fail closed\"）和 §M1（\"对 `npx`、`uvx`、`node`、`python` runner 做首次 typed confirmation\"）矛盾。README 第 60 行虽然写了\"绝对 command path 在路径校验通过时无需 runner confirmation\"，但解释器危险性不会因为路径前缀变化而消失：`/usr/local/bin/npx -y @x` 与 `npx -y @x` 在攻击面上完全等价。runner confirmation 的初衷是让用户对\"任意代码解释器\"建立一次性认知，绝对路径豁免把这层防线降级为可选。",
+      "recommendation": "在 validateStdio 里把命令解析为 basename，再与 allowlist 比对：例如 `let basename = (command as NSString).lastPathComponent`，对绝对路径同样跑 `validateRunnerConfirmation(...)`；通过后再走 `validateAbsoluteCommandPath`。同时在 MCPServerStoreTests 增加一条用例覆盖 `/usr/local/bin/npx` / `/opt/homebrew/bin/python3` 等绝对路径必须 fail-closed 直到有 RunnerConfirmation。如确实要保留豁免，需在 spec 与 README 中给出明确的威胁模型论证，并解释为何绝对路径 + 任意 args 不再属于\"未确认 runner\"语义。"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "findings": [
+    {
+      "severity": "medium",
+      "title": "Versioned runner binary paths bypass typed runner confirmation (Homebrew python3.11 / node22 etc.)",
+      "file": "SliceAIKit/Sources/Capabilities/MCP/MCPServerValidation.swift",
+      "line_start": 122,
+      "line_end": 131,
+      "confidence": 0.85,
+      "evidence": "`allowlistedRunnerBasename(for:)` 用 `URL(fileURLWithPath: command).lastPathComponent` 取 basename，再用 `Set(['npx','uvx','node','python','python3']).contains(basename)` 做严格字面量匹配。Homebrew 安装的 `/opt/homebrew/bin/python3.11`、`/opt/homebrew/bin/python3.12`、`/usr/local/bin/node22` 这种带版本号的解释器二进制是 macOS 上最常见的安装形态，basename 分别是 `python3.11` / `node22`，不在白名单里。结果是：(1) `validateAbsoluteCommandPath` 因为是合法绝对路径放行；(2) `allowlistedRunnerBasename` 返回 nil；(3) `validateRunnerConfirmation` 整段被跳过，写入 `mcp.json` 不需要 typed confirmation。可是 `python3.11` 与 `python3` 的威胁模型完全相同——都能执行任意用户提供的脚本，而 `docs/Module/Capabilities.md` 明确声明『allowlisted runner 即使以绝对路径出现，也会按 basename 要求 typed confirmation』，spec §4.4 / §7 也要求『未确认 runner 全部 fail closed』。当前实现没有覆盖该意图。同源的 case 变体（`/usr/local/bin/Python3` 在 case-insensitive APFS 上指向同一二进制）也会绕过；basename `Python3` 不在白名单 set 里。和上一轮 F1.1（绝对路径 runner 绕过）属于同一根因——『字面量等值匹配』不能覆盖 runner 的实际变体集合。",
+      "recommendation": "在 `allowlistedRunnerBasename(for:)` 中改用 pattern 匹配处理常见 runner 变体（如 `python3` 后缀 `.X` 或 `.X.Y`、`node` 后缀数字、`python` 大版本号），并对 macOS 文件系统语义做大小写不敏感比较；或者明确在 spec/doc 中把这种『版本号 runner 必须显式 symlink 到 python3 才会被识别』的限制写出来，并在 store 校验时对未识别的解释器 basename 给一条 warning。建议先加一个失败测试 `test_runnerConfirmationRequiredForVersionedPython`：`command = '/opt/homebrew/bin/python3.11'` 在空 `runnerConfirmations` 下应抛 `.unconfirmedRunner(id:command:)`。"
+    }
+  ],
+  "summary": "Round 2 审查发现一个 medium 级 fail-closed 缺口：`allowlistedRunnerBasename` 用严格字面量集合匹配，会让 Homebrew 上常见的 `/opt/homebrew/bin/python3.11`、`/opt/homebrew/bin/node22` 等版本化解释器路径绕过 typed runner confirmation。这与 spec『未确认 runner 全部 fail closed』及 Capabilities 文档『按 basename 要求 typed confirmation』的承诺冲突，且与上一轮 F1.1 同根（字面量等值匹配无法覆盖 runner 变体集合）。其他 fail-closed 校验、schema/version、duplicate id、命令路径隐私、importer/store 边界、JSON 解码、原子写入等检查均通过，未发现 critical/high 材料问题。",
+  "verdict": "needs_attention"
+}

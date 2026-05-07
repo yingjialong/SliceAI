@@ -1,0 +1,19 @@
+{
+  "before": [
+    "?? .claude-review-loop/runs/m1-task-3-mcp-server-store-claude-desktop-import/round-1/metadata.json",
+    "?? .claude-review-loop/runs/m1-task-3-mcp-server-store-claude-desktop-import/round-1/mutation-check.json",
+    "?? .claude-review-loop/runs/m1-task-3-mcp-server-store-claude-desktop-import/round-1/parsed-review.json",
+    "?? .claude-review-loop/runs/m1-task-3-mcp-server-store-claude-desktop-import/round-1/raw-stderr.txt",
+    "?? .claude-review-loop/runs/m1-task-3-mcp-server-store-claude-desktop-import/round-1/raw-stdout.json",
+    "?? docs/Task-detail/claude-loop-m1-task-3-mcp-server-store-claude-desktop-import.md"
+  ],
+  "after": [
+    "?? .claude-review-loop/runs/m1-task-3-mcp-server-store-claude-desktop-import/round-1/metadata.json",
+    "?? .claude-review-loop/runs/m1-task-3-mcp-server-store-claude-desktop-import/round-1/mutation-check.json",
+    "?? .claude-review-loop/runs/m1-task-3-mcp-server-store-claude-desktop-import/round-1/parsed-review.json",
+    "?? .claude-review-loop/runs/m1-task-3-mcp-server-store-claude-desktop-import/round-1/raw-stderr.txt",
+    "?? .claude-review-loop/runs/m1-task-3-mcp-server-store-claude-desktop-import/round-1/raw-stdout.json",
+    "?? docs/Task-detail/claude-loop-m1-task-3-mcp-server-store-claude-desktop-import.md"
+  ],
+  "mutation_detected": false
+}
