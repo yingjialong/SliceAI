@@ -2,7 +2,7 @@
 
 ## 模块定位
 
-`Capabilities` 是 v2 能力边界模块，承载 Phase 1+ 会接入的 MCP、Skill 和本地安全能力。Phase 0 提供协议、mock 和纯函数安全基础设施；Phase 1 M1 已接入真实 stdio MCP JSON-RPC client，但仍不实现 Streamable HTTP / WebSocket 远程 transport，也不做真实 skill 文件扫描；旧 HTTP+SSE 明确弃用，不再支持。
+`Capabilities` 是 v2 能力边界模块，承载 Phase 1+ 会接入的 MCP、Skill 和本地安全能力。Phase 0 提供协议、mock 和纯函数安全基础设施；Phase 1 M1 已接入本地 MCP server store、Claude Desktop stdio importer、真实 stdio MCP JSON-RPC client，并暴露给 SettingsUI 的 MCP Servers 设置页使用。当前仍不实现 Streamable HTTP / WebSocket 远程 transport，也不做真实 skill 文件扫描；旧 HTTP+SSE 明确弃用，不再支持。
 
 ## 功能范围
 
@@ -24,7 +24,7 @@ MCP 与 Skill 当前以 protocol + mock 的形式存在，目的是让 `Orchestr
 
 M1 Task 3 新增本地 MCP server 配置入口：`MCPServerStore` 默认读写 `~/Library/Application Support/SliceAI/mcp.json`，`save/load/snapshot` 都通过 `MCPServerValidation` 做 fail-closed 校验。当前只允许本地 stdio：不支持的 schemaVersion、重复 server id、`.unknown` provenance、空 command、相对 command、未知 bare command、未确认 allowlisted runner、`env` / shell wrapper command、远程 transport 和 websocket 新建写入都会被拒绝；allowlisted runner 即使以绝对路径出现，也会按大小写无关的 basename 归一到 runner 家族后要求 typed confirmation，覆盖 `python3.11`、`node22` 这类版本化解释器路径。`ClaudeDesktopMCPImporter` 只解析 Claude Desktop `mcpServers` stdio 配置并应用调用方传入 provenance；M4 前远程 URL 配置不导入。
 
-M1 Task 4 新增真实 stdio MCP client：`StdioMCPClient` 是 actor，按首次 `tools(for:)` / `call(ref:args:)` lazy 启动子进程，通过 newline-delimited JSON-RPC 发送 `initialize`、`notifications/initialized`、`tools/list` 和 `tools/call`。`tools/list` 的 `inputSchema` 以 `MCPJSONValue.Object` 透明保留，`tools/call` 的 `isError == true` 作为工具执行结果返回，不抛 JSON-RPC protocol error。stderr 诊断通过 `MCPDiagnosticLog` 统一脱敏，idle timeout 默认 5 分钟并可在测试中注入短时间。`RoutingMCPClient` 是当前 MCP client facade：`.stdio` 委托给 stdio client，`.streamableHTTP` / `.sse` / `.websocket` 在 M4 前返回 unsupported transport；其中 `.sse` 是旧 HTTP+SSE deprecated 值，后续也不实现。当前仍不包含 AgentExecutor tool calling。
+M1 Task 4 新增真实 stdio MCP client：`StdioMCPClient` 是 actor，按首次 `tools(for:)` / `call(ref:args:)` lazy 启动子进程，通过 newline-delimited JSON-RPC 发送 `initialize`、`notifications/initialized`、`tools/list` 和 `tools/call`。`tools/list` 的 `inputSchema` 以 `MCPJSONValue.Object` 透明保留，`tools/call` 的 `isError == true` 作为工具执行结果返回，不抛 JSON-RPC protocol error。stderr 诊断通过 `MCPDiagnosticLog` 统一脱敏，idle timeout 默认 5 分钟并可在测试中注入短时间。`RoutingMCPClient` 是当前 MCP client facade：`.stdio` 委托给 stdio client，`.streamableHTTP` / `.sse` / `.websocket` 在 M4 前返回 unsupported transport；其中 `.sse` 是旧 HTTP+SSE deprecated 值，后续也不实现。M1 Task 5 新增的 `SettingsUI.MCPServersViewModel` 通过 `MCPServerStore` 和 `ClaudeDesktopMCPImporter` 管理配置，并通过注入的 `MCPClientProtocol.tools(for:)` 做 Settings 页工具预览。当前仍不包含 AgentExecutor tool calling。
 
 ## 关键接口
 
@@ -45,7 +45,7 @@ M1 Task 4 新增真实 stdio MCP client：`StdioMCPClient` 是 actor，按首次
 
 ## 运行逻辑
 
-当前生产 App 仍未把真实 MCP 调用接入 `AgentExecutor`；`.agent` / `.pipeline` 工具在执行引擎中仍返回 not implemented，不会触发真实 MCP 或 Skill 调用。M1 的 stdio client 已可作为后续 Settings 测试连接和 AgentExecutor wiring 的底层 transport。
+当前生产 App 仍未把真实 MCP 调用接入 `AgentExecutor`；`.agent` / `.pipeline` 工具在执行引擎中仍返回 not implemented，不会触发真实 MCP 或 Skill 调用。M1 的 stdio client 已用于 Settings MCP Servers 页面测试连接，并可作为后续 AgentExecutor wiring 的底层 transport。
 
 后续 runtime 可通过 `MCPServerStore.snapshot()` 获取已校验 descriptors，再把 `RoutingMCPClient` 作为唯一 MCP facade 注入执行链路。Phase 2 接入 Skill 文件扫描时，同样替换 `SkillRegistryProtocol` 实现。`PathSandbox` 会作为文件读取、文件写入和 MCP/Skill 本地路径访问的统一安全入口。
 

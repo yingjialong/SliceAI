@@ -40,15 +40,34 @@ open SliceAI.xcodeproj
 | `SliceAIApp` | macOS App 薄壳：菜单栏、Onboarding、全局触发监听、Composition Root、ResultPanel 生命周期。 |
 | `SliceCore` | 领域模型与配置：`Tool` / `Provider` / `Configuration` / `ExecutionSeed` / `ResolvedExecutionContext` / 权限 / 输出绑定。 |
 | `Orchestration` | v2 执行引擎：`ExecutionEngine`、上下文采集、权限闭环、PromptExecutor、OutputDispatcher、成本记账、审计日志。 |
-| `Capabilities` | Phase 1+ 能力边界：`PathSandbox`、MCP client 协议、Skill registry 协议和生产侧 mock。 |
+| `Capabilities` | Phase 1+ 能力边界：`PathSandbox`、MCP server store/importer、MCP client 协议与 stdio client、Skill registry 协议和生产侧 mock。 |
 | `LLMProviders` | OpenAI 兼容协议实现与 provider factory，负责 Chat Completions / SSE 流式解析。 |
 | `SelectionCapture` | 选区捕获：AX 主路径 + Cmd+C fallback，统一产出 `SelectionPayload`。 |
 | `HotkeyManager` | Carbon `RegisterEventHotKey` 全局快捷键注册与解析。 |
 | `Windowing` | FloatingToolbar、CommandPalette、ResultPanel 与屏幕定位算法。 |
-| `SettingsUI` | SwiftUI 设置界面、KeychainStore、Provider / Tool 编辑器、配置即时保存。 |
+| `SettingsUI` | SwiftUI 设置界面、KeychainStore、Provider / Tool / MCP Servers 编辑器、配置即时保存。 |
 | `DesignSystem` / `Permissions` | 设计 token、主题管理、共享控件与 Accessibility onboarding / monitor。 |
 
 ## 项目修改变动记录
+
+### 2026-05-07 · Phase 1 M1 Task 5 · MCP Servers Settings Page
+
+**范围**：worktree `.worktrees/phase-1-mcp-context`，M1 Task 5
+
+**主要变更**：
+- `SettingsUI` target 新增 `Capabilities` 依赖，并新增 `SettingsUITests` test target。
+- 新增 `MCPServersViewModel`，通过 `MCPServerStore` 读写本地 `mcp.json`，支持 Claude Desktop JSON 导入、server 保存/删除，以及注入 `MCPClientProtocol.tools(for:)` 的测试连接工具预览。
+- 新增 `MCPServersPage`，在设置窗口中提供 MCP server 列表、stdio server 新增/编辑 sheet、Claude Desktop JSON 粘贴导入 sheet、测试连接按钮和 tools/list 预览。
+- `SettingsScene` sidebar 新增 MCP Servers 页面入口；不提供 legacy SSE 新建选项，也未新增 `LegacySSEMCPClient`。
+
+**验证状态**：
+- 已按 TDD 先写失败测试并确认红灯。
+- `swift test --filter SettingsUITests.MCPServersViewModelTests`
+- `swift build`
+- `swift test --filter SliceCoreTests.MCPDescriptorTests`
+- `swift test --filter CapabilitiesTests.RoutingMCPClientTests`
+- `swift test --filter SettingsUITests`
+- `git diff --check`
 
 ### 2026-05-07 · Phase 1 M1 Task 4 · Stdio MCP JSON-RPC Client
 

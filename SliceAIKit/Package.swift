@@ -43,7 +43,14 @@ let package = Package(
         .target(name: "Windowing", dependencies: ["SliceCore", "DesignSystem"], swiftSettings: swiftSettings),
         .target(name: "Permissions", dependencies: ["SliceCore", "DesignSystem"], swiftSettings: swiftSettings),
         .target(name: "SettingsUI",
-                dependencies: ["SliceCore", "LLMProviders", "HotkeyManager", "DesignSystem", "Permissions"],
+                dependencies: [
+                    "SliceCore",
+                    "LLMProviders",
+                    "HotkeyManager",
+                    "DesignSystem",
+                    "Permissions",
+                    "Capabilities",
+                ],
                 swiftSettings: swiftSettings),
         .testTarget(name: "SliceCoreTests",
                     dependencies: ["SliceCore"],
@@ -71,6 +78,9 @@ let package = Package(
                     swiftSettings: swiftSettings),
         .testTarget(name: "DesignSystemTests",
                     dependencies: ["DesignSystem", "SliceCore"],
+                    swiftSettings: swiftSettings),
+        .testTarget(name: "SettingsUITests",
+                    dependencies: ["SettingsUI", "SliceCore", "Capabilities"],
                     swiftSettings: swiftSettings),
     ]
 )

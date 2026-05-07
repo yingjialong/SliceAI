@@ -6,7 +6,7 @@ import SwiftUI
 /// 设置主界面：NavigationSplitView 骨架
 ///
 /// 架构说明：
-///   - 侧栏（sidebar）：7 个条目，分 3 组（主要功能 / 行为 / 更多）；
+///   - 侧栏（sidebar）：8 个条目，分 3 组（主要功能 / 行为 / 更多）；
 ///   - 详情区（detail）：根据当前选中条目渲染对应页面；
 ///   - 每个页面自行负责即时保存，无全局保存栏。
 ///
@@ -39,7 +39,7 @@ public struct SettingsScene: View {
 
     // MARK: - Sidebar
 
-    /// 侧栏：7 个条目，分 3 组
+    /// 侧栏：8 个条目，分 3 组
     ///
     /// 使用 `List(selection:)` 驱动 `selectedItem` 绑定，保持单一 source of truth。
     /// 各 section 用 `Section(header:)` 区分分组标题，macOS 风格对应设置面板惯例。
@@ -49,6 +49,7 @@ public struct SettingsScene: View {
             Section {
                 SidebarRow(item: .providers)
                 SidebarRow(item: .tools)
+                SidebarRow(item: .mcpServers)
                 SidebarRow(item: .appearance)
             } header: {
                 Text("通用")
@@ -87,6 +88,8 @@ public struct SettingsScene: View {
             ProvidersSettingsPage(viewModel: viewModel)
         case .tools:
             ToolsSettingsPage(viewModel: viewModel)
+        case .mcpServers:
+            MCPServersPage()
         case .appearance:
             AppearanceSettingsPage(viewModel: viewModel)
         case .hotkey:
@@ -115,6 +118,7 @@ public struct SettingsScene: View {
 private enum SidebarItem: Hashable, CaseIterable {
     case providers
     case tools
+    case mcpServers
     case appearance
     case hotkey
     case trigger
@@ -126,6 +130,7 @@ private enum SidebarItem: Hashable, CaseIterable {
         switch self {
         case .providers:   return "Providers"
         case .tools:       return "Tools"
+        case .mcpServers:  return "MCP Servers"
         case .appearance:  return "外观"
         case .hotkey:      return "快捷键"
         case .trigger:     return "触发行为"
@@ -139,6 +144,7 @@ private enum SidebarItem: Hashable, CaseIterable {
         switch self {
         case .providers:   return "network"
         case .tools:       return "hammer"
+        case .mcpServers:  return "server.rack"
         case .appearance:  return "paintbrush"
         case .hotkey:      return "keyboard"
         case .trigger:     return "cursorarrow.click"
