@@ -76,6 +76,16 @@ final class MCPDescriptorTests: XCTestCase {
         XCTAssertFalse(transport.isCreatableInPhase1Settings)
     }
 
+    /// 旧 HTTP+SSE 只保留解码兼容，Phase 1 设置页不能新建。
+    func test_mcpTransport_sse_decodesButIsNotCreatableInSettings() throws {
+        let data = Data(#""sse""#.utf8)
+
+        let transport = try JSONDecoder().decode(MCPTransport.self, from: data)
+
+        XCTAssertEqual(transport, .sse)
+        XCTAssertFalse(transport.isCreatableInPhase1Settings)
+    }
+
     func test_mcpToolRef_hashable_forSet() {
         let a = MCPToolRef(server: "s", tool: "t")
         let b = MCPToolRef(server: "s", tool: "t")

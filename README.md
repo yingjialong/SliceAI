@@ -58,7 +58,7 @@ open SliceAI.xcodeproj
 - 新增 `MCPJSONRPCRequest` / `MCPJSONRPCResponse` / `MCPJSONRPCError` / `MCPToolsListResult`，锁定 MCP newline-delimited JSON-RPC request、response、error 和 tools/list wire shape。
 - 新增 `StdioMCPClient` actor，按首次 `tools(for:)` / `call(ref:args:)` lazy 启动 stdio 子进程，依次发送 `initialize`、`notifications/initialized`、`tools/list`，并通过 `tools/call` 传递结构化 `MCPJSONValue.Object` arguments。
 - 新增 `MCPDiagnosticLog`，对 stderr 诊断统一脱敏 bearer、`sk-`、Authorization、Cookie 等敏感片段；stdio client 支持默认 5 分钟 idle timeout，测试可注入短 timeout。
-- 新增 `RoutingMCPClient` actor 作为 MCP client facade：`.stdio` 委托给 stdio client；M4 前 `.streamableHTTP`、`.sse`、`.websocket` 均 fail-fast 为 unsupported transport。
+- 新增 `RoutingMCPClient` actor 作为 MCP client facade：`.stdio` 委托给 stdio client；M4 前 `.streamableHTTP` fail-fast 为 unsupported transport，旧 `.sse` 与 `.websocket` 只保留解码兼容且不允许新建或连接。
 - `MCPClientError` 新增 `.protocolError(code:message:)` 与 `.unsupportedTransport(_:)`，明确区分 JSON-RPC protocol error 与 `MCPCallResult.isError == true` 的工具执行错误。
 
 **验证状态**：
@@ -117,7 +117,7 @@ open SliceAI.xcodeproj
 - 新增 `MCPJSONValue` transparent raw JSON 值类型，支持 null / bool / number / string / array / object、字符串叶子变量渲染和 secret-like key 摘要脱敏。
 - 新增 `MCPContentItem`、`MCPCallResult`、`MCPToolDescriptor`，将 MCP content/result/tool schema contract 放入 SliceCore；`resource` 与 `resource_link` wire shape 按 MCP 2025-06-18 schema 约束。
 - `SideEffect.callMCP` 与 `PipelineStep.mcp` 参数升级为 `MCPJSONValue.Object`，可表达嵌套 JSON。
-- `MCPTransport` 新增 `streamable-http`，并通过 `isCreatableInPhase1Settings` 保留 websocket 可解码但不可在 Phase 1 设置中新建的约束。
+- `MCPTransport` 新增 `streamable-http`，并通过 `isCreatableInPhase1Settings` 保留旧 `.sse` / `.websocket` 可解码但不可在 Phase 1 设置中新建的约束。
 
 **验证状态**：
 - 已按 TDD 先写失败测试并确认红灯。
@@ -152,7 +152,7 @@ open SliceAI.xcodeproj
 
 **主要变更**：
 - **Orchestration 模块完整落地**：`ExecutionEngine` actor 主流程串起 spec §3.4 Step 1-10（PermissionGraph 静态闭环 → PermissionBroker.gate → ContextCollector 平铺并发 → ProviderResolver → PromptExecutor → OutputDispatcher → CostAccounting → JSONLAuditLog → finishSuccess）；事件流 `ExecutionEvent` + 终态报告 `InvocationReport`（含 declared/effective 权限差异 + flags + outcome）
-- **Capabilities 模块 + SecurityKit**：`PathSandbox`（路径规范化 + 默认白名单 + 硬禁止表，含 macOS `/private/etc` symlink 展开后的兜底）+ `MCPClientProtocol` / `SkillRegistryProtocol` 完整接口 + production-side `MockMCPClient` / `MockSkillRegistry`（Phase 1 才实现真实 stdio/SSE）
+- **Capabilities 模块 + SecurityKit**：`PathSandbox`（路径规范化 + 默认白名单 + 硬禁止表，含 macOS `/private/etc` symlink 展开后的兜底）+ `MCPClientProtocol` / `SkillRegistryProtocol` 完整接口 + production-side `MockMCPClient` / `MockSkillRegistry`（Phase 1 才实现真实 stdio / Streamable HTTP；旧 SSE 弃用）
 - **权限闭环（spec §3.9.6.5）**：`EffectivePermissions` 5 字段（context/sideEffect/mcp/builtin/declared）+ `PermissionGraph.compute` D-24 静态闭环 + `PermissionBroker` 4 态决策（approved / denied / requiresUserConsent / wouldRequireConsent）+ `ConsentUXHint` 5×4 矩阵（spec §3.9.2 下限 × provenance）
 - **遥测 + 安全下限**：`CostAccounting` actor + sqlite append（毫秒精度 `recorded_at` + `usd: TEXT` Decimal 精度）；`JSONLAuditLog` actor + `Redaction.scrub` 4 模式脱敏（Bearer / sk- / Authorization / Cookie）+ `AuditEntry` enum 3 case（含 `.logCleared`）；`SliceCore.SliceError` 加 `.context` / `.toolPermission` 顶层 case，全部 String payload 严格 `<redacted>`
 - **PromptExecutor 复制非替换**（§C-7）：从 `SliceCore/ToolExecutor.swift` 复制 prompt 渲染逻辑到 `Orchestration/Executors/PromptExecutor.swift`（升级到 V2 类型 + `PromptStreamElement` enum + `UsageStats` token 估算），**v1 ToolExecutor.swift 0 行 diff**——M3 才删旧文件
@@ -170,7 +170,7 @@ open SliceAI.xcodeproj
 **M2 不做（保留给后续 Phase）**：
 - AppContainer 接入 ExecutionEngine 与触发链（M3）
 - 删除 `SliceCore/ToolExecutor.swift` + rename pass（M3）
-- 真实 MCPClient（stdio/SSE，Phase 1）+ 真实 SkillRegistry（fs scan，Phase 2）
+- 真实 MCPClient（stdio / Streamable HTTP，Phase 1；旧 SSE 弃用）+ 真实 SkillRegistry（fs scan，Phase 2）
 - OutputDispatcher 的 `.clipboard` / `.replaceSelection` / `.notification` / `.sideOnly` / `.window+notification` 5 种 mode（Phase 2，M2 仅 `.window` 真实分发，其余 `.notImplemented`）
 
 ### 2026-04-21 · UI 全面美化 + Task 22 收官

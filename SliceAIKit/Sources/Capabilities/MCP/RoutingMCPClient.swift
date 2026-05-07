@@ -6,19 +6,16 @@ public actor RoutingMCPClient: MCPClientProtocol {
     private let descriptors: @Sendable () async throws -> [MCPDescriptor]
     private let stdio: any MCPClientProtocol
     private let streamableHTTP: (any MCPClientProtocol)?
-    private let legacySSE: (any MCPClientProtocol)?
 
     /// 构造 routing MCP client；M1 阶段只真正启用 stdio transport。
     public init(
         descriptors: @escaping @Sendable () async throws -> [MCPDescriptor],
         stdio: any MCPClientProtocol,
-        streamableHTTP: (any MCPClientProtocol)? = nil,
-        legacySSE: (any MCPClientProtocol)? = nil
+        streamableHTTP: (any MCPClientProtocol)? = nil
     ) {
         self.descriptors = descriptors
         self.stdio = stdio
         self.streamableHTTP = streamableHTTP
-        self.legacySSE = legacySSE
     }
 
     /// 查询工具列表；M4 前远程 transport 一律 fail-fast。
@@ -30,7 +27,6 @@ public actor RoutingMCPClient: MCPClientProtocol {
             _ = streamableHTTP
             throw MCPClientError.unsupportedTransport(.streamableHTTP)
         case .sse:
-            _ = legacySSE
             throw MCPClientError.unsupportedTransport(.sse)
         case .websocket:
             throw MCPClientError.unsupportedTransport(.websocket)
@@ -47,7 +43,6 @@ public actor RoutingMCPClient: MCPClientProtocol {
             _ = streamableHTTP
             throw MCPClientError.unsupportedTransport(.streamableHTTP)
         case .sse:
-            _ = legacySSE
             throw MCPClientError.unsupportedTransport(.sse)
         case .websocket:
             throw MCPClientError.unsupportedTransport(.websocket)

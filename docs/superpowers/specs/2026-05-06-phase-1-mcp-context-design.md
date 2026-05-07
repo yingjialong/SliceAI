@@ -4,7 +4,7 @@
 - **状态**：Design spec 已起草，等待用户 review；review 通过后进入 implementation plan。
 - **适用范围**：Phase 1 / v0.3 MCP + Context 主干。
 - **上游依据**：[2026-04-23-sliceai-v2-roadmap.md](2026-04-23-sliceai-v2-roadmap.md)、[docs/v2-refactor-master-todolist.md](../../v2-refactor-master-todolist.md)
-- **协议依据**：MCP 官方最新规范 2025-11-25；标准传输是 `stdio` 与 `Streamable HTTP`，旧 `HTTP+SSE` 作为兼容路径处理。
+- **协议依据**：MCP 官方最新规范 2025-11-25；标准传输是 `stdio` 与 `Streamable HTTP`，旧 `HTTP+SSE` 在 Phase 1 中弃用且不实现。
 
 ## 1. 目标
 
@@ -63,11 +63,11 @@ Tool.agent
 
 ### 4.3 远程传输命名
 
-旧 roadmap 写的是 MCPClient SSE。当前 MCP 官方最新规范把标准远程传输定义为 `Streamable HTTP`，并把旧 `HTTP+SSE` 作为向后兼容路径。Phase 1 执行口径改为：
+旧 roadmap 写的是 MCPClient SSE。当前 MCP 官方最新规范把标准远程传输定义为 `Streamable HTTP`。Phase 1 执行口径改为：
 
 - M1 优先实现 `stdio`，因为 Claude Desktop 兼容和本地 MCP server 是核心场景。
 - M4 实现 `Streamable HTTP` 作为远程 MCP transport。
-- 对旧 `HTTP+SSE` 只做兼容 fallback，满足已有 server 或旧文档口径，不把它作为新设计主线。
+- 旧 `HTTP+SSE` 弃用且不实现；`.sse` 只作为 deprecated wire value 被识别并拒绝。
 
 ### 4.4 Permission 默认策略
 
@@ -144,7 +144,7 @@ Tool.agent
 
 范围：
 
-- 实现 MCP `Streamable HTTP` transport，并兼容旧 `HTTP+SSE` server。
+- 实现 MCP `Streamable HTTP` transport；旧 `HTTP+SSE` server 不兼容。
 - HotkeyManager 支持多个 hotkey 注册。
 - Tool 设置页支持 Per-Tool Hotkey、冲突检测和移除。
 - Tool hotkey 触发对应 Tool，而不是只打开 Command Palette。
@@ -215,12 +215,12 @@ plan 必须包含：
 - 对 `MCPDescriptor` 重复定义的修复步骤。
 - MCP JSON value / content item 的模型设计。
 - Permission UI gate 的主线程桥接方案。
-- `Streamable HTTP` 与旧 `HTTP+SSE` 的执行口径。
+- `Streamable HTTP` 与 deprecated `.sse` 拒绝策略的执行口径。
 - 5 server E2E 与 Safari / Notes / Slack 手工回归清单。
 
 ## 10. 自审结果
 
 - Placeholder scan：未保留占位语或空章节。
-- Internal consistency：MCP 远程传输统一为 `Streamable HTTP` 主线、旧 `HTTP+SSE` 兼容；与 v2 roadmap 的 Phase 1 DoD 保持交付等价。
+- Internal consistency：MCP 远程传输统一为 `Streamable HTTP` 主线，旧 `HTTP+SSE` 弃用且不实现；与用户确认后的 Phase 1 口径一致。
 - Scope check：保持一个 Phase 1 总 plan，但内部拆 M1-M4，适合后续 subagent-driven execution。
 - Ambiguity check：默认 permission scope、provenance 策略、MCP descriptor 来源、ContextProvider 五件套均已明确。

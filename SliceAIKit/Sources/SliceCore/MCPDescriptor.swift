@@ -2,8 +2,8 @@ import Foundation
 
 /// MCP server 配置描述；`mcp.json` 中一条记录对应一个 MCPDescriptor
 ///
-/// 兼容 Claude Desktop `mcpServers` 格式：stdio 下填 `command + args + env`；
-/// SSE / WebSocket 下填 `url`。Phase 1 的 `MCPClient` 消费此结构启动 / 连接 server。
+/// 兼容 Claude Desktop `mcpServers` 格式：stdio 下填 `command + args + env`。
+/// 远程传输使用 Streamable HTTP；旧 SSE / WebSocket 只保留解码兼容，不允许在设置页新建。
 ///
 /// `provenance` 由安装流程写入；`.unknown` 来源的 MCPDescriptor 在**安装流程入口**被拒绝，
 /// 不会被构造出来（D-23 / §3.9.4.2）。
@@ -16,7 +16,7 @@ public struct MCPDescriptor: Identifiable, Sendable, Codable, Equatable, Hashabl
     public let command: String?
     /// stdio 的命令参数；非 stdio 时 nil
     public let args: [String]?
-    /// SSE / WebSocket 端点；stdio 时 nil
+    /// 远程端点；stdio 时 nil
     public let url: URL?
     /// 环境变量；stdio 用于 `ProcessInfo.processEnv`
     public let env: [String: String]?
@@ -67,7 +67,7 @@ public enum MCPTransport: String, Sendable, Codable, CaseIterable {
     case stdio
     /// Streamable HTTP
     case streamableHTTP = "streamable-http"
-    /// Server-Sent Events
+    /// 旧 HTTP+SSE 传输；仅保留解码兼容，Phase 1 不支持新建或连接
     case sse
     /// WebSocket
     case websocket
@@ -75,9 +75,9 @@ public enum MCPTransport: String, Sendable, Codable, CaseIterable {
     /// Phase 1 设置页是否允许新建该 transport。
     public var isCreatableInPhase1Settings: Bool {
         switch self {
-        case .stdio, .streamableHTTP, .sse:
+        case .stdio, .streamableHTTP:
             return true
-        case .websocket:
+        case .sse, .websocket:
             return false
         }
     }
