@@ -526,7 +526,7 @@ final class PermissionGraphTests: XCTestCase {
         XCTAssertTrue(effective.undeclared.isEmpty, "目录声明应覆盖目录内具体路径，undeclared=\(effective.undeclared)")
     }
 
-    /// 目录前缀覆盖必须按路径分隔符判断，不能把同名前缀 sibling 当成子目录。
+    /// glob 覆盖必须按路径分隔符判断，不能把同名前缀 sibling 当成子目录。
     func test_fileRead_declaredGlobDoesNotCoverSiblingEscape() async throws {
         let graph = PermissionGraph(providerRegistry: makeDefaultRegistry())
         let effectivePath = "~/Documents/sliceai-notes-evil/task-6.md"
@@ -535,7 +535,7 @@ final class PermissionGraphTests: XCTestCase {
                 makeFileReadRequest(path: effectivePath)
             ])),
             permissions: [
-                .fileRead(path: "~/Documents/sliceai-notes/")
+                .fileRead(path: "~/Documents/sliceai-notes/**/*.md")
             ]
         )
 

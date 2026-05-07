@@ -79,5 +79,6 @@ Phase 0 的 `EffectivePermissions.undeclared` 使用字面量 `Set.subtracting` 
 - 覆盖语义只在 declared → effective 方向生效，声明多于实际权限仍不报错。
 - hard-deny 在 exact / prefix / glob 前执行；hard-denied effective 会保留在 undeclared，执行引擎仍会在文件 IO 前失败。
 - 目录前缀只接受显式以 `/` 结尾的声明，避免把 `~/Documents/foo` 误解释为目录并覆盖 `~/Documents/foobar`。
+- glob sibling escape 已用 `~/Documents/sliceai-notes/**/*.md` 对 `~/Documents/sliceai-notes-evil/task-6.md` 锁定，避免 `sliceai-notes` 同名前缀误覆盖 sibling 目录。
 - MCP `tools=nil` 只覆盖同 server，不跨 server；空数组只是空集合，不代表全部工具。
 - shellExec 没有实现“空数组全开”，避免延续 Phase 0 注释中的宽松语义到 Task 6 后的权限覆盖层。
