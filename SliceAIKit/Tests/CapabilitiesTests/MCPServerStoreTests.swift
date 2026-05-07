@@ -185,6 +185,32 @@ final class MCPServerStoreTests: XCTestCase {
         }
     }
 
+    /// update API 应在 actor 内原子完成 load / mutate / validate / save，避免并发写入丢更新。
+    func test_updateAppliesConcurrentMutationsAtomically() async throws {
+        let store = MCPServerStore(fileURL: try makeTemporaryFileURL())
+        let serverIDs = (0..<12).map { "atomic-\($0)" }
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for id in serverIDs {
+                group.addTask {
+                    try await store.update { configuration in
+                        configuration.servers.append(Self.descriptor(
+                            id: id,
+                            command: "/opt/sliceai/bin/\(id)-mcp",
+                            args: nil,
+                            env: nil,
+                            acknowledgedAt: Date(timeIntervalSince1970: 1)
+                        ))
+                    }
+                }
+            }
+            try await group.waitForAll()
+        }
+
+        let loaded = try await store.load()
+        XCTAssertEqual(Set(loaded.servers.map(\.id)), Set(serverIDs))
+    }
+
     /// npx / uvx / node / python / python3 这类 runner 首次使用必须有 typed confirmation。
     func test_runnerConfirmationRequiredForNpxUvxNodePython() throws {
         let commands = ["npx", "uvx", "node", "python", "python3"]
@@ -319,7 +345,7 @@ final class MCPServerStoreTests: XCTestCase {
     }
 
     /// 构造 stdio descriptor fixture。
-    private func descriptor(
+    private static func descriptor(
         id: String,
         command: String,
         args: [String]?,
@@ -335,6 +361,23 @@ final class MCPServerStoreTests: XCTestCase {
             env: env,
             capabilities: [.tools(["list"])],
             provenance: .selfManaged(userAcknowledgedAt: acknowledgedAt)
+        )
+    }
+
+    /// 构造 stdio descriptor fixture。
+    private func descriptor(
+        id: String,
+        command: String,
+        args: [String]?,
+        env: [String: String]?,
+        acknowledgedAt: Date
+    ) -> MCPDescriptor {
+        Self.descriptor(
+            id: id,
+            command: command,
+            args: args,
+            env: env,
+            acknowledgedAt: acknowledgedAt
         )
     }
 

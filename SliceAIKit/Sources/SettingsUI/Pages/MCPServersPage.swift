@@ -41,11 +41,14 @@ public struct MCPServersPage: View {
         .sheet(item: $editorSession) { session in
             MCPServerEditorSheet(
                 session: session,
+                validationMessage: viewModel.validationMessage,
                 onCancel: { editorSession = nil },
-                onSave: { descriptor in
+                onSave: { descriptor, originalID in
                     Task {
-                        await viewModel.save(descriptor)
-                        editorSession = nil
+                        await viewModel.save(descriptor, replacing: originalID)
+                        if viewModel.validationMessage == nil {
+                            editorSession = nil
+                        }
                     }
                 }
             )
@@ -53,6 +56,7 @@ public struct MCPServersPage: View {
         .sheet(isPresented: $isImportSheetPresented) {
             ClaudeDesktopImportSheet(
                 jsonText: $importJSONText,
+                validationMessage: viewModel.validationMessage,
                 onCancel: {
                     importJSONText = ""
                     isImportSheetPresented = false
@@ -111,7 +115,7 @@ public struct MCPServersPage: View {
                     MCPServerRow(
                         descriptor: descriptor,
                         tools: viewModel.toolsByServerID[descriptor.id] ?? [],
-                        isTesting: viewModel.testingServerID == descriptor.id,
+                        isTesting: viewModel.isTesting(id: descriptor.id),
                         onEdit: { openEditor(for: descriptor) },
                         onTest: {
                             Task {
@@ -147,8 +151,10 @@ public struct MCPServersPage: View {
         let data = Data(importJSONText.utf8)
         Task {
             await viewModel.importClaudeDesktopConfig(data)
-            importJSONText = ""
-            isImportSheetPresented = false
+            if viewModel.validationMessage == nil {
+                importJSONText = ""
+                isImportSheetPresented = false
+            }
         }
     }
 }
@@ -278,11 +284,14 @@ private struct MCPServerEditorSheet: View {
     /// 本地表单校验提示。
     @State private var localValidationMessage: String?
 
+    /// ViewModel 返回的保存错误提示。
+    let validationMessage: String?
+
     /// 取消回调。
     let onCancel: () -> Void
 
     /// 保存回调。
-    let onSave: (MCPDescriptor) -> Void
+    let onSave: (MCPDescriptor, String?) -> Void
 
     /// 构造 MCP server 编辑 sheet。
     /// - Parameters:
@@ -291,10 +300,12 @@ private struct MCPServerEditorSheet: View {
     ///   - onSave: 保存回调。
     init(
         session: MCPServerEditorSession,
+        validationMessage: String?,
         onCancel: @escaping () -> Void,
-        onSave: @escaping (MCPDescriptor) -> Void
+        onSave: @escaping (MCPDescriptor, String?) -> Void
     ) {
         self._draft = State(initialValue: session.draft)
+        self.validationMessage = validationMessage
         self.onCancel = onCancel
         self.onSave = onSave
     }
@@ -320,8 +331,8 @@ private struct MCPServerEditorSheet: View {
                 multilineField(title: "Env", text: $draft.envText)
             }
 
-            if let localValidationMessage {
-                MCPStatusBanner(text: localValidationMessage, isError: true)
+            if let message = localValidationMessage ?? validationMessage {
+                MCPStatusBanner(text: message, isError: true)
             }
 
             HStack {
@@ -368,7 +379,7 @@ private struct MCPServerEditorSheet: View {
         }
         localValidationMessage = nil
         print("[MCPServerEditorSheet] saveDraft: id=\(descriptor.id)")
-        onSave(descriptor)
+        onSave(descriptor, draft.originalID)
     }
 }
 
@@ -379,6 +390,9 @@ private struct ClaudeDesktopImportSheet: View {
 
     /// JSON 文本绑定。
     @Binding var jsonText: String
+
+    /// ViewModel 返回的导入错误提示。
+    let validationMessage: String?
 
     /// 取消回调。
     let onCancel: () -> Void
@@ -401,6 +415,10 @@ private struct ClaudeDesktopImportSheet: View {
                     RoundedRectangle(cornerRadius: SliceRadius.control)
                         .fill(SliceColor.hoverFill)
                 )
+
+            if let validationMessage {
+                MCPStatusBanner(text: validationMessage, isError: true)
+            }
 
             HStack {
                 Spacer()
@@ -459,7 +477,10 @@ private struct MCPServerEditorSession: Identifiable {
 // MARK: - MCPServerDraft
 
 /// MCP server 表单草稿。
-private struct MCPServerDraft {
+struct MCPServerDraft {
+
+    /// 编辑前的 server id；新增时为 nil。
+    var originalID: String?
 
     /// server id。
     var id: String
@@ -473,20 +494,30 @@ private struct MCPServerDraft {
     /// env 多行文本。
     var envText: String
 
+    /// 原始 capabilities；编辑时必须保留，避免 UI 改基础字段时丢 metadata。
+    var capabilities: [MCPCapability]
+
+    /// 原始 provenance；编辑时必须保留，避免信任来源被重置。
+    var provenance: Provenance
+
     /// 构造新增 server 草稿。
     /// - Returns: 默认空 command 的 stdio 草稿。
     static func new() -> MCPServerDraft {
         MCPServerDraft(
+            originalID: nil,
             id: "server-\(Int(Date().timeIntervalSince1970))",
             command: "",
             argsText: "",
-            envText: ""
+            envText: "",
+            capabilities: [],
+            provenance: .selfManaged(userAcknowledgedAt: Date())
         )
     }
 
     /// 从 descriptor 构造编辑草稿。
     /// - Parameter descriptor: 要编辑的 MCP descriptor。
     init(descriptor: MCPDescriptor) {
+        self.originalID = descriptor.id
         self.id = descriptor.id
         self.command = descriptor.command ?? ""
         self.argsText = (descriptor.args ?? []).joined(separator: "\n")
@@ -494,19 +525,35 @@ private struct MCPServerDraft {
             .sorted { lhs, rhs in lhs.key < rhs.key }
             .map { key, value in "\(key)=\(value)" }
             .joined(separator: "\n")
+        self.capabilities = descriptor.capabilities
+        self.provenance = descriptor.provenance
     }
 
     /// 构造草稿。
     /// - Parameters:
+    ///   - originalID: 编辑前的 server id；新增时为 nil。
     ///   - id: server id。
     ///   - command: stdio command。
     ///   - argsText: args 多行文本。
     ///   - envText: env 多行文本。
-    init(id: String, command: String, argsText: String, envText: String) {
+    ///   - capabilities: 原始 capabilities。
+    ///   - provenance: 原始 provenance。
+    init(
+        originalID: String? = nil,
+        id: String,
+        command: String,
+        argsText: String,
+        envText: String,
+        capabilities: [MCPCapability] = [],
+        provenance: Provenance = .selfManaged(userAcknowledgedAt: Date())
+    ) {
+        self.originalID = originalID
         self.id = id
         self.command = command
         self.argsText = argsText
         self.envText = envText
+        self.capabilities = capabilities
+        self.provenance = provenance
     }
 
     /// 将表单草稿转换为 `MCPDescriptor`。
@@ -527,8 +574,8 @@ private struct MCPServerDraft {
             args: parsedArgs(),
             url: nil,
             env: parsedEnv(),
-            capabilities: [],
-            provenance: .selfManaged(userAcknowledgedAt: Date())
+            capabilities: capabilities,
+            provenance: provenance
         )
     }
 

@@ -37,6 +37,7 @@ M1 Task 4 新增真实 stdio MCP client：`StdioMCPClient` 是 actor，按首次
 | `RoutingMCPClient` | MCP client facade，按 transport 委托 stdio 或在 M4 前拒绝远程 transport。 |
 | `MCPDiagnosticLog` | stdio stderr / lifecycle 诊断日志 sink，入口统一脱敏敏感片段。 |
 | `MCPServerStore.save(_:)` | 校验并写入本地 `mcp.json`。 |
+| `MCPServerStore.update(_:)` | 在 store actor 内原子完成 load / mutate / validate / save，供 SettingsUI 避免并发写入丢更新。 |
 | `MCPServerStore.snapshot()` | 读取、校验并按 `id` 排序返回 runtime wiring 使用的 descriptors。 |
 | `MCPServerValidation.validate(_:)` | 对 MCP server 配置执行 fail-closed 校验。 |
 | `ClaudeDesktopMCPImporter.importDescriptors(from:provenance:)` | 导入 Claude Desktop stdio `mcpServers` 配置。 |

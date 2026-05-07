@@ -22,8 +22,8 @@ public final class MCPServersViewModel: ObservableObject {
     /// 最近一次连接测试结果文案。
     @Published public private(set) var connectionMessage: String?
 
-    /// 当前正在测试连接的 server id；nil 表示没有测试中的请求。
-    @Published public private(set) var testingServerID: String?
+    /// 当前正在测试连接的 server id 集合；允许多行同时测试时互不覆盖状态。
+    @Published public private(set) var testingServerIDs: Set<String>
 
     /// MCP server 本地配置 store。
     private let store: MCPServerStore
@@ -51,7 +51,7 @@ public final class MCPServersViewModel: ObservableObject {
         self.validationMessage = nil
         self.toolsByServerID = [:]
         self.connectionMessage = nil
-        self.testingServerID = nil
+        self.testingServerIDs = []
     }
 
     /// 从 `MCPServerStore` 重新加载当前 server 列表。
@@ -72,14 +72,15 @@ public final class MCPServersViewModel: ObservableObject {
     /// - Parameter data: Claude Desktop 配置 JSON 数据。
     public func importClaudeDesktopConfig(_ data: Data) async {
         do {
-            var configuration = try await store.load()
             let imported = try importer.importDescriptors(
                 from: data,
                 provenance: .selfManaged(userAcknowledgedAt: Date())
             )
-            configuration.servers = merge(existing: configuration.servers, imported: imported)
-            try await store.save(configuration)
+            let configuration = try await store.update { configuration in
+                configuration.servers = Self.merge(existing: configuration.servers, imported: imported)
+            }
             servers = configuration.servers
+            clearToolsPreview(ids: imported.map(\.id))
             validationMessage = nil
             connectionMessage = "已导入 \(imported.count) 个 MCP server"
             print("[MCPServersViewModel] importClaudeDesktopConfig: imported count=\(imported.count)")
@@ -91,13 +92,16 @@ public final class MCPServersViewModel: ObservableObject {
     }
 
     /// 保存单个 MCP server descriptor；同 id 时覆盖，新增 id 时追加。
-    /// - Parameter descriptor: 待保存的 MCP server descriptor。
-    public func save(_ descriptor: MCPDescriptor) async {
+    /// - Parameters:
+    ///   - descriptor: 待保存的 MCP server descriptor。
+    ///   - originalID: 编辑前的 server id；改 id 时用于原子删除旧 id。
+    public func save(_ descriptor: MCPDescriptor, replacing originalID: String? = nil) async {
         do {
-            var configuration = try await store.load()
-            upsert(descriptor, into: &configuration.servers)
-            try await store.save(configuration)
+            let configuration = try await store.update { configuration in
+                try Self.replaceOrUpsert(descriptor, replacing: originalID, into: &configuration.servers)
+            }
             servers = configuration.servers
+            clearToolsPreview(ids: [originalID, descriptor.id].compactMap { $0 })
             validationMessage = nil
             connectionMessage = "已保存 \(descriptor.id)"
             print("[MCPServersViewModel] save: saved id=\(descriptor.id)")
@@ -112,11 +116,11 @@ public final class MCPServersViewModel: ObservableObject {
     /// - Parameter id: 要删除的 server id。
     public func delete(id: String) async {
         do {
-            var configuration = try await store.load()
-            configuration.servers.removeAll { $0.id == id }
-            try await store.save(configuration)
+            let configuration = try await store.update { configuration in
+                configuration.servers.removeAll { $0.id == id }
+            }
             servers = configuration.servers
-            toolsByServerID[id] = nil
+            clearToolsPreview(ids: [id])
             validationMessage = nil
             connectionMessage = "已删除 \(id)"
             print("[MCPServersViewModel] delete: deleted id=\(id)")
@@ -138,9 +142,9 @@ public final class MCPServersViewModel: ObservableObject {
             return
         }
 
-        testingServerID = id
+        testingServerIDs.insert(id)
         defer {
-            testingServerID = nil
+            testingServerIDs.remove(id)
         }
 
         do {
@@ -151,10 +155,18 @@ public final class MCPServersViewModel: ObservableObject {
             print("[MCPServersViewModel] testConnection: success id=\(id) tools=\(tools.count)")
         } catch {
             let message = validationMessage(for: error)
+            toolsByServerID[id] = nil
             validationMessage = message
             connectionMessage = "连接失败：\(message)"
             print("[MCPServersViewModel] testConnection: failed - \(message)")
         }
+    }
+
+    /// 查询指定 server 是否正在测试连接。
+    /// - Parameter id: server id。
+    /// - Returns: 正在测试时返回 true。
+    public func isTesting(id: String) -> Bool {
+        testingServerIDs.contains(id)
     }
 
     /// 创建生产默认 MCP client。
@@ -173,7 +185,7 @@ public final class MCPServersViewModel: ObservableObject {
     ///   - existing: 当前 store 中已有的 server 列表。
     ///   - imported: 本次从 Claude Desktop 导入的 server 列表。
     /// - Returns: 合并后的 server 列表。
-    private func merge(existing: [MCPDescriptor], imported: [MCPDescriptor]) -> [MCPDescriptor] {
+    private nonisolated static func merge(existing: [MCPDescriptor], imported: [MCPDescriptor]) -> [MCPDescriptor] {
         var merged = existing
         for descriptor in imported {
             upsert(descriptor, into: &merged)
@@ -185,12 +197,47 @@ public final class MCPServersViewModel: ObservableObject {
     /// - Parameters:
     ///   - descriptor: 待写入的 descriptor。
     ///   - servers: 被原地更新的 server 数组。
-    private func upsert(_ descriptor: MCPDescriptor, into servers: inout [MCPDescriptor]) {
+    private nonisolated static func upsert(_ descriptor: MCPDescriptor, into servers: inout [MCPDescriptor]) {
         if let index = servers.firstIndex(where: { $0.id == descriptor.id }) {
             // 保持原有顺序，只替换同 id 内容。
             servers[index] = descriptor
         } else {
             servers.append(descriptor)
+        }
+    }
+
+    /// 按编辑来源替换或新增 descriptor。
+    /// - Parameters:
+    ///   - descriptor: 待保存的 descriptor。
+    ///   - originalID: 编辑前 id；nil 时走普通 upsert。
+    ///   - servers: 被原地更新的 server 数组。
+    /// - Throws: 新 id 与其他 server 冲突时抛 `.duplicateServerID`。
+    private nonisolated static func replaceOrUpsert(
+        _ descriptor: MCPDescriptor,
+        replacing originalID: String?,
+        into servers: inout [MCPDescriptor]
+    ) throws {
+        guard let originalID else {
+            upsert(descriptor, into: &servers)
+            return
+        }
+
+        if originalID != descriptor.id, servers.contains(where: { $0.id == descriptor.id }) {
+            throw MCPServerValidationError.duplicateServerID(id: descriptor.id)
+        }
+
+        if let index = servers.firstIndex(where: { $0.id == originalID }) {
+            servers[index] = descriptor
+        } else {
+            servers.append(descriptor)
+        }
+    }
+
+    /// 清理指定 server id 的工具预览缓存。
+    /// - Parameter ids: 需要失效的 server id 列表。
+    private func clearToolsPreview(ids: [String]) {
+        for id in ids {
+            toolsByServerID[id] = nil
         }
     }
 

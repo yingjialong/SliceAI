@@ -111,6 +111,220 @@ final class MCPServersViewModelTests: XCTestCase {
         XCTAssertEqual(loaded.servers.map(\.id), ["keep"])
     }
 
+    /// 并发 save / import / delete 不应互相覆盖独立更新。
+    func test_concurrentSaveImportDeleteDoNotDropIndependentUpdates() async throws {
+        let store = MCPServerStore(fileURL: try makeTemporaryFileURL())
+        let deleted = descriptor(id: "delete-me")
+        let saved = descriptor(id: "manual")
+        let importData = Data(#"""
+        {
+          "mcpServers": {
+            "imported": {
+              "command": "/opt/sliceai/bin/imported-mcp"
+            }
+          }
+        }
+        """#.utf8)
+        try await store.save(MCPServerConfiguration(
+            schemaVersion: MCPServerStore.currentSchemaVersion,
+            servers: [deleted],
+            runnerConfirmations: []
+        ))
+        let viewModel = MCPServersViewModel(store: store, client: MockMCPClient())
+
+        async let saveTask: Void = viewModel.save(saved)
+        async let importTask: Void = viewModel.importClaudeDesktopConfig(importData)
+        async let deleteTask: Void = viewModel.delete(id: deleted.id)
+        _ = await (saveTask, importTask, deleteTask)
+
+        let loaded = try await store.load()
+        let ids = Set(loaded.servers.map(\.id))
+        XCTAssertFalse(ids.contains(deleted.id))
+        XCTAssertTrue(ids.contains(saved.id))
+        XCTAssertTrue(ids.contains("imported"))
+    }
+
+    /// replacing 保存应保留调用方传入的 metadata，并在改 ID 时删除旧 server。
+    func test_saveReplacingOriginalID_preservesMetadataAndRemovesOldID() async throws {
+        let store = MCPServerStore(fileURL: try makeTemporaryFileURL())
+        let provenance = Provenance.communitySigned(
+            publisher: "slice-test",
+            signedAt: Date(timeIntervalSince1970: 3)
+        )
+        let original = descriptor(
+            id: "old-id",
+            capabilities: [.tools(["list"]), .resources(["files"])],
+            provenance: provenance
+        )
+        let edited = descriptor(
+            id: "new-id",
+            command: "/opt/sliceai/bin/new-id-mcp",
+            capabilities: original.capabilities,
+            provenance: original.provenance
+        )
+        try await store.save(MCPServerConfiguration(
+            schemaVersion: MCPServerStore.currentSchemaVersion,
+            servers: [original],
+            runnerConfirmations: []
+        ))
+        let viewModel = MCPServersViewModel(store: store, client: MockMCPClient())
+
+        await viewModel.reload()
+        await viewModel.save(edited, replacing: original.id)
+
+        XCTAssertNil(viewModel.validationMessage)
+        let loaded = try await store.load()
+        XCTAssertEqual(loaded.servers.map(\.id), ["new-id"])
+        XCTAssertEqual(loaded.servers.first?.capabilities, original.capabilities)
+        XCTAssertEqual(loaded.servers.first?.provenance, provenance)
+    }
+
+    /// replacing 改成已有 id 时不能静默覆盖另一个 server。
+    func test_saveReplacingOriginalID_rejectsDuplicateNewID() async throws {
+        let store = MCPServerStore(fileURL: try makeTemporaryFileURL())
+        let old = descriptor(id: "old")
+        let existing = descriptor(id: "existing")
+        let renamedToExisting = descriptor(id: existing.id, command: "/opt/sliceai/bin/renamed-mcp")
+        try await store.save(MCPServerConfiguration(
+            schemaVersion: MCPServerStore.currentSchemaVersion,
+            servers: [old, existing],
+            runnerConfirmations: []
+        ))
+        let viewModel = MCPServersViewModel(store: store, client: MockMCPClient())
+
+        await viewModel.reload()
+        await viewModel.save(renamedToExisting, replacing: old.id)
+
+        XCTAssertTrue(viewModel.validationMessage?.contains("重复") ?? false)
+        let loaded = try await store.load()
+        XCTAssertEqual(Set(loaded.servers.map(\.id)), ["old", "existing"])
+    }
+
+    /// 编辑草稿应携带 originalID，并在生成 descriptor 时保留原 capabilities / provenance。
+    func test_editorDraftPreservesMetadataWhenIDChanges() throws {
+        let provenance = Provenance.communitySigned(
+            publisher: "slice-test",
+            signedAt: Date(timeIntervalSince1970: 4)
+        )
+        let original = descriptor(
+            id: "original",
+            capabilities: [.tools(["list"]), .resources(["files"])],
+            provenance: provenance
+        )
+        var draft = MCPServerDraft(descriptor: original)
+
+        draft.id = "renamed"
+        let descriptor = try XCTUnwrap(draft.makeDescriptor())
+
+        XCTAssertEqual(draft.originalID, "original")
+        XCTAssertEqual(descriptor.id, "renamed")
+        XCTAssertEqual(descriptor.capabilities, original.capabilities)
+        XCTAssertEqual(descriptor.provenance, provenance)
+    }
+
+    /// 保存同 id server 后，旧 tools/list 预览必须失效。
+    func test_saveClearsToolsPreviewForChangedServer() async throws {
+        let store = MCPServerStore(fileURL: try makeTemporaryFileURL())
+        let server = descriptor(id: "filesystem")
+        let tool = tool(serverID: server.id, name: "list")
+        try await store.save(MCPServerConfiguration(
+            schemaVersion: MCPServerStore.currentSchemaVersion,
+            servers: [server],
+            runnerConfirmations: []
+        ))
+        let viewModel = MCPServersViewModel(
+            store: store,
+            client: MockMCPClient(tools: [server: [tool]])
+        )
+
+        await viewModel.reload()
+        await viewModel.testConnection(id: server.id)
+        XCTAssertEqual(viewModel.toolsByServerID[server.id], [tool])
+
+        await viewModel.save(descriptor(id: server.id, command: "/opt/sliceai/bin/filesystem-v2-mcp"))
+
+        XCTAssertNil(viewModel.toolsByServerID[server.id])
+    }
+
+    /// 测试连接失败时必须清理该 server 的旧 tools/list 预览。
+    func test_testConnectionFailureClearsStaleToolsPreview() async throws {
+        let store = MCPServerStore(fileURL: try makeTemporaryFileURL())
+        let server = descriptor(id: "filesystem")
+        let tool = tool(serverID: server.id, name: "list")
+        try await store.save(MCPServerConfiguration(
+            schemaVersion: MCPServerStore.currentSchemaVersion,
+            servers: [server],
+            runnerConfirmations: []
+        ))
+        let client = ScriptedMCPClient(results: [
+            .success([tool]),
+            .failure(.transportFailed(reason: "offline")),
+        ])
+        let viewModel = MCPServersViewModel(store: store, client: client)
+
+        await viewModel.reload()
+        await viewModel.testConnection(id: server.id)
+        XCTAssertEqual(viewModel.toolsByServerID[server.id], [tool])
+
+        await viewModel.testConnection(id: server.id)
+
+        XCTAssertNil(viewModel.toolsByServerID[server.id])
+        XCTAssertNotNil(viewModel.validationMessage)
+    }
+
+    /// 导入同 id server 后，旧 tools/list 预览必须失效。
+    func test_importClearsToolsPreviewForImportedServer() async throws {
+        let store = MCPServerStore(fileURL: try makeTemporaryFileURL())
+        let server = descriptor(id: "filesystem")
+        let tool = tool(serverID: server.id, name: "list")
+        let importData = Data(#"""
+        {
+          "mcpServers": {
+            "filesystem": {
+              "command": "/opt/sliceai/bin/filesystem-v2-mcp"
+            }
+          }
+        }
+        """#.utf8)
+        try await store.save(MCPServerConfiguration(
+            schemaVersion: MCPServerStore.currentSchemaVersion,
+            servers: [server],
+            runnerConfirmations: []
+        ))
+        let viewModel = MCPServersViewModel(
+            store: store,
+            client: MockMCPClient(tools: [server: [tool]])
+        )
+
+        await viewModel.reload()
+        await viewModel.testConnection(id: server.id)
+        XCTAssertEqual(viewModel.toolsByServerID[server.id], [tool])
+
+        await viewModel.importClaudeDesktopConfig(importData)
+
+        XCTAssertNil(viewModel.toolsByServerID[server.id])
+    }
+
+    /// 导入失败时应保留现有 servers 并设置 validationMessage，供页面保持 sheet 输入。
+    func test_importFailureKeepsServersAndSetsValidationMessage() async throws {
+        let store = MCPServerStore(fileURL: try makeTemporaryFileURL())
+        let server = descriptor(id: "filesystem")
+        try await store.save(MCPServerConfiguration(
+            schemaVersion: MCPServerStore.currentSchemaVersion,
+            servers: [server],
+            runnerConfirmations: []
+        ))
+        let viewModel = MCPServersViewModel(store: store, client: MockMCPClient())
+
+        await viewModel.reload()
+        await viewModel.importClaudeDesktopConfig(Data("not-json".utf8))
+
+        XCTAssertEqual(viewModel.servers.map(\.id), [server.id])
+        XCTAssertNotNil(viewModel.validationMessage)
+        let loaded = try await store.load()
+        XCTAssertEqual(loaded.servers.map(\.id), [server.id])
+    }
+
     /// 构造临时 `mcp.json` 路径，避免测试之间共享状态。
     private func makeTemporaryFileURL() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
@@ -122,17 +336,29 @@ final class MCPServersViewModelTests: XCTestCase {
     /// 构造合法 stdio descriptor fixture。
     private func descriptor(
         id: String,
+        command: String? = nil,
+        capabilities: [MCPCapability] = [.tools(["list"])],
         provenance: Provenance = .selfManaged(userAcknowledgedAt: Date(timeIntervalSince1970: 1))
     ) -> MCPDescriptor {
         MCPDescriptor(
             id: id,
             transport: .stdio,
-            command: "/opt/sliceai/bin/\(id)-mcp",
+            command: command ?? "/opt/sliceai/bin/\(id)-mcp",
             args: ["--fixture"],
             url: nil,
             env: nil,
-            capabilities: [.tools(["list"])],
+            capabilities: capabilities,
             provenance: provenance
+        )
+    }
+
+    /// 构造 MCP tool fixture。
+    private func tool(serverID: String, name: String) -> MCPToolDescriptor {
+        MCPToolDescriptor(
+            ref: MCPToolRef(server: serverID, tool: name),
+            title: name,
+            description: nil,
+            inputSchema: ["type": .string("object")]
         )
     }
 
@@ -146,5 +372,37 @@ final class MCPServersViewModelTests: XCTestCase {
             return
         }
         XCTFail("expected selfManaged provenance, got \(provenance)", file: file, line: line)
+    }
+}
+
+/// 可按脚本返回成功或失败的 MCP client。
+private actor ScriptedMCPClient: MCPClientProtocol {
+
+    /// `tools(for:)` 的脚本化结果队列。
+    private var results: [Result<[MCPToolDescriptor], MCPClientError>]
+
+    /// 构造脚本化 MCP client。
+    /// - Parameter results: 按调用顺序返回的结果。
+    init(results: [Result<[MCPToolDescriptor], MCPClientError>]) {
+        self.results = results
+    }
+
+    /// 返回下一个脚本化 tools/list 结果。
+    func tools(for descriptor: MCPDescriptor) async throws -> [MCPToolDescriptor] {
+        guard results.isEmpty == false else {
+            return []
+        }
+        let result = results.removeFirst()
+        switch result {
+        case .success(let tools):
+            return tools
+        case .failure(let error):
+            throw error
+        }
+    }
+
+    /// 当前测试不覆盖 tool call。
+    func call(ref: MCPToolRef, args: MCPJSONValue.Object) async throws -> MCPCallResult {
+        throw MCPClientError.toolNotFound(ref: ref)
     }
 }
