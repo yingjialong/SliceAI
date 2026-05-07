@@ -4,6 +4,15 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 
 ---
 
+## Task 41 · Phase 1 M1 Task 3 · MCP Server Store And Claude Desktop Import
+
+- **时间**：2026-05-07
+- **描述**：新增 MCP server 本地配置 store、fail-closed 校验和 Claude Desktop stdio 配置导入能力；M1 仅允许本地 stdio，远程 transport 留到 M4。
+- **详情**：[docs/Task-detail/2026-05-07-phase-1-m1-task-3-mcp-server-store-claude-desktop-import.md](Task-detail/2026-05-07-phase-1-m1-task-3-mcp-server-store-claude-desktop-import.md)
+- **结果**：完成。目标测试、`CapabilitiesTests`、全量 `swift test` 与 `git diff --check` 已通过，已提交 commit。
+
+---
+
 ## Task 40 · Phase 1 M1 Task 2 · MCP Client Protocol Uses Canonical Descriptor
 
 - **时间**：2026-05-07

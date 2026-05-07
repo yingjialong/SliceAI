@@ -50,6 +50,26 @@ open SliceAI.xcodeproj
 
 ## 项目修改变动记录
 
+### 2026-05-07 · Phase 1 M1 Task 3 · MCP Server Store And Claude Desktop Import
+
+**范围**：worktree `.worktrees/phase-1-mcp-context`，M1 Task 3
+
+**主要变更**：
+- 新增 `MCPServerConfiguration` / `RunnerConfirmation` / `MCPServerStore`，默认读写 `~/Library/Application Support/SliceAI/mcp.json`。
+- `MCPServerStore.save/load/snapshot` 在写入、读取和 runtime snapshot 前统一执行 fail-closed 校验；`snapshot()` 按 `id` 排序，保证后续 AgentExecutor wiring 测试稳定。
+- 新增 `MCPServerValidation`，拒绝不支持的 schemaVersion、重复 server id、`.unknown` provenance、空 stdio command、相对 command、未确认 allowlisted runner、M1 远程 transport 和 websocket 新建写入。
+- 新增 `ClaudeDesktopMCPImporter`，仅导入 Claude Desktop `mcpServers` stdio 配置；M4 前遇到 `url` 远程配置直接拒绝。
+- 对 `npx`、`uvx`、`node`、`python`、`python3` 做首次 typed confirmation 要求；绝对 command path 会按大小写无关的 basename 归一到 runner 家族，`python3.11`、`node22` 这类版本化解释器路径同样必须确认。
+- M1 直接拒绝 `env` / shell wrapper command，避免真实 runner 被藏在 args 或 `-c` payload 中绕过 typed confirmation。
+
+**验证状态**：
+- 已按 TDD 先写失败测试并确认红灯。
+- `swift test --filter CapabilitiesTests.MCPServerStoreTests`
+- `swift test --filter CapabilitiesTests.ClaudeDesktopMCPImporterTests`
+- `swift test --filter CapabilitiesTests`
+- `swift test`
+- `git diff --check`
+
 ### 2026-05-07 · Phase 1 M1 Task 2 · MCP Client Protocol Uses Canonical Descriptor
 
 **范围**：worktree `.worktrees/phase-1-mcp-context`，M1 Task 2
