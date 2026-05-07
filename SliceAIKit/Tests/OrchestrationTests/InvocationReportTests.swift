@@ -18,6 +18,24 @@ final class InvocationReportTests: XCTestCase {
         XCTAssertTrue(report.undeclaredPermissions.isEmpty)
     }
 
+    /// declared glob 覆盖 concrete effective path 时，report 不应因 raw Set subtraction 误报 undeclared。
+    func test_undeclaredPermissions_declaredFileGlobCoversConcretePath() {
+        let declared: Set<Permission> = [.fileRead(path: "~/Documents/**/*.md")]
+        let effective: Set<Permission> = [.fileRead(path: "~/Documents/sliceai-notes/task-6.md")]
+        let report = InvocationReport.stub(declared: declared, effective: effective)
+
+        XCTAssertTrue(report.undeclaredPermissions.isEmpty)
+    }
+
+    /// declared MCP tool 超集覆盖 concrete tool 时，report 不应误报 undeclared。
+    func test_undeclaredPermissions_declaredMCPSupersetCoversConcreteTool() {
+        let declared: Set<Permission> = [.mcp(server: "fs", tools: ["read", "write"])]
+        let effective: Set<Permission> = [.mcp(server: "fs", tools: ["read"])]
+        let report = InvocationReport.stub(declared: declared, effective: effective)
+
+        XCTAssertTrue(report.undeclaredPermissions.isEmpty)
+    }
+
     func test_undeclaredPermissions_returnsDifferenceWhenEffectiveExceedsDeclared() {
         // effective 包含 declared 未声明的权限时，应返回差集
         let declared: Set<Permission> = [.fileRead(path: "~/Documents/**")]

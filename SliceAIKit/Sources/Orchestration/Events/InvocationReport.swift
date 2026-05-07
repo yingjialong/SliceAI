@@ -21,9 +21,9 @@ public struct InvocationReport: Sendable, Equatable, Codable {
     /// 实际触发（PermissionGraph.compute 聚合后的并集）
     public let effectivePermissions: Set<Permission>
 
-    /// effective - declared；非空时表示有"未声明的实际访问"，会触发 .permissionUndeclared flag
+    /// effective 中没有被 declared case-aware 覆盖的权限；非空时表示有"未声明的实际访问"。
     public var undeclaredPermissions: Set<Permission> {
-        effectivePermissions.subtracting(declaredPermissions)
+        EffectivePermissions.undeclared(effective: effectivePermissions, declared: declaredPermissions)
     }
 
     /// 关键事件标记：unauthorized access / dry-run / partial-failure / ...

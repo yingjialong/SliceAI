@@ -32,7 +32,19 @@ public struct EffectivePermissions: Sendable, Equatable {
 
     /// effective 中没有被任何 declared case-aware 覆盖的权限；非空表示 D-24 闭环漏报
     public var undeclared: Set<Permission> {
-        union.filter { effective in
+        Self.undeclared(effective: union, declared: declared)
+    }
+
+    /// 按 Task 6 case-aware coverage 语义计算未声明权限集合。
+    ///
+    /// InvocationReport 与 ExecutionEngine gate 必须共用此路径，避免审计层用 raw Set 差集误报
+    /// declared glob / 目录前缀 / MCP tool superset 已覆盖的 effective permission。
+    /// - Parameters:
+    ///   - effective: 实际触发的权限集合。
+    ///   - declared: Tool 静态声明权限集合。
+    /// - Returns: 没有任何 declared permission 能覆盖的 effective permissions。
+    public static func undeclared(effective: Set<Permission>, declared: Set<Permission>) -> Set<Permission> {
+        effective.filter { effective in
             !declared.contains { declared in
                 declared.covers(effective, fileNormalizer: DefaultFilePermissionNormalizer.default)
             }

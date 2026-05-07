@@ -174,7 +174,7 @@ public actor PermissionGraph {
     ///
     /// **设计决策（M2 安全姿态；M3+ 加细粒度 manifest 后下放精度）**：
     /// - `.filesystem` → `.fileRead("**")` + `.fileWrite("**")`：通用文件 IO，全开通配
-    /// - `.shell`      → `.shellExec(commands: [])`：空 commands = 全开（最保守）；M3+ 加白名单
+    /// - `.shell`      → `.shellExec(commands: [])`：占位的通用 shell 能力标记，不授予任何具体命令覆盖
     /// - `.vision`     → `.screen`：vision 分析当前主要走截屏（spec §3.3.3 / §3.4 暗示）
     /// - `.tts`        → `.systemAudio`：与 `SideEffect.tts` 同口径
     /// - `.memory`     → `.memoryAccess(scope: tool.id)`：scope 用 tool 自身 id，与
@@ -191,7 +191,8 @@ public actor PermissionGraph {
             // 通配符 "**" 与 Permission.swift 注释中"~/Documents/**/*.md"格式同口径，PathSandbox 规范化
             return [.fileRead(path: "**"), .fileWrite(path: "**")]
         case .shell:
-            // commands=[] 表示全开；M3+ 改成显式白名单后这里同步收紧
+            // commands=[] 只是 builtin shell capability 的占位标记；Task 6 后覆盖语义要求 shellExec
+            // 精确匹配命令数组，空数组不代表通配。后续真实 shell.run 必须推导 concrete commands。
             return [.shellExec(commands: [])]
         case .vision:
             return [.screen]
