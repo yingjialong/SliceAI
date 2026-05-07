@@ -50,6 +50,22 @@ open SliceAI.xcodeproj
 
 ## 项目修改变动记录
 
+### 2026-05-07 · Phase 1 M2 Task 6 · PermissionGraph Case-Aware Coverage
+
+**范围**：worktree `.worktrees/phase-1-mcp-context`，M2 Task 6
+
+**主要变更**：
+- `EffectivePermissions.undeclared` 从字面 `Set.subtracting` 升级为 declared covers effective 的 case-aware coverage。
+- 文件权限支持规范化后的 exact、显式目录前缀、`*` / `**` glob 覆盖，并在覆盖前通过 `PathSandbox.isHardDenied(_:)` 拒绝硬禁止路径。
+- MCP 权限支持同 server `tools=nil` 覆盖全部具体 tool，以及 declared tool 集合覆盖 effective tool 子集；`shellExec` 保持命令数组精确匹配。
+
+**验证状态**：
+- 已按 TDD 先写失败测试并确认红灯。
+- `swift test --filter OrchestrationTests.PermissionGraphTests`
+- `swift test --filter OrchestrationTests.ExecutionEngineTests`
+- `swift test --filter CapabilitiesTests.PathSandboxTests`
+- `git diff --check`
+
 ### 2026-05-07 · Phase 1 M1 Task 5 · MCP Servers Settings Page
 
 **范围**：worktree `.worktrees/phase-1-mcp-context`，M1 Task 5

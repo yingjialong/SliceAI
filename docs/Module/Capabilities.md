@@ -31,6 +31,7 @@ M1 Task 4 新增真实 stdio MCP client：`StdioMCPClient` 是 actor，按首次
 | 接口 | 说明 |
 |---|---|
 | `PathSandbox.normalize(_:role:)` | 规范化并校验路径，返回安全 URL 或抛出 `PathSandboxError`。 |
+| `PathSandbox.isHardDenied(_:)` | 只做 hard-deny 判定，不检查 allowlist；供 PermissionGraph coverage 在静态闭环阶段拒绝敏感路径声明。 |
 | `MCPClientProtocol.tools(for:)` | 使用 SliceCore `MCPDescriptor` 查询 MCP server 暴露的 `MCPToolDescriptor` 列表。 |
 | `MCPClientProtocol.call(ref:args:)` | 使用 `MCPJSONValue.Object` 调用 MCP tool；`MCPCallResult.isError` 表示工具执行错误而非 transport/protocol error。 |
 | `StdioMCPClient` | M1 stdio JSON-RPC client，lazy 启动本地进程并执行 initialize / tools/list / tools/call。 |

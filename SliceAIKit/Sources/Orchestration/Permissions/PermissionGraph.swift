@@ -1,3 +1,4 @@
+import Capabilities
 import Foundation
 import SliceCore
 
@@ -201,5 +202,244 @@ public actor PermissionGraph {
         case .screen:
             return [.screen]
         }
+    }
+}
+
+// MARK: - Permission coverage
+
+/// 文件权限路径规范化协议，隔离 Permission coverage 与具体 PathSandbox 实现。
+protocol FilePermissionNormalizing: Sendable {
+    /// 规范化文件权限路径，用于 exact / prefix / glob 覆盖比较。
+    ///
+    /// - Parameter raw: 权限声明或 effective permission 中的原始路径。
+    /// - Returns: 展开 `~`、解析 symlink、消除 `..` 后的路径；无效输入返回 `nil`。
+    func normalizeFilePermissionPath(_ raw: String) -> String?
+
+    /// 判断文件权限路径是否命中 PathSandbox hard-deny。
+    ///
+    /// - Parameter raw: 权限声明或 effective permission 中的原始路径。
+    /// - Returns: hard-deny 命中时返回 `true`。
+    func isHardDeniedFilePermissionPath(_ raw: String) -> Bool
+}
+
+/// 默认文件权限 normalizer：仅做路径标准化和 hard-deny 判断，不引入 allowlist 语义。
+struct DefaultFilePermissionNormalizer: FilePermissionNormalizing {
+    /// 共享默认实例，避免每次 undeclared 计算重复构造依赖。
+    static let `default` = DefaultFilePermissionNormalizer()
+
+    private let sandbox = PathSandbox()
+
+    /// 规范化文件权限路径。
+    ///
+    /// - Parameter raw: 权限声明或 effective permission 中的原始路径。
+    /// - Returns: 展开 `~`、解析 symlink、消除 `..` 后的路径；无效输入返回 `nil`。
+    func normalizeFilePermissionPath(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let expanded = (trimmed as NSString).expandingTildeInPath
+        if expanded.contains("*"), !expanded.hasPrefix("/") {
+            // 内置 filesystem 能力用 "**" 表达全局 glob；它不是可解析的绝对路径，
+            // 但仍可作为 pattern 参与匹配，hard-deny 由 effective path 单独兜底。
+            return expanded
+        }
+        guard expanded.hasPrefix("/") else { return nil }
+
+        return URL(fileURLWithPath: expanded)
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+            .path
+    }
+
+    /// 判断文件权限路径是否命中 PathSandbox hard-deny。
+    ///
+    /// - Parameter raw: 权限声明或 effective permission 中的原始路径。
+    /// - Returns: hard-deny 命中时返回 `true`。
+    func isHardDeniedFilePermissionPath(_ raw: String) -> Bool {
+        sandbox.isHardDenied(raw)
+    }
+}
+
+extension Permission {
+    /// 判断当前 declared permission 是否覆盖传入的 effective permission。
+    ///
+    /// 覆盖规则：
+    /// - 标量 case 仅同 case 且关联值相等才覆盖；
+    /// - 文件权限在 hard-deny 拦截后，支持 exact、目录前缀和 `*` / `**` glob；
+    /// - MCP 要求 server 相同，declared tools 为 nil 或 declared tools 为 effective tools 超集；
+    /// - shellExec 必须命令数组完全一致，空数组不代表全部命令。
+    ///
+    /// - Parameters:
+    ///   - effective: 实际推导出的 effective permission。
+    ///   - fileNormalizer: 文件路径 normalizer。
+    /// - Returns: 能覆盖返回 `true`，否则返回 `false`。
+    func covers(_ effective: Permission, fileNormalizer: any FilePermissionNormalizing) -> Bool {
+        switch (self, effective) {
+        case (.network(let declaredHost), .network(let effectiveHost)):
+            return declaredHost == effectiveHost
+        case (.fileRead(let declaredPath), .fileRead(let effectivePath)):
+            return Self.coversFilePath(declaredPath, effectivePath, fileNormalizer: fileNormalizer)
+        case (.fileWrite(let declaredPath), .fileWrite(let effectivePath)):
+            return Self.coversFilePath(declaredPath, effectivePath, fileNormalizer: fileNormalizer)
+        case (.clipboard, .clipboard),
+             (.clipboardHistory, .clipboardHistory),
+             (.screen, .screen),
+             (.systemAudio, .systemAudio):
+            return true
+        case (.shellExec(let declaredCommands), .shellExec(let effectiveCommands)):
+            return declaredCommands == effectiveCommands
+        case (.mcp(let declaredServer, let declaredTools), .mcp(let effectiveServer, let effectiveTools)):
+            return Self.coversMCP(
+                declaredServer: declaredServer,
+                declaredTools: declaredTools,
+                effectiveServer: effectiveServer,
+                effectiveTools: effectiveTools
+            )
+        case (.memoryAccess(let declaredScope), .memoryAccess(let effectiveScope)):
+            return declaredScope == effectiveScope
+        case (.appIntents(let declaredBundleId), .appIntents(let effectiveBundleId)):
+            return declaredBundleId == effectiveBundleId
+        case (.network, _),
+             (.fileRead, _),
+             (.fileWrite, _),
+             (.clipboard, _),
+             (.clipboardHistory, _),
+             (.shellExec, _),
+             (.mcp, _),
+             (.screen, _),
+             (.systemAudio, _),
+             (.memoryAccess, _),
+             (.appIntents, _):
+            return false
+        }
+    }
+
+    /// 判断 declared 文件路径是否覆盖 effective 文件路径。
+    ///
+    /// - Parameters:
+    ///   - declaredPath: Tool 静态声明的路径。
+    ///   - effectivePath: 实际推导出的路径。
+    ///   - fileNormalizer: 文件路径 normalizer。
+    /// - Returns: 覆盖返回 `true`。
+    private static func coversFilePath(
+        _ declaredPath: String,
+        _ effectivePath: String,
+        fileNormalizer: any FilePermissionNormalizing
+    ) -> Bool {
+        // hard-deny 路径必须在 coverage 前失败，避免“声明敏感路径”绕过执行前阻断。
+        guard !fileNormalizer.isHardDeniedFilePermissionPath(declaredPath),
+              !fileNormalizer.isHardDeniedFilePermissionPath(effectivePath),
+              let normalizedDeclared = fileNormalizer.normalizeFilePermissionPath(declaredPath),
+              let normalizedEffective = fileNormalizer.normalizeFilePermissionPath(effectivePath)
+        else {
+            return false
+        }
+
+        if normalizedDeclared == normalizedEffective {
+            return true
+        }
+
+        if isDeclaredDirectoryPrefix(declaredPath),
+           normalizedEffective.hasPrefix(pathPrefixForDirectory(normalizedDeclared)) {
+            return true
+        }
+
+        if containsGlob(declaredPath) {
+            return glob(pattern: normalizedDeclared, matches: normalizedEffective)
+        }
+
+        return false
+    }
+
+    /// 判断 declared MCP 权限是否覆盖 effective MCP 权限。
+    ///
+    /// - Parameters:
+    ///   - declaredServer: 声明的 MCP server id。
+    ///   - declaredTools: 声明的 tools；`nil` 表示同 server 全部 tool。
+    ///   - effectiveServer: effective MCP server id。
+    ///   - effectiveTools: effective tools。
+    /// - Returns: 覆盖返回 `true`。
+    private static func coversMCP(
+        declaredServer: String,
+        declaredTools: [String]?,
+        effectiveServer: String,
+        effectiveTools: [String]?
+    ) -> Bool {
+        guard declaredServer == effectiveServer else { return false }
+        guard let declaredTools else { return true }
+        guard let effectiveTools else { return false }
+        return Set(declaredTools).isSuperset(of: Set(effectiveTools))
+    }
+
+    /// 判断原始声明是否显式表达目录前缀。
+    ///
+    /// - Parameter raw: Tool 静态声明路径。
+    /// - Returns: 以 `/` 结尾且不含 glob 时返回 `true`。
+    private static func isDeclaredDirectoryPrefix(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.hasSuffix("/") && !containsGlob(trimmed)
+    }
+
+    /// 把规范化目录路径转换为安全前缀。
+    ///
+    /// - Parameter path: 已规范化目录路径。
+    /// - Returns: 保证以 `/` 结尾的目录前缀。
+    private static func pathPrefixForDirectory(_ path: String) -> String {
+        path.hasSuffix("/") ? path : path + "/"
+    }
+
+    /// 判断路径声明是否含 glob 通配符。
+    ///
+    /// - Parameter raw: Tool 静态声明路径。
+    /// - Returns: 含 `*` 返回 `true`。
+    private static func containsGlob(_ raw: String) -> Bool {
+        raw.contains("*")
+    }
+
+    /// 使用最小 glob 语义匹配路径。
+    ///
+    /// - Parameters:
+    ///   - pattern: 已规范化的 declared glob pattern。
+    ///   - path: 已规范化的 effective path。
+    /// - Returns: glob 匹配返回 `true`。
+    private static func glob(pattern: String, matches path: String) -> Bool {
+        let regex = "^" + globPatternToRegex(pattern) + "$"
+        return path.range(of: regex, options: .regularExpression) != nil
+    }
+
+    /// 将 `*` / `**` glob pattern 转换为正则表达式。
+    ///
+    /// - Parameter pattern: 已规范化的 glob pattern。
+    /// - Returns: 可用于整串匹配的正则片段。
+    private static func globPatternToRegex(_ pattern: String) -> String {
+        let characters = Array(pattern)
+        var index = 0
+        var regex = ""
+
+        while index < characters.count {
+            let character = characters[index]
+            if character == "*" {
+                let nextIndex = index + 1
+                if nextIndex < characters.count, characters[nextIndex] == "*" {
+                    let slashIndex = index + 2
+                    if slashIndex < characters.count, characters[slashIndex] == "/" {
+                        // `**/` 覆盖零个或多个目录层级。
+                        regex += "(?:.*/)?"
+                        index += 3
+                    } else {
+                        regex += ".*"
+                        index += 2
+                    }
+                } else {
+                    regex += "[^/]*"
+                    index += 1
+                }
+            } else {
+                regex += NSRegularExpression.escapedPattern(for: String(character))
+                index += 1
+            }
+        }
+
+        return regex
     }
 }

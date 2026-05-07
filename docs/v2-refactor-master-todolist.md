@@ -17,8 +17,8 @@
 |---|---|
 | 最后更新 | 2026-05-07 |
 | 当前 Phase | **Phase 1 实施期**（MCP + Context 主干） |
-| 当前 Milestone | **M1 MCP 配置与 stdio 已完成** |
-| 下一个动作 | 启动 M2 Task 6：PermissionGraph case-aware coverage |
+| 当前 Milestone | **M2 Context 与 Permission 进行中** |
+| 下一个动作 | 启动 M2 Task 7 |
 | 阻塞 | 暂无产品口径阻塞；旧 HTTP+SSE 已明确弃用且不实现，远程传输仅保留 M4 Streamable HTTP |
 
 **Milestone 状态**
@@ -31,6 +31,7 @@
 | 0 | M2 | ✅ 已完成：Orchestration + Capabilities 骨架落地 |
 | 0 | M3 | ✅ 已完成并发布：PR #3 merged，`v0.2.0` tag + GitHub Release |
 | 1 | M1 | ✅ 已完成：MCP 数据契约、store/importer、stdio client、Settings MCP Servers 页面 |
+| 1 | M2 | ⏳ 进行中：Task 6 PermissionGraph case-aware coverage 已完成 |
 | 2–5 | — | 🟦 Directional，进入前需重新 spec |
 
 ---
@@ -305,7 +306,7 @@ fi
 
 **目标**：把 Phase 0 的 `ContextProvider` / `MCPClient` / `AgentExecutor` 填实；用户可以在 Settings 加 MCP server，并在 Tool 勾选哪些 MCP tool 可用；Per-Tool Hotkey 生效。
 
-**状态**：**设计 / plan 已完成 review**，当前 worktree `feature/phase-1-mcp-context` 正在实施。M1 Task 1-5 已完成并通过 Task 5 二次 code-quality 复审。
+**状态**：**设计 / plan 已完成 review**，当前 worktree `feature/phase-1-mcp-context` 正在实施。M1 Task 1-5 已完成并通过 Task 5 二次 code-quality 复审；M2 Task 6 已完成。
 
 **Entry criteria**（Phase 1 实施启动前置条件）：
 
@@ -370,7 +371,27 @@ fi
 - [x] `swift test`（639 tests）
 - [x] Task 5 二次 code-quality 复审 APPROVED
 
-**下一步**：进入 M2 Task 6（PermissionGraph case-aware coverage）。
+**下一步**：进入 M2 Task 7。
+
+---
+
+### 4.2 M2：Context 与 Permission
+
+**状态**：Task 6 已完成；下一步 Task 7。
+
+| Task | 内容 | 状态 | 备注 |
+|---|---|---|---|
+| M2 Task 6 | PermissionGraph Case-Aware Coverage | ✅ 已完成 | `EffectivePermissions.undeclared` 改为 declared covers effective；支持文件 exact / 目录前缀 / glob、PathSandbox hard-deny、MCP nil/superset、shellExec exact |
+| M2 Task 7 | 待按 Phase 1 plan 继续实施 | ⏭️ 下一步 | feature worktree 当前缺少已 review 的 Phase 1 plan 文件；按任务正文推进，不从根工作区整份复制 plan |
+
+**Task 6 验证**：
+
+- [x] `swift test --filter OrchestrationTests.PermissionGraphTests`
+- [x] `swift test --filter OrchestrationTests.ExecutionEngineTests`
+- [x] `swift test --filter CapabilitiesTests.PathSandboxTests`
+- [x] `git diff --check`
+
+**下一步**：启动 M2 Task 7。
 
 ---
 
@@ -751,3 +772,12 @@ fi
 - Task 5 二次 code-quality 复审结论：`APPROVED`。
 
 **下一步**：启动 M2 Task 6：PermissionGraph case-aware coverage。
+
+### 2026-05-07 — Phase 1 M2 Task 6 完成
+
+- Task 6 将 `EffectivePermissions.undeclared` 从 raw Set 差集升级为 case-aware coverage。
+- 文件权限 coverage 支持 exact、显式目录前缀、`*` / `**` glob，并在 coverage 前通过 `PathSandbox.isHardDenied(_:)` 拦截硬禁止路径。
+- MCP coverage 支持同 server 的 `tools=nil` 全量声明和 declared tools 超集；shellExec 保持命令数组 exact match，空数组不表示全部命令。
+- 验证：`swift test --filter OrchestrationTests.PermissionGraphTests`、`swift test --filter OrchestrationTests.ExecutionEngineTests`、`swift test --filter CapabilitiesTests.PathSandboxTests`、`git diff --check` 均通过。
+
+**下一步**：启动 M2 Task 7。

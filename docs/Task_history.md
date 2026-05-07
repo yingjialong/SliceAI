@@ -4,6 +4,15 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 
 ---
 
+## Task 44 · Phase 1 M2 Task 6 · PermissionGraph Case-Aware Coverage
+
+- **时间**：2026-05-07
+- **描述**：将 `EffectivePermissions.undeclared` 从字面 `Set.subtracting` 升级为 case-aware coverage，支持文件路径 exact / directory prefix / glob 覆盖、PathSandbox hard-deny 拦截、MCP tools nil/superset 覆盖，以及 shellExec 精确命令列表。
+- **详情**：[docs/Task-detail/2026-05-07-phase-1-m2-task-6-permissiongraph-case-aware-coverage.md](Task-detail/2026-05-07-phase-1-m2-task-6-permissiongraph-case-aware-coverage.md)
+- **结果**：完成。已按 TDD 先写失败测试并确认红灯；实现 case-aware coverage 与 `PathSandbox.isHardDenied(_:)`；目标测试、ExecutionEngine 回归、PathSandbox 回归和 `git diff --check` 已通过。
+
+---
+
 ## Task 43 · Phase 1 M1 Task 5 · MCP Servers Settings Page
 
 - **时间**：2026-05-07

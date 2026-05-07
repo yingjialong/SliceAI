@@ -8,7 +8,7 @@
 
 - 执行入口：`ExecutionEngine.execute(tool:seed:)`。
 - 上下文采集：`ContextCollector`、`ContextProviderRegistry`。
-- 权限闭环：`PermissionGraph`、`PermissionBroker`、`PermissionGrantStore`、`EffectivePermissions`。
+- 权限闭环：`PermissionGraph`、`PermissionBroker`、`PermissionGrantStore`、`EffectivePermissions`。Phase 1 M2 Task 6 后，`EffectivePermissions.undeclared` 使用 case-aware coverage，不再使用字面 `Set.subtracting`。
 - Provider 解析：`ProviderResolver`、`DefaultProviderResolver`。
 - Prompt 执行：`PromptExecutor`，负责 prompt 渲染、Keychain 取 key、调用 `LLMProviderFactory` 和流式 provider。
 - 输出派发：`OutputDispatcher`、`WindowSinkProtocol`、`InvocationGate`。
@@ -21,7 +21,7 @@
 主流程按固定顺序执行：
 
 1. 发送 `.started`。
-2. `PermissionGraph.compute` 计算 effective permissions，并校验 `effective ⊆ tool.permissions`。
+2. `PermissionGraph.compute` 计算 effective permissions，并通过 `Permission.covers` 校验每个 effective permission 是否被 declared permission 覆盖。
 3. `PermissionBroker.gate` 对权限集合做授权决策。
 4. `ContextCollector.resolve` 并发解析 `ContextRequest`。
 5. `ProviderResolver.resolve` 解析 `ProviderSelection`。
@@ -43,6 +43,15 @@
 | `OutputDispatcher.handle(chunk:mode:invocationId:)` | 按 `DisplayMode` 派发输出；v0.2.0 non-window mode fallback 到 window。 |
 | `InvocationGate` | single-flight 状态唯一来源，阻止旧 invocation 污染新结果。 |
 | `AuditLogProtocol.append(_:)` | 审计日志抽象，生产实现为 JSONL append。 |
+
+## 权限覆盖语义
+
+`EffectivePermissions.undeclared` 的判断方向是 declared 覆盖 effective：只要某个 effective permission 找不到任何 declared cover，就视为漏报并在执行前失败。
+
+- 标量权限保持 exact match。
+- `.fileRead` / `.fileWrite` 先做 PathSandbox hard-deny 检查，再比较规范化后的 exact、显式目录前缀和 `*` / `**` glob。
+- `.mcp` 要求 server 相同；declared tools 为 `nil` 覆盖同 server 全部工具，否则 declared tools 必须是 effective tools 的超集。
+- `.shellExec` 只接受命令数组完全相等，空数组不表示全部命令。
 
 ## 运行逻辑
 

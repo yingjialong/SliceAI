@@ -30,8 +30,14 @@ public struct EffectivePermissions: Sendable, Equatable {
         fromContexts.union(fromSideEffects).union(fromMCP).union(fromBuiltins)
     }
 
-    /// effective - declared；非空表示 D-24 闭环漏报
-    public var undeclared: Set<Permission> { union.subtracting(declared) }
+    /// effective 中没有被任何 declared case-aware 覆盖的权限；非空表示 D-24 闭环漏报
+    public var undeclared: Set<Permission> {
+        union.filter { effective in
+            !declared.contains { declared in
+                declared.covers(effective, fileNormalizer: DefaultFilePermissionNormalizer.default)
+            }
+        }
+    }
 
     /// 主初始化器
     /// - Parameters:
