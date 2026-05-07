@@ -9,7 +9,7 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 - **时间**：2026-05-07
 - **描述**：为 SettingsUI 增加 MCP Servers 设置页，提供本地 `mcp.json` 的 server 列表、Claude Desktop JSON 导入、stdio server 新增/编辑/删除，以及调用 MCP client 的 tools/list 测试连接预览。
 - **详情**：[docs/Task-detail/2026-05-07-phase-1-m1-task-5-mcp-servers-settings-page.md](Task-detail/2026-05-07-phase-1-m1-task-5-mcp-servers-settings-page.md)
-- **结果**：完成。已按 TDD 先写失败测试并确认红灯；后续 code quality review 的状态一致性问题已修复并补回归测试；目标测试、相关 SliceCore / Capabilities 回归、`swift build` 与 `git diff --check` 均通过，已提交 commit。
+- **结果**：完成。已按 TDD 先写失败测试并确认红灯；两轮 code quality review 的状态一致性 / stale preview 问题均已修复并获 `APPROVED`；目标测试、相关 SliceCore / Capabilities 回归、`swift build`、全量 `swift test`（638 tests）与 `git diff --check` 均通过，已提交 commit。
 
 ---
 

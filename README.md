@@ -59,14 +59,16 @@ open SliceAI.xcodeproj
 - 新增 `MCPServersViewModel`，通过 `MCPServerStore` 读写本地 `mcp.json`，支持 Claude Desktop JSON 导入、server 保存/删除，以及注入 `MCPClientProtocol.tools(for:)` 的测试连接工具预览。
 - 新增 `MCPServersPage`，在设置窗口中提供 MCP server 列表、stdio server 新增/编辑 sheet、Claude Desktop JSON 粘贴导入 sheet、测试连接按钮和 tools/list 预览。
 - `SettingsScene` sidebar 新增 MCP Servers 页面入口；不提供 legacy SSE 新建选项，也未新增 `LegacySSEMCPClient`。
+- `MCPServersViewModel` 的 save/import/delete 使用 actor 内原子 update，编辑改 ID 保留 metadata，并通过 preview generation 丢弃配置变更后的飞行中旧 `tools/list` 结果。
 
 **验证状态**：
 - 已按 TDD 先写失败测试并确认红灯。
-- `swift test --filter SettingsUITests.MCPServersViewModelTests`
+- `swift test --filter SettingsUITests.MCPServersViewModelTests`（14 tests）
 - `swift build`
 - `swift test --filter SliceCoreTests.MCPDescriptorTests`
 - `swift test --filter CapabilitiesTests.RoutingMCPClientTests`
 - `swift test --filter SettingsUITests`
+- `swift test`（638 tests）
 - `git diff --check`
 
 ### 2026-05-07 · Phase 1 M1 Task 4 · Stdio MCP JSON-RPC Client

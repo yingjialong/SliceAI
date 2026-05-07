@@ -15,11 +15,11 @@
 
 | 字段 | 值 |
 |---|---|
-| 最后更新 | 2026-05-06 |
-| 当前 Phase | **Phase 1 准备期**（MCP + Context 主干） |
-| 当前 Milestone | **Phase 1 design spec 已起草，等待用户 review** |
-| 下一个动作 | 用户 review `docs/superpowers/specs/2026-05-06-phase-1-mcp-context-design.md`；确认后用 `superpowers:writing-plans` 起草 `docs/superpowers/plans/2026-05-06-phase-1-mcp-context.md` |
-| 阻塞 | Phase 1 plan 尚未起草；进入实现前必须先完成 spec review、plan、plan review 到 APPROVED / COMMENT |
+| 最后更新 | 2026-05-07 |
+| 当前 Phase | **Phase 1 实施期**（MCP + Context 主干） |
+| 当前 Milestone | **M1 MCP 配置与 stdio 已完成** |
+| 下一个动作 | 启动 M2 Task 6：PermissionGraph case-aware coverage |
+| 阻塞 | 暂无产品口径阻塞；旧 HTTP+SSE 已明确弃用且不实现，远程传输仅保留 M4 Streamable HTTP |
 
 **Milestone 状态**
 
@@ -30,7 +30,7 @@
 | 0 | M1 | ✅ 已 merge 入 main（merge commit `5cdf0f7`，2026-04-25） |
 | 0 | M2 | ✅ 已完成：Orchestration + Capabilities 骨架落地 |
 | 0 | M3 | ✅ 已完成并发布：PR #3 merged，`v0.2.0` tag + GitHub Release |
-| 1 | — | ⏳ design spec 已起草，待用户 review；plan 未写 |
+| 1 | M1 | ✅ 已完成：MCP 数据契约、store/importer、stdio client、Settings MCP Servers 页面 |
 | 2–5 | — | 🟦 Directional，进入前需重新 spec |
 
 ---
@@ -66,7 +66,7 @@
 | Phase | 主题 | 状态 | 时长（人天） | 对外可见新功能 | 关键产出 |
 |---|---|---|---|---|---|
 | **0** | 底层重构 | **Freeze，实施中**（M1 完成等 merge） | 15–21 (M1+M2+M3) | **无**（只重构） | Orchestration + Capabilities 骨架、Tool 三态、ExecutionSeed/ResolvedContext、Permission + Provenance + PermissionGraph + PathSandbox hook、v2 schema + 独立 config 路径 |
-| **1** | MCP + Context 主干 | **Freeze，未启动** | 20–30 | MCP 支持 / 5 个核心 ContextProvider / Per-Tool Hotkey | MCPClient（stdio + SSE）+ MCPServersPage + AgentExecutor + `web-search-summarize` 首个真 Agent Tool |
+| **1** | MCP + Context 主干 | **Freeze，实施中** | 20–30 | MCP 支持 / 5 个核心 ContextProvider / Per-Tool Hotkey | MCPClient（stdio + Streamable HTTP）+ MCPServersPage + AgentExecutor + `web-search-summarize` 首个真 Agent Tool |
 | **2** | Skill + 多 DisplayMode | Directional | — | Skill 接入 / replace / bubble / structured / TTS | 进入前重新 spec |
 | **3** | Prompt IDE + 本地模型 | Directional | — | Playground / A-B / Ollama & Anthropic 原生 / Memory | 进入前重新 spec |
 | **4** | 生态与分享 | Directional | — | Tool Pack / Marketplace / SliceAI as MCP server / Shortcuts / Services | 进入前重新 spec；Pack 签名体系在 §3.9.4 已埋 hook |
@@ -305,15 +305,15 @@ fi
 
 **目标**：把 Phase 0 的 `ContextProvider` / `MCPClient` / `AgentExecutor` 填实；用户可以在 Settings 加 MCP server，并在 Tool 勾选哪些 MCP tool 可用；Per-Tool Hotkey 生效。
 
-**状态**：**设计已 Freeze**，**brainstorming design spec 已起草**，**plan 未写**。
+**状态**：**设计 / plan 已完成 review**，当前 worktree `feature/phase-1-mcp-context` 正在实施。M1 Task 1-5 已完成并通过 Task 5 二次 code-quality 复审。
 
-**Entry criteria**（启动 plan 起草的前置条件）：
+**Entry criteria**（Phase 1 实施启动前置条件）：
 
 - [x] Phase 0 全部 milestone merge（v0.2 已发布）
 - [x] 用 superpowers:brainstorming skill 走一遍 Phase 1 设计（spec 已 freeze 但细节需要再走一遍）
-- [ ] 用户 review `docs/superpowers/specs/2026-05-06-phase-1-mcp-context-design.md`
-- [ ] 产出 `docs/superpowers/plans/2026-05-06-phase-1-mcp-context.md`
-- [ ] plan 过一轮 Codex review，直到 APPROVED / COMMENT
+- [x] 用户 review `docs/superpowers/specs/2026-05-06-phase-1-mcp-context-design.md`
+- [x] 产出 `docs/superpowers/plans/2026-05-06-phase-1-mcp-context.md`
+- [x] plan 经 `claude-review-loop` review 到 APPROVED / COMMENT 边界后进入实施
 
 **Early validation（Phase 1 早期验收，不是启动门槛）**——按 spec §5.3 定位，在首个真实 Agent Tool `web-search-summarize` 开发阶段实测：
 
@@ -326,7 +326,7 @@ fi
 | # | 项目 | 说明 |
 |---|---|---|
 | 1.1 | `Capabilities/MCPClient`（stdio） | 子进程管理、JSON-RPC framing、懒启动、idle 超时 |
-| 1.2 | `Capabilities/MCPClient`（SSE） | 远程 MCP server |
+| 1.2 | `Capabilities/MCPClient`（Streamable HTTP） | 远程 MCP server；旧 HTTP+SSE 已弃用且不实现 |
 | 1.3 | `SettingsUI/Pages/MCPServersPage` | 增删改、测试连接、查看暴露的 tool 列表 |
 | 1.4 | 兼容 Claude Desktop 的 `mcp.json` 格式 | 用户导入一次搞定 |
 | 1.5 | `Orchestration/AgentExecutor` | ReAct loop + tool call 审批 UI |
@@ -346,6 +346,31 @@ fi
 - [ ] 发布 **v0.3** tag
 
 **Phase 1 预计人天**：20–30；加 20% buffer → 24–36 人天。
+
+### 4.1 M1：MCP 配置与 stdio
+
+**状态**：Task 1-5 已完成；Task 5 已按 code-quality review 修复两轮，二次复审 `APPROVED`。
+
+**计划文档**：[docs/superpowers/plans/2026-05-06-phase-1-mcp-context.md](superpowers/plans/2026-05-06-phase-1-mcp-context.md)
+
+| Task | 内容 | 状态 | 备注 |
+|---|---|---|---|
+| M1 Task 1 | SliceCore MCP JSON Contract | ✅ 已完成 | `MCPJSONValue` / MCP content / tool / transport contract；`.sse` 仅解码兼容不可新建 |
+| M1 Task 2 | MCP Client Protocol Uses Canonical Descriptor | ✅ 已完成 | Capabilities 使用 SliceCore canonical `MCPDescriptor` / `MCPToolDescriptor` |
+| M1 Task 3 | MCP Server Store And Claude Desktop Import | ✅ 已完成 | `mcp.json` store、fail-closed validation、Claude Desktop stdio import |
+| M1 Task 4 | Stdio MCP JSON-RPC Client | ✅ 已完成 | stdio JSON-RPC initialize / tools/list / tools/call；remote transport M4 前 fail-fast |
+| M1 Task 5 | MCP Servers Settings Page | ✅ 已完成 | Settings 页面、导入 / 新增 / 编辑 / 删除 / 测试连接；已修复原子 update、metadata 保留、sheet 失败保留输入、stale preview |
+
+**M1 Gate 候选验证**：
+
+- [x] `swift test --filter SliceCoreTests.MCPDescriptorTests`
+- [x] `swift test --filter CapabilitiesTests.MCPServerStoreTests`
+- [x] `swift test --filter CapabilitiesTests.RoutingMCPClientTests`
+- [x] `swift test --filter SettingsUITests.MCPServersViewModelTests`
+- [x] `swift test`
+- [x] Task 5 二次 code-quality 复审 APPROVED
+
+**下一步**：进入 M2 Task 6（PermissionGraph case-aware coverage）。
 
 ---
 
@@ -714,3 +739,14 @@ fi
 - MCP 远程传输口径修正：当前 MCP 官方最新规范以 `Streamable HTTP` 为标准远程传输，旧 `HTTP+SSE` 只作为兼容路径；Phase 1 不再把旧 SSE 当作新设计主线。
 
 **下一步**：用户 review design spec；确认后用 `superpowers:writing-plans` 起草 `docs/superpowers/plans/2026-05-06-phase-1-mcp-context.md` 并做 plan review。
+
+### 2026-05-07 — Phase 1 M1 完成
+
+- 已按 `superpowers:subagent-driven-development` + TDD 完成 M1 Task 1-5。
+- Task 5 新增 MCP Servers 设置页，支持 stdio server 新增 / 编辑 / 删除、Claude Desktop JSON 导入、`tools/list` 测试连接和工具预览。
+- code-quality review 两轮修复均已完成：原子 update、metadata 保留、save/import 失败保留 sheet 输入、stale preview 失效、同一 server 并发测试 loading 计数。
+- 旧 HTTP+SSE 偏差已修正：`.sse` 仅保留解码兼容，不允许 Phase 1 新建或连接；M4 只实现 Streamable HTTP。
+- 验证：`swift build`、`swift test --filter SettingsUITests.MCPServersViewModelTests`（14 tests）、`swift test`（638 tests）、`git diff --check` 均通过。
+- Task 5 二次 code-quality 复审结论：`APPROVED`。
+
+**下一步**：启动 M2 Task 6：PermissionGraph case-aware coverage。

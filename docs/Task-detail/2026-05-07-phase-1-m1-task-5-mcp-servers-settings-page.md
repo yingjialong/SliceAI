@@ -53,10 +53,10 @@ Phase 1 M1 Task 1-4 已完成 SliceCore MCP contract、Capabilities MCP server s
 ## 代码修改逻辑
 
 1. `Package.swift` 让 `SettingsUI` 依赖 `Capabilities`，从而 Settings 层可以复用 `MCPServerStore`、`ClaudeDesktopMCPImporter`、`RoutingMCPClient`、`StdioMCPClient` 和 `MCPClientProtocol`；新增 `SettingsUITests` test target，依赖 `SettingsUI`、`SliceCore`、`Capabilities`。
-2. `MCPServersViewModel` 是 `@MainActor ObservableObject`，公开计划要求的 `servers`、`validationMessage`、`reload()`、`importClaudeDesktopConfig(_:)`、`save(_:)`、`delete(id:)`、`testConnection(id:)` API，并额外公开只读 `toolsByServerID`、`connectionMessage`、`testingServerID` 支持页面预览。
+2. `MCPServersViewModel` 是 `@MainActor ObservableObject`，公开计划要求的 `servers`、`validationMessage`、`reload()`、`importClaudeDesktopConfig(_:)`、`save(_:)`、`delete(id:)`、`testConnection(id:)` API，并额外公开只读 `toolsByServerID`、`connectionMessage`、`testingServerIDs` / `isTesting(id:)` 支持页面预览。
 3. ViewModel 通过构造器注入 `MCPServerStore`、`ClaudeDesktopMCPImporter` 和 `MCPClientProtocol`；生产默认 client 使用 `RoutingMCPClient` + `StdioMCPClient`，descriptor provider 从同一个 store 的 `snapshot()` 读取。测试用临时文件 store 和 `MockMCPClient`，避免触碰用户真实 `~/Library/Application Support/SliceAI/mcp.json`。
 4. Claude Desktop JSON 导入使用 `.selfManaged(userAcknowledgedAt: Date())` provenance，并按 server id 合并到已有列表：同 id 替换、不同 id 追加；随后调用 store save 让 `MCPServerValidation` 统一校验。
-5. `save(_:)` 和 `delete(id:)` 每次都先 load 当前配置，再原地更新 `servers` 后 save，保留 `runnerConfirmations` 等配置字段；校验失败时设置 `validationMessage`，不更新内存列表，不崩溃。
+5. `importClaudeDesktopConfig(_:)`、`save(_:replacing:)` 和 `delete(id:)` 均通过 `MCPServerStore.update(_:)` 在 store actor 内原子完成 `load -> mutate -> validate -> save`，保留 `runnerConfirmations` 等配置字段；校验失败时设置 `validationMessage`，不更新内存列表，不崩溃。
 6. `testConnection(id:)` 从当前 `servers` 找 descriptor，调用注入 client 的 `tools(for:)`，成功后把工具列表写入 `toolsByServerID[id]`，失败则写入 `validationMessage` / `connectionMessage`；所有 catch 路径都有中文可读 `print`。
 7. `MCPServersPage` 使用 `SettingsPageShell`、`SectionCard`、`PillButton` 和 DesignSystem token；server 列表展示 id、transport 和 provenance 摘要，操作按钮提供编辑、测试连接、删除；tools/list 成功后在行内展示工具预览。
 8. 新增/编辑 sheet 只创建 `.stdio` descriptor，字段包含 id、command、args、env；args/env 采用多行文本解析，env 行必须是 `KEY=VALUE`。页面没有 `.sse` 新建选项，也没有 legacy SSE client。
@@ -71,17 +71,21 @@ Review commit：`ebe5641`。结论：`CHANGES_REQUESTED`。本轮全部接受并
 3. `MCPServerDraft` 携带 `originalID`、原始 `capabilities`、原始 `provenance`。编辑保存只改 id / command / args / env，不重置 metadata。
 4. `MCPServersPage` 在 save/import 后检查 `viewModel.validationMessage`；成功才关闭 sheet / 清空 JSON，失败则保留 sheet 和用户输入，并在 sheet 内展示错误。
 5. `toolsByServerID` 增加失效策略：save/import 成功后清理受影响 server 的工具预览；`testConnection(id:)` 失败时清理该 server 旧预览。测试状态从单个 `testingServerID` 改为 `testingServerIDs` 集合，并提供 `isTesting(id:)` helper。
+6. 二次 code quality review 发现飞行中的 `tools/list` 旧结果仍可能在 save/import/delete 之后回写 stale preview；已新增 per-server preview generation，配置变更时递增并丢弃旧成功/失败结果。同一 server 并发测试改用计数，避免第一个请求结束时提前清除第二个请求的 loading 状态。二次复审结论为 `APPROVED`。
 
 ## 测试用例与结果
 
 - 红灯确认：
-  - `swift test --filter SettingsUITests.MCPServersViewModelTests`：失败，原因符合预期。测试 target 可编译入口已接入，但生产代码尚未提供 `MCPServersViewModel`，编译报 `cannot find 'MCPServersViewModel' in scope`。
-  - Review 修复红灯：`swift test --filter SettingsUITests.MCPServersViewModelTests` 失败，原因符合预期：新增回归测试调用 `save(_:replacing:)`、访问 `MCPServerDraft` metadata API，但生产代码尚未提供这些能力；同次编译也暴露 `MCPServerStore.update` 缺失。
+	  - `swift test --filter SettingsUITests.MCPServersViewModelTests`：失败，原因符合预期。测试 target 可编译入口已接入，但生产代码尚未提供 `MCPServersViewModel`，编译报 `cannot find 'MCPServersViewModel' in scope`。
+	  - Review 修复红灯：`swift test --filter SettingsUITests.MCPServersViewModelTests` 失败，原因符合预期：新增回归测试调用 `save(_:replacing:)`、访问 `MCPServerDraft` metadata API，但生产代码尚未提供这些能力；同次编译也暴露 `MCPServerStore.update` 缺失。
+	  - 二次 review 修复红灯：`swift test --filter SettingsUITests.MCPServersViewModelTests/test_inFlightTestConnectionResultIsDroppedAfterConfigurationMutation` 失败，原因符合预期：save/import/delete 后飞行中的旧 `tools/list` 成功结果仍会回写 stale preview。
 - 目标测试：
-  - `swift test --filter SettingsUITests.MCPServersViewModelTests`：通过，12 tests。
+	  - `swift test --filter SettingsUITests.MCPServersViewModelTests`：通过，14 tests。
 - 回归验证：
-  - `swift build`：通过。
-  - `swift test --filter CapabilitiesTests.MCPServerStoreTests`：通过，10 tests。
-  - `swift test --filter SliceCoreTests.MCPDescriptorTests`：通过，15 tests。
-  - `swift test --filter CapabilitiesTests.RoutingMCPClientTests`：通过，2 tests。
-  - `git diff --check`：通过。
+	  - `swift build`：通过。
+	  - `swift test --filter CapabilitiesTests.MCPServerStoreTests`：通过，10 tests。
+	  - `swift test --filter SliceCoreTests.MCPDescriptorTests`：通过，15 tests。
+	  - `swift test --filter CapabilitiesTests.RoutingMCPClientTests`：通过，2 tests。
+	  - `swift test --filter SettingsUITests`：通过，14 tests。
+	  - `swift test`：通过，638 tests。
+	  - `git diff --check`：通过。

@@ -34,6 +34,12 @@ public final class MCPServersViewModel: ObservableObject {
     /// MCP client 抽象；测试注入 `MockMCPClient`，生产默认使用 `RoutingMCPClient`。
     private let client: any MCPClientProtocol
 
+    /// 每个 server 的工具预览版本；配置变更时递增，用于丢弃飞行中的旧测试结果。
+    private var previewGenerationsByServerID: [String: UInt64]
+
+    /// 每个 server 正在进行的测试连接数量；避免同 id 并发测试时过早清除 loading 状态。
+    private var testingCountsByServerID: [String: Int]
+
     /// 构造 MCP Servers 设置页 ViewModel。
     /// - Parameters:
     ///   - store: 本地 `mcp.json` store；测试可注入临时文件路径。
@@ -52,6 +58,8 @@ public final class MCPServersViewModel: ObservableObject {
         self.toolsByServerID = [:]
         self.connectionMessage = nil
         self.testingServerIDs = []
+        self.previewGenerationsByServerID = [:]
+        self.testingCountsByServerID = [:]
     }
 
     /// 从 `MCPServerStore` 重新加载当前 server 列表。
@@ -142,19 +150,28 @@ public final class MCPServersViewModel: ObservableObject {
             return
         }
 
-        testingServerIDs.insert(id)
+        let previewGeneration = currentPreviewGeneration(for: id)
+        beginTesting(id: id)
         defer {
-            testingServerIDs.remove(id)
+            finishTesting(id: id)
         }
 
         do {
             let tools = try await client.tools(for: descriptor)
+            guard isCurrentTestResult(id: id, descriptor: descriptor, generation: previewGeneration) else {
+                print("[MCPServersViewModel] testConnection: dropped stale success id=\(id)")
+                return
+            }
             toolsByServerID[id] = tools
             validationMessage = nil
             connectionMessage = "连接成功：发现 \(tools.count) 个工具"
             print("[MCPServersViewModel] testConnection: success id=\(id) tools=\(tools.count)")
         } catch {
             let message = validationMessage(for: error)
+            guard isCurrentTestResult(id: id, descriptor: descriptor, generation: previewGeneration) else {
+                print("[MCPServersViewModel] testConnection: dropped stale failure id=\(id)")
+                return
+            }
             toolsByServerID[id] = nil
             validationMessage = message
             connectionMessage = "连接失败：\(message)"
@@ -236,8 +253,51 @@ public final class MCPServersViewModel: ObservableObject {
     /// 清理指定 server id 的工具预览缓存。
     /// - Parameter ids: 需要失效的 server id 列表。
     private func clearToolsPreview(ids: [String]) {
-        for id in ids {
+        for id in Set(ids) {
+            // 配置变更会让飞行中的 `tools/list` 结果失效，防止旧结果回写到新配置。
+            previewGenerationsByServerID[id, default: 0] += 1
             toolsByServerID[id] = nil
+        }
+    }
+
+    /// 读取指定 server 当前工具预览版本。
+    /// - Parameter id: server id。
+    /// - Returns: 当前 preview generation。
+    private func currentPreviewGeneration(for id: String) -> UInt64 {
+        previewGenerationsByServerID[id, default: 0]
+    }
+
+    /// 判断飞行中的测试连接结果是否仍对应当前配置。
+    /// - Parameters:
+    ///   - id: server id。
+    ///   - descriptor: 发起测试时捕获的 descriptor。
+    ///   - generation: 发起测试时捕获的 preview generation。
+    /// - Returns: 配置未变化且 server 仍存在时返回 true。
+    private func isCurrentTestResult(id: String, descriptor: MCPDescriptor, generation: UInt64) -> Bool {
+        guard currentPreviewGeneration(for: id) == generation else {
+            return false
+        }
+        return servers.contains { current in
+            current.id == id && current == descriptor
+        }
+    }
+
+    /// 标记指定 server 开始测试连接。
+    /// - Parameter id: server id。
+    private func beginTesting(id: String) {
+        testingCountsByServerID[id, default: 0] += 1
+        testingServerIDs.insert(id)
+    }
+
+    /// 标记指定 server 结束一次测试连接。
+    /// - Parameter id: server id。
+    private func finishTesting(id: String) {
+        let remainingCount = max((testingCountsByServerID[id] ?? 1) - 1, 0)
+        if remainingCount == 0 {
+            testingCountsByServerID[id] = nil
+            testingServerIDs.remove(id)
+        } else {
+            testingCountsByServerID[id] = remainingCount
         }
     }
 

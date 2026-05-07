@@ -325,6 +325,95 @@ final class MCPServersViewModelTests: XCTestCase {
         XCTAssertEqual(loaded.servers.map(\.id), [server.id])
     }
 
+    /// 配置变更发生在测试连接飞行中时，旧 `tools/list` 结果不能回写 stale preview。
+    func test_inFlightTestConnectionResultIsDroppedAfterConfigurationMutation() async throws {
+        try await assertInFlightTestConnectionResultDropped(operationName: "save") { viewModel, server in
+            await viewModel.save(descriptor(
+                id: server.id,
+                command: "/opt/sliceai/bin/filesystem-v2-mcp"
+            ))
+        }
+        try await assertInFlightTestConnectionResultDropped(operationName: "import") { viewModel, server in
+            let importData = Data("""
+            {
+              "mcpServers": {
+                "\(server.id)": {
+                  "command": "/opt/sliceai/bin/filesystem-imported-mcp"
+                }
+              }
+            }
+            """.utf8)
+            await viewModel.importClaudeDesktopConfig(importData)
+        }
+        try await assertInFlightTestConnectionResultDropped(operationName: "delete") { viewModel, server in
+            await viewModel.delete(id: server.id)
+        }
+    }
+
+    /// 同一 server 并发测试时，第一个请求结束不能提前清除第二个请求的 loading 状态。
+    func test_concurrentTestsForSameServerKeepLoadingUntilAllRequestsFinish() async throws {
+        let store = MCPServerStore(fileURL: try makeTemporaryFileURL())
+        let server = descriptor(id: "filesystem")
+        let firstTool = tool(serverID: server.id, name: "first")
+        let secondTool = tool(serverID: server.id, name: "second")
+        try await store.save(MCPServerConfiguration(
+            schemaVersion: MCPServerStore.currentSchemaVersion,
+            servers: [server],
+            runnerConfirmations: []
+        ))
+        let client = DelayedMCPClient()
+        let viewModel = MCPServersViewModel(store: store, client: client)
+
+        await viewModel.reload()
+        let firstTask = Task {
+            await viewModel.testConnection(id: server.id)
+        }
+        await client.waitUntilToolsRequestCount(1)
+        let secondTask = Task {
+            await viewModel.testConnection(id: server.id)
+        }
+        await client.waitUntilToolsRequestCount(2)
+        XCTAssertTrue(viewModel.isTesting(id: server.id))
+
+        await client.complete(returning: [firstTool])
+        await firstTask.value
+        XCTAssertTrue(viewModel.isTesting(id: server.id))
+
+        await client.complete(returning: [secondTool])
+        await secondTask.value
+        XCTAssertFalse(viewModel.isTesting(id: server.id))
+    }
+
+    /// 构造测试连接与配置变更的竞态场景，并断言旧结果被丢弃。
+    private func assertInFlightTestConnectionResultDropped(
+        operationName: String,
+        mutate: @MainActor (MCPServersViewModel, MCPDescriptor) async throws -> Void
+    ) async throws {
+        let store = MCPServerStore(fileURL: try makeTemporaryFileURL())
+        let server = descriptor(id: "filesystem-\(operationName)")
+        let staleTool = tool(serverID: server.id, name: "old-list")
+        try await store.save(MCPServerConfiguration(
+            schemaVersion: MCPServerStore.currentSchemaVersion,
+            servers: [server],
+            runnerConfirmations: []
+        ))
+        let client = DelayedMCPClient()
+        let viewModel = MCPServersViewModel(store: store, client: client)
+
+        await viewModel.reload()
+        let testTask = Task {
+            await viewModel.testConnection(id: server.id)
+        }
+        await client.waitUntilToolsRequested()
+
+        try await mutate(viewModel, server)
+        await client.complete(returning: [staleTool])
+        await testTask.value
+
+        XCTAssertNil(viewModel.toolsByServerID[server.id], operationName)
+        XCTAssertFalse(viewModel.connectionMessage?.contains("连接成功") ?? false, operationName)
+    }
+
     /// 构造临时 `mcp.json` 路径，避免测试之间共享状态。
     private func makeTemporaryFileURL() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
@@ -399,6 +488,84 @@ private actor ScriptedMCPClient: MCPClientProtocol {
         case .failure(let error):
             throw error
         }
+    }
+
+    /// 当前测试不覆盖 tool call。
+    func call(ref: MCPToolRef, args: MCPJSONValue.Object) async throws -> MCPCallResult {
+        throw MCPClientError.toolNotFound(ref: ref)
+    }
+}
+
+/// 可手动释放 `tools(for:)` 的 MCP client，用于构造飞行中请求。
+private actor DelayedMCPClient: MCPClientProtocol {
+
+    /// 等待 `tools(for:)` 返回的 continuation 队列。
+    private var toolsContinuations: [CheckedContinuation<[MCPToolDescriptor], any Error>]
+
+    /// 等待指定请求数到达的 continuation 列表。
+    private var requestWaiters: [(expectedCount: Int, continuation: CheckedContinuation<Void, Never>)]
+
+    /// 已收到的 descriptor 列表。
+    private var requestedDescriptors: [MCPDescriptor]
+
+    /// 构造延迟返回的 MCP client。
+    init() {
+        self.toolsContinuations = []
+        self.requestWaiters = []
+        self.requestedDescriptors = []
+    }
+
+    /// 记录请求并等待测试显式释放结果。
+    func tools(for descriptor: MCPDescriptor) async throws -> [MCPToolDescriptor] {
+        requestedDescriptors.append(descriptor)
+        resumeReadyRequestWaiters()
+        return try await withCheckedThrowingContinuation { continuation in
+            toolsContinuations.append(continuation)
+        }
+    }
+
+    /// 等待至少一次 `tools(for:)` 请求抵达。
+    func waitUntilToolsRequested() async {
+        guard requestedDescriptors.isEmpty else {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            requestWaiters.append((expectedCount: 1, continuation: continuation))
+        }
+    }
+
+    /// 等待指定数量的 `tools(for:)` 请求抵达。
+    /// - Parameter count: 预期请求数量。
+    func waitUntilToolsRequestCount(_ count: Int) async {
+        guard requestedDescriptors.count < count else {
+            return
+        }
+        await withCheckedContinuation { continuation in
+            requestWaiters.append((expectedCount: count, continuation: continuation))
+        }
+    }
+
+    /// 释放挂起的 `tools(for:)` 请求。
+    /// - Parameter tools: 要返回给调用方的工具列表。
+    func complete(returning tools: [MCPToolDescriptor]) {
+        guard toolsContinuations.isEmpty == false else {
+            return
+        }
+        let continuation = toolsContinuations.removeFirst()
+        continuation.resume(returning: tools)
+    }
+
+    /// 释放已经满足请求数量条件的等待者。
+    private func resumeReadyRequestWaiters() {
+        var pendingWaiters: [(expectedCount: Int, continuation: CheckedContinuation<Void, Never>)] = []
+        for waiter in requestWaiters {
+            if requestedDescriptors.count >= waiter.expectedCount {
+                waiter.continuation.resume()
+            } else {
+                pendingWaiters.append(waiter)
+            }
+        }
+        requestWaiters = pendingWaiters
     }
 
     /// 当前测试不覆盖 tool call。
