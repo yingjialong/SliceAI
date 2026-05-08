@@ -4,6 +4,15 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 
 ---
 
+## Task 45 · Phase 1 M2 Task 7 · Core Context Providers
+
+- **时间**：2026-05-08
+- **描述**：新增五个核心 ContextProvider：`selection`、`app.windowTitle`、`app.url`、`clipboard.current`、`file.read`，并接入 ContextCollector 与 PermissionGraph 的真实 provider 测试。
+- **详情**：[docs/Task-detail/2026-05-08-phase-1-m2-task-7-core-context-providers.md](Task-detail/2026-05-08-phase-1-m2-task-7-core-context-providers.md)
+- **结果**：完成。已按 TDD 先写失败测试并确认 provider 类型缺失红灯；实现剪贴板/文件 IO 取消检查和 `PathSandbox` 规范化读取；指定 ContextProvider、ContextCollector、PermissionGraph 测试与 `git diff --check` 已通过。
+
+---
+
 ## Task 44 · Phase 1 M2 Task 6 · PermissionGraph Case-Aware Coverage
 
 - **时间**：2026-05-07

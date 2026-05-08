@@ -50,6 +50,22 @@ open SliceAI.xcodeproj
 
 ## 项目修改变动记录
 
+### 2026-05-08 · Phase 1 M2 Task 7 · Core Context Providers
+
+**范围**：worktree `.worktrees/phase-1-mcp-context`，M2 Task 7
+
+**主要变更**：
+- `Capabilities` 新增五个核心 `ContextProvider`：`selection`、`app.windowTitle`、`app.url`、`clipboard.current`、`file.read`。
+- `clipboard.current` 默认读取系统剪贴板文本并支持测试注入；`file.read` 先经 `PathSandbox.normalize(_:role: .read)` 规范化和 allowlist / hard-deny 校验，再读取 UTF-8 文本。
+- `ContextCollectorTests` 增加真实 provider registry 集成测试；`PermissionGraphTests` 增加真实 provider 静态权限推导测试。
+
+**验证状态**：
+- 已按 TDD 先写失败测试并确认 provider 类型缺失红灯。
+- `swift test --filter CapabilitiesTests.ContextProviderTests`
+- `swift test --filter OrchestrationTests.ContextCollectorTests`
+- `swift test --filter OrchestrationTests.PermissionGraphTests`
+- `git diff --check`
+
 ### 2026-05-07 · Phase 1 M2 Task 6 · PermissionGraph Case-Aware Coverage
 
 **范围**：worktree `.worktrees/phase-1-mcp-context`，M2 Task 6

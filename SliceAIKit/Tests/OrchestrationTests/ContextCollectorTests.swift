@@ -1,4 +1,5 @@
 import Foundation
+import Capabilities
 import SliceCore
 import XCTest
 @testable import Orchestration
@@ -58,6 +59,48 @@ final class ContextCollectorTests: XCTestCase {
     }
 
     // MARK: - 1. Happy path：5 个 provider 并发成功
+
+    /// Task 7：内置 ContextProvider 可通过 ContextCollector registry 被统一解析。
+    func test_resolve_coreContextProviders_collectsSeedAndAppContexts() async throws {
+        let registry = ContextProviderRegistry(providers: [
+            "selection": SelectionContextProvider(),
+            "app.windowTitle": AppWindowTitleContextProvider(),
+            "app.url": AppURLContextProvider()
+        ])
+        let collector = ContextCollector(registry: registry)
+        let seed = ExecutionSeed(
+            invocationId: UUID(),
+            selection: SelectionSnapshot(
+                text: "selected by collector",
+                source: .accessibility,
+                length: 21,
+                language: nil,
+                contentType: nil
+            ),
+            frontApp: AppSnapshot(
+                bundleId: "com.example.front",
+                name: "Front App",
+                url: URL(string: "https://example.com/collector"),
+                windowTitle: "Collector Window"
+            ),
+            screenAnchor: .zero,
+            timestamp: Date(),
+            triggerSource: .floatingToolbar,
+            isDryRun: false
+        )
+        let requests = [
+            makeRequest(keyName: "selection", provider: "selection"),
+            makeRequest(keyName: "title", provider: "app.windowTitle"),
+            makeRequest(keyName: "url", provider: "app.url")
+        ]
+
+        let result = try await collector.resolve(seed: seed, requests: requests)
+
+        XCTAssertEqual(result.contexts[ContextKey(rawValue: "selection")], .text("selected by collector"))
+        XCTAssertEqual(result.contexts[ContextKey(rawValue: "title")], .text("Collector Window"))
+        XCTAssertEqual(result.contexts[ContextKey(rawValue: "url")], .text("https://example.com/collector"))
+        XCTAssertTrue(result.failures.isEmpty)
+    }
 
     /// 5 个 mock provider 并发执行；contexts 含 5 项、failures 空、resolvedAt ≥ seed.timestamp
     func test_resolve_happyPath_5providersConcurrent() async throws {

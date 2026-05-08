@@ -15,10 +15,10 @@
 
 | 字段 | 值 |
 |---|---|
-| 最后更新 | 2026-05-07 |
+| 最后更新 | 2026-05-08 |
 | 当前 Phase | **Phase 1 实施期**（MCP + Context 主干） |
 | 当前 Milestone | **M2 Context 与 Permission 进行中** |
-| 下一个动作 | 启动 M2 Task 7 |
+| 下一个动作 | 启动 M2 Task 8 |
 | 阻塞 | 暂无产品口径阻塞；旧 HTTP+SSE 已明确弃用且不实现，远程传输仅保留 M4 Streamable HTTP |
 
 **Milestone 状态**
@@ -31,7 +31,7 @@
 | 0 | M2 | ✅ 已完成：Orchestration + Capabilities 骨架落地 |
 | 0 | M3 | ✅ 已完成并发布：PR #3 merged，`v0.2.0` tag + GitHub Release |
 | 1 | M1 | ✅ 已完成：MCP 数据契约、store/importer、stdio client、Settings MCP Servers 页面 |
-| 1 | M2 | ⏳ 进行中：Task 6 PermissionGraph case-aware coverage 已完成 |
+| 1 | M2 | ⏳ 进行中：Task 6 PermissionGraph case-aware coverage、Task 7 Core ContextProviders 已完成 |
 | 2–5 | — | 🟦 Directional，进入前需重新 spec |
 
 ---
@@ -306,7 +306,7 @@ fi
 
 **目标**：把 Phase 0 的 `ContextProvider` / `MCPClient` / `AgentExecutor` 填实；用户可以在 Settings 加 MCP server，并在 Tool 勾选哪些 MCP tool 可用；Per-Tool Hotkey 生效。
 
-**状态**：**设计 / plan 已完成 review**，当前 worktree `feature/phase-1-mcp-context` 正在实施。M1 Task 1-5 已完成并通过 Task 5 二次 code-quality 复审；M2 Task 6 已完成。
+**状态**：**设计 / plan 已完成 review**，当前 worktree `feature/phase-1-mcp-context` 正在实施。M1 Task 1-5 已完成并通过 Task 5 二次 code-quality 复审；M2 Task 6-7 已完成。
 
 **Entry criteria**（Phase 1 实施启动前置条件）：
 
@@ -371,18 +371,19 @@ fi
 - [x] `swift test`（639 tests）
 - [x] Task 5 二次 code-quality 复审 APPROVED
 
-**下一步**：进入 M2 Task 7。
+**下一步**：进入 M2 Task 8。
 
 ---
 
 ### 4.2 M2：Context 与 Permission
 
-**状态**：Task 6 已完成；下一步 Task 7。
+**状态**：Task 6-7 已完成；下一步 Task 8。
 
 | Task | 内容 | 状态 | 备注 |
 |---|---|---|---|
 | M2 Task 6 | PermissionGraph Case-Aware Coverage | ✅ 已完成 | `EffectivePermissions.undeclared` 改为 declared covers effective；支持文件 exact / 目录前缀 / glob、PathSandbox hard-deny、MCP nil/superset、shellExec exact |
-| M2 Task 7 | 待按 Phase 1 plan 继续实施 | ⏭️ 下一步 | feature worktree 当前缺少已 review 的 Phase 1 plan 文件；按任务正文推进，不从根工作区整份复制 plan |
+| M2 Task 7 | Five ContextProviders | ✅ 已完成 | 新增 `selection` / `app.windowTitle` / `app.url` / `clipboard.current` / `file.read`；剪贴板和文件 IO 支持取消检查，文件读取先经 `PathSandbox` |
+| M2 Task 8 | 待按 Phase 1 plan 继续实施 | ⏭️ 下一步 | feature worktree 当前缺少已 review 的 Phase 1 plan 文件；按任务正文推进，不从根工作区整份复制 plan |
 
 **Task 6 验证**：
 
@@ -391,7 +392,14 @@ fi
 - [x] `swift test --filter CapabilitiesTests.PathSandboxTests`
 - [x] `git diff --check`
 
-**下一步**：启动 M2 Task 7。
+**Task 7 验证**：
+
+- [x] `swift test --filter CapabilitiesTests.ContextProviderTests`
+- [x] `swift test --filter OrchestrationTests.ContextCollectorTests`
+- [x] `swift test --filter OrchestrationTests.PermissionGraphTests`
+- [x] `git diff --check`
+
+**下一步**：启动 M2 Task 8。
 
 ---
 
@@ -781,3 +789,12 @@ fi
 - 验证：`swift test --filter OrchestrationTests.PermissionGraphTests`、`swift test --filter OrchestrationTests.ExecutionEngineTests`、`swift test --filter CapabilitiesTests.PathSandboxTests`、`git diff --check` 均通过。
 
 **下一步**：启动 M2 Task 7。
+
+### 2026-05-08 — Phase 1 M2 Task 7 完成
+
+- Task 7 新增五个核心 ContextProvider：`selection`、`app.windowTitle`、`app.url`、`clipboard.current`、`file.read`。
+- `clipboard.current` 默认读取系统剪贴板文本并推导 `.clipboard`；`file.read` 根据 `args["path"]` 推导 `.fileRead(path:)`，执行时先通过 `PathSandbox.normalize(_:role: .read)`。
+- 触及 IO 的 provider 均在 IO 边界前后调用 `Task.checkCancellation()`。
+- 验证：`swift test --filter CapabilitiesTests.ContextProviderTests`、`swift test --filter OrchestrationTests.ContextCollectorTests`、`swift test --filter OrchestrationTests.PermissionGraphTests`、`git diff --check` 均通过。
+
+**下一步**：启动 M2 Task 8。

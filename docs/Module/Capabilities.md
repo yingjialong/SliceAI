@@ -2,11 +2,12 @@
 
 ## 模块定位
 
-`Capabilities` 是 v2 能力边界模块，承载 Phase 1+ 会接入的 MCP、Skill 和本地安全能力。Phase 0 提供协议、mock 和纯函数安全基础设施；Phase 1 M1 已接入本地 MCP server store、Claude Desktop stdio importer、真实 stdio MCP JSON-RPC client，并暴露给 SettingsUI 的 MCP Servers 设置页使用。当前仍不实现 Streamable HTTP / WebSocket 远程 transport，也不做真实 skill 文件扫描；旧 HTTP+SSE 明确弃用，不再支持。
+`Capabilities` 是 v2 能力边界模块，承载 Phase 1+ 会接入的 MCP、Skill、ContextProvider 和本地安全能力。Phase 0 提供协议、mock 和纯函数安全基础设施；Phase 1 M1 已接入本地 MCP server store、Claude Desktop stdio importer、真实 stdio MCP JSON-RPC client，并暴露给 SettingsUI 的 MCP Servers 设置页使用。Phase 1 M2 Task 7 已补齐五个核心 ContextProvider。当前仍不实现 Streamable HTTP / WebSocket 远程 transport，也不做真实 skill 文件扫描；旧 HTTP+SSE 明确弃用，不再支持。
 
 ## 功能范围
 
 - SecurityKit：`PathSandbox`、`PathSandboxError`。
+- ContextProviders：`SelectionContextProvider`、`AppWindowTitleContextProvider`、`AppURLContextProvider`、`ClipboardCurrentContextProvider`、`FileReadContextProvider`。
 - MCP：`MCPClientProtocol`、`MockMCPClient`、`StdioMCPClient`、`RoutingMCPClient`、`MCPDiagnosticLog`、`MCPClientError`、`MCPServerStore`、`MCPServerValidation`、`ClaudeDesktopMCPImporter`；server descriptor、tool descriptor、工具引用、结构化参数与调用结果均复用 SliceCore 的 canonical 类型。
 - Skills：`SkillRegistryProtocol`、`MockSkillRegistry`、`Skill`。
 
@@ -26,12 +27,25 @@ M1 Task 3 新增本地 MCP server 配置入口：`MCPServerStore` 默认读写 `
 
 M1 Task 4 新增真实 stdio MCP client：`StdioMCPClient` 是 actor，按首次 `tools(for:)` / `call(ref:args:)` lazy 启动子进程，通过 newline-delimited JSON-RPC 发送 `initialize`、`notifications/initialized`、`tools/list` 和 `tools/call`。`tools/list` 的 `inputSchema` 以 `MCPJSONValue.Object` 透明保留，`tools/call` 的 `isError == true` 作为工具执行结果返回，不抛 JSON-RPC protocol error。stderr 诊断通过 `MCPDiagnosticLog` 统一脱敏，idle timeout 默认 5 分钟并可在测试中注入短时间。`RoutingMCPClient` 是当前 MCP client facade：`.stdio` 委托给 stdio client，`.streamableHTTP` / `.sse` / `.websocket` 在 M4 前返回 unsupported transport；其中 `.sse` 是旧 HTTP+SSE deprecated 值，后续也不实现。M1 Task 5 新增的 `SettingsUI.MCPServersViewModel` 通过 `MCPServerStore` 和 `ClaudeDesktopMCPImporter` 管理配置，并通过注入的 `MCPClientProtocol.tools(for:)` 做 Settings 页工具预览。当前仍不包含 AgentExecutor tool calling。
 
+M2 Task 7 新增五个核心 ContextProvider：
+
+1. `selection` 直接返回 `ExecutionSeed.selection.text`。
+2. `app.windowTitle` 返回 `ExecutionSeed.frontApp.windowTitle`，缺失时返回空字符串。
+3. `app.url` 返回 `ExecutionSeed.frontApp.url?.absoluteString`，缺失时返回空字符串。
+4. `clipboard.current` 读取当前剪贴板文本，静态权限推导为 `.clipboard`，IO 前后检查取消。
+5. `file.read` 使用 `args["path"]` 推导 `.fileRead(path:)`，执行时先经 `PathSandbox.normalize(_:role: .read)` 规范化和校验，再读取 UTF-8 文本，IO 前后检查取消。
+
 ## 关键接口
 
 | 接口 | 说明 |
 |---|---|
 | `PathSandbox.normalize(_:role:)` | 规范化并校验路径，返回安全 URL 或抛出 `PathSandboxError`。 |
 | `PathSandbox.isHardDenied(_:)` | 只做 hard-deny 判定，不检查 allowlist；供 PermissionGraph coverage 在静态闭环阶段拒绝敏感路径声明。 |
+| `SelectionContextProvider` | 返回触发 seed 中的当前选区文本。 |
+| `AppWindowTitleContextProvider` | 返回前台 app 快照中的窗口标题。 |
+| `AppURLContextProvider` | 返回前台 app 快照中的 URL 字符串。 |
+| `ClipboardCurrentContextProvider` | 读取当前剪贴板文本；推导 `.clipboard` 权限。 |
+| `FileReadContextProvider` | 读取 `PathSandbox` 允许的 UTF-8 文本文件；推导 `.fileRead(path:)` 权限。 |
 | `MCPClientProtocol.tools(for:)` | 使用 SliceCore `MCPDescriptor` 查询 MCP server 暴露的 `MCPToolDescriptor` 列表。 |
 | `MCPClientProtocol.call(ref:args:)` | 使用 `MCPJSONValue.Object` 调用 MCP tool；`MCPCallResult.isError` 表示工具执行错误而非 transport/protocol error。 |
 | `StdioMCPClient` | M1 stdio JSON-RPC client，lazy 启动本地进程并执行 initialize / tools/list / tools/call。 |
@@ -49,8 +63,8 @@ M1 Task 4 新增真实 stdio MCP client：`StdioMCPClient` 是 actor，按首次
 
 当前生产 App 仍未把真实 MCP 调用接入 `AgentExecutor`；`.agent` / `.pipeline` 工具在执行引擎中仍返回 not implemented，不会触发真实 MCP 或 Skill 调用。M1 的 stdio client 已用于 Settings MCP Servers 页面测试连接，并可作为后续 AgentExecutor wiring 的底层 transport。
 
-后续 runtime 可通过 `MCPServerStore.snapshot()` 获取已校验 descriptors，再把 `RoutingMCPClient` 作为唯一 MCP facade 注入执行链路。Phase 2 接入 Skill 文件扫描时，同样替换 `SkillRegistryProtocol` 实现。`PathSandbox` 会作为文件读取、文件写入和 MCP/Skill 本地路径访问的统一安全入口。
+后续 runtime 可通过 `MCPServerStore.snapshot()` 获取已校验 descriptors，再把 `RoutingMCPClient` 作为唯一 MCP facade 注入执行链路。Phase 2 接入 Skill 文件扫描时，同样替换 `SkillRegistryProtocol` 实现。`PathSandbox` 已作为 `file.read` 的真实读取入口，后续也会作为文件写入和 MCP/Skill 本地路径访问的统一安全入口。
 
 ## 代码实现说明
 
-核心源码位于 `SliceAIKit/Sources/Capabilities/`。测试位于 `SliceAIKit/Tests/CapabilitiesTests/`，重点覆盖路径 symlink 展开、硬禁止前缀、读写白名单、mock MCP 和 mock skill registry 行为。
+核心源码位于 `SliceAIKit/Sources/Capabilities/`。测试位于 `SliceAIKit/Tests/CapabilitiesTests/`，重点覆盖路径 symlink 展开、硬禁止前缀、读写白名单、核心 ContextProvider、mock MCP 和 mock skill registry 行为。

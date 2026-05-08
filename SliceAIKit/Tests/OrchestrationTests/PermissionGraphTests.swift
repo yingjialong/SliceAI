@@ -1,3 +1,4 @@
+import Capabilities
 import SliceCore
 import XCTest
 @testable import Orchestration
@@ -491,6 +492,66 @@ final class PermissionGraphTests: XCTestCase {
     }
 
     // MARK: - Phase 1 M2 Task 6: case-aware coverage
+
+    /// Task 7：真实内置 ContextProvider 的静态权限推导应接入 PermissionGraph。
+    func test_compute_coreContextProviders_inferExpectedPermissions() async throws {
+        let graph = PermissionGraph(providerRegistry: ContextProviderRegistry(providers: [
+            "selection": SelectionContextProvider(),
+            "app.windowTitle": AppWindowTitleContextProvider(),
+            "app.url": AppURLContextProvider(),
+            "clipboard.current": ClipboardCurrentContextProvider(readString: { "ignored" }),
+            "file.read": FileReadContextProvider()
+        ]))
+        let filePath = "~/Docs/a.md"
+        let tool = makeTool(
+            kind: .prompt(makePromptTool(contexts: [
+                ContextRequest(
+                    key: ContextKey(rawValue: "selection"),
+                    provider: "selection",
+                    args: [:],
+                    cachePolicy: .none,
+                    requiredness: .required
+                ),
+                ContextRequest(
+                    key: ContextKey(rawValue: "title"),
+                    provider: "app.windowTitle",
+                    args: [:],
+                    cachePolicy: .none,
+                    requiredness: .required
+                ),
+                ContextRequest(
+                    key: ContextKey(rawValue: "url"),
+                    provider: "app.url",
+                    args: [:],
+                    cachePolicy: .none,
+                    requiredness: .required
+                ),
+                ContextRequest(
+                    key: ContextKey(rawValue: "clipboard"),
+                    provider: "clipboard.current",
+                    args: [:],
+                    cachePolicy: .none,
+                    requiredness: .required
+                ),
+                ContextRequest(
+                    key: ContextKey(rawValue: "file"),
+                    provider: "file.read",
+                    args: ["path": filePath],
+                    cachePolicy: .none,
+                    requiredness: .required
+                )
+            ])),
+            permissions: [.clipboard, .fileRead(path: filePath)]
+        )
+
+        let effective = try await graph.compute(tool: tool)
+
+        XCTAssertEqual(effective.fromContexts, [
+            .clipboard,
+            .fileRead(path: filePath)
+        ])
+        XCTAssertTrue(effective.undeclared.isEmpty)
+    }
 
     /// 声明 glob fileRead 权限时，应覆盖同一目录树内的具体读取路径。
     func test_fileRead_declaredGlobCoversConcretePath() async throws {

@@ -7,7 +7,7 @@
 ## 功能范围
 
 - 执行入口：`ExecutionEngine.execute(tool:seed:)`。
-- 上下文采集：`ContextCollector`、`ContextProviderRegistry`。
+- 上下文采集：`ContextCollector`、`ContextProviderRegistry`。Phase 1 M2 Task 7 后，Capabilities 已提供 `selection`、`app.windowTitle`、`app.url`、`clipboard.current`、`file.read` 五个核心 provider，可通过 registry 注入 collector。
 - 权限闭环：`PermissionGraph`、`PermissionBroker`、`PermissionGrantStore`、`EffectivePermissions`。Phase 1 M2 Task 6 后，`EffectivePermissions.undeclared` 使用 case-aware coverage，不再使用字面 `Set.subtracting`。
 - Provider 解析：`ProviderResolver`、`DefaultProviderResolver`。
 - Prompt 执行：`PromptExecutor`，负责 prompt 渲染、Keychain 取 key、调用 `LLMProviderFactory` 和流式 provider。
@@ -23,7 +23,7 @@
 1. 发送 `.started`。
 2. `PermissionGraph.compute` 计算 effective permissions，并通过 `Permission.covers` 校验每个 effective permission 是否被 declared permission 覆盖。
 3. `PermissionBroker.gate` 对权限集合做授权决策。
-4. `ContextCollector.resolve` 并发解析 `ContextRequest`。
+4. `ContextCollector.resolve` 并发解析 `ContextRequest`；内置 provider 可采集 seed/app 快照、剪贴板和 `PathSandbox` 允许的文件内容。
 5. `ProviderResolver.resolve` 解析 `ProviderSelection`。
 6. `.prompt` 工具进入 `PromptExecutor`；`.agent` / `.pipeline` 在 v0.2.0 返回 not implemented。
 7. LLM chunk 通过 `OutputDispatcher` 投递到 window sink。
@@ -39,6 +39,8 @@
 |---|---|
 | `ExecutionEngine.execute(tool:seed:)` | v2 唯一执行入口，返回事件流。 |
 | `ExecutionEvent` | UI / Playground / 测试消费的事件枚举。 |
+| `ContextCollector.resolve(seed:requests:)` | 通过 `ContextProviderRegistry` 并发解析 Tool 声明的 `ContextRequest`。 |
+| `ContextProviderRegistry` | provider name 到实例的只读注册表；PermissionGraph 与 ContextCollector 应共享同一 registry。 |
 | `PromptExecutor.run(...)` | prompt 渲染 + LLM provider stream。 |
 | `OutputDispatcher.handle(chunk:mode:invocationId:)` | 按 `DisplayMode` 派发输出；v0.2.0 non-window mode fallback 到 window。 |
 | `InvocationGate` | single-flight 状态唯一来源，阻止旧 invocation 污染新结果。 |
@@ -47,6 +49,12 @@
 ## 权限覆盖语义
 
 `EffectivePermissions.undeclared` 的判断方向是 declared 覆盖 effective：只要某个 effective permission 找不到任何 declared cover，就视为漏报并在执行前失败。
+
+真实 ContextProvider 的权限推导通过 registry 路由到 provider 类型的 `inferredPermissions(for:)`：
+
+- `selection`、`app.windowTitle`、`app.url` 不产生额外权限。
+- `clipboard.current` 推导 `.clipboard`。
+- `file.read` 根据 `args["path"]` 推导 `.fileRead(path:)`。
 
 - 标量权限保持 exact match。
 - `.fileRead` / `.fileWrite` 先做 PathSandbox hard-deny 检查，再比较规范化后的 exact、显式目录前缀和 `*` / `**` glob。
