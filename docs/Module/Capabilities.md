@@ -36,7 +36,7 @@ M2 Task 7 新增五个核心 ContextProvider：
 4. `clipboard.current` 读取当前剪贴板文本，静态权限推导为 `.clipboard`，IO 前后检查取消。
 5. `file.read` 使用 `args["path"]` 推导 `.fileRead(path:)`，执行时先经 `PathSandbox.normalize(_:role: .read)` 规范化和校验，再按 chunk 读取 UTF-8 文本；默认最大 1 MiB，超限抛固定非敏感 `SliceError.execution(.unknown("file.read.maxBytesExceeded"))`，IO 边界前后和每个 chunk 后检查取消。
 
-M2 Task 8 新增 `PersistentPermissionGrantStore`，默认路径为 `~/Library/Application Support/SliceAI/permission-grants.json`。该 store 只写入 `.persistent` grant；`.session` 由 Orchestration 的 `PermissionGrantStore` 保存在内存中，`.oneTime` 不缓存。存储层会拒绝 `.mcp`、`.network`、`.shellExec`、`.appIntents`，避免 Settings 或未来导入路径绕过 broker 把每次确认权限持久化。
+M2 Task 8 新增 `PersistentPermissionGrantStore`，默认路径为 `~/Library/Application Support/SliceAI/permission-grants.json`。该 store 只写入 `.persistent` grant；`.session` 由 Orchestration 的 `PermissionGrantStore` 保存在内存中，`.oneTime` 不缓存。存储层会拒绝 `.mcp`、`.network`、`.shellExec`、`.appIntents`，并在读侧校验 schemaVersion、grant scope、permission 一致性和 provenanceTag，避免 Settings、未来导入路径或损坏文件把每次确认权限持久化。
 
 ## 关键接口
 

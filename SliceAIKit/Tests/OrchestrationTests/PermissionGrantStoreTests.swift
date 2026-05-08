@@ -249,7 +249,7 @@ final class PermissionGrantStoreTests: XCTestCase {
         do {
             try await store.record(permission: permission, provenance: .firstParty, scope: .session)
             XCTFail("MCP 权限不可缓存，record 应抛出 nonCacheablePermission")
-        } catch PermissionGrantStoreError.nonCacheablePermission(let rejected) {
+        } catch SessionPermissionGrantStoreError.nonCacheablePermission(let rejected) {
             XCTAssertEqual(rejected, permission)
         }
 
@@ -265,7 +265,7 @@ final class PermissionGrantStoreTests: XCTestCase {
         do {
             try await store.record(permission: permission, provenance: .firstParty, scope: .session)
             XCTFail("network write 权限不可缓存，record 应抛出 nonCacheablePermission")
-        } catch PermissionGrantStoreError.nonCacheablePermission(let rejected) {
+        } catch SessionPermissionGrantStoreError.nonCacheablePermission(let rejected) {
             XCTAssertEqual(rejected, permission)
         }
 

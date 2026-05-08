@@ -62,9 +62,9 @@ public protocol PermissionConsentPresenting: Sendable {
 /// 比抛错更清晰；caller 只 `await` 不需 `try`。新增 case 时务必同步 ExecutionEngine 主流程的
 /// exhaustive switch（CI 用 `grep default:` 反向断言保障无 default 兜底）。
 ///
-/// **dry-run 行为不豁免下限**：`isDryRun=true` 时 broker 仍然计算下限；只是把
-/// network-write / exec 等"实际副作用前才需要每次确认"的下限替换为 `.wouldRequireConsent` 让 Playground
-/// 显示"如果实际执行会需要 X 权限"，**严禁** dry-run 静默 `.approved`。
+/// **dry-run 行为不豁免下限**：`isDryRun=true` 时 broker 仍然计算下限；只是把所有
+/// 需要运行期确认的下限替换为 `.wouldRequireConsent` 让 Playground 显示"如果实际执行会需要 X 权限"，
+/// **严禁** dry-run 静默 `.approved` 或调用 presenter。
 public enum GateOutcome: Sendable, Equatable {
     /// 通过：已有 grant 命中（或 tier 不需要确认，如 readonly-local + 非 unknown）
     case approved

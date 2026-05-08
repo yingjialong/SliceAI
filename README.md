@@ -58,7 +58,7 @@ open SliceAI.xcodeproj
 - `Orchestration` 新增 UI-free 权限确认协议：`PermissionConsentRequest`、`PermissionConsentDecision`、`PermissionConsentPresenting`。
 - `PermissionBroker` 改为持有 presenter，生产非 dry-run 路径内部解析为 `.approved` / `.denied`；`GateOutcome.requiresUserConsent` 仅保留给测试 doubles 与兼容路径。
 - `PermissionGrantStore` 只保存 session grant，并在存储层拒绝 `.mcp`、`.network`、`.shellExec`、`.appIntents`。
-- `Capabilities` 新增 `PersistentPermissionGrantStore`，默认路径 `~/Library/Application Support/SliceAI/permission-grants.json`，仅持久化 `.persistent` 且同样拒绝不可缓存权限。
+- `Capabilities` 新增 `PersistentPermissionGrantStore`，默认路径 `~/Library/Application Support/SliceAI/permission-grants.json`，仅持久化 `.persistent` 且同样拒绝不可缓存权限；读侧校验 schema、scope、permission 一致性和 provenanceTag，损坏文件 fail-closed。
 - `AppContainer` 暂时注入 fail-closed runtime presenter；真实 AppKit 权限弹窗进入 M2 Task 9。
 
 **验证状态**：

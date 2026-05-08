@@ -50,7 +50,7 @@ final class PermissionBrokerTests: XCTestCase {
     private static let permNetwork = Permission.network(host: "api.openai.com")
     private static let permShellExec = Permission.shellExec(commands: ["git status"])
 
-    /// 构造测试用 broker；默认 presenter 仅用于旧矩阵测试，把旧 requiresUserConsent 路径推进为 approved
+    /// 构造测试用 broker；默认 presenter 用于矩阵测试，把 consent 下限推进为 approved
     private static func makeBroker(
         store: PermissionGrantStore = .init(),
         presenter: any PermissionConsentPresenting = StaticConsentPresenter(decision: .approve(scope: .oneTime))
@@ -96,9 +96,9 @@ final class PermissionBrokerTests: XCTestCase {
         XCTAssertEqual(outcome, .approved, "readonly-local + selfManaged 应静默通过")
     }
 
-    /// readonly-local + unknown → .requiresUserConsent（spec §3.9.1 line 939：unknown 也需首次确认）
+    /// readonly-local + unknown → 调用 presenter 并在 approve 后返回 .approved
     /// 注：plan line 1718 简化表述与 spec 表存在出入，按 spec 准确实现
-    func test_gate_readonlyLocal_unknown_returnsRequiresConsent() async {
+    func test_gate_readonlyLocal_unknown_callsPresenterAndReturnsApproved() async {
         let presenter = RecordingConsentPresenter(decision: .approve(scope: .oneTime))
         let broker = Self.makeBroker(presenter: presenter)
         let outcome = await broker.gate(
@@ -119,8 +119,8 @@ final class PermissionBrokerTests: XCTestCase {
 
     // MARK: - local-write × 4 provenance（4 cell；D-25 firstParty 也不可跳过首次确认）
 
-    /// local-write + firstParty → .requiresUserConsent（D-25：首次确认不可跳过）
-    func test_gate_localWrite_firstParty_returnsRequiresConsent() async {
+    /// local-write + firstParty → 调用 presenter 并在 approve 后返回 .approved（D-25：首次确认不可跳过）
+    func test_gate_localWrite_firstParty_callsPresenterAndReturnsApproved() async {
         let broker = Self.makeBroker()
         let outcome = await broker.gate(
             effective: [Self.permFileWrite],
@@ -137,8 +137,8 @@ final class PermissionBrokerTests: XCTestCase {
         XCTAssertTrue(hint.contains("Authorize"), "firstParty 应使用中性文案：\(hint)")
     }
 
-    /// local-write + communitySigned → .requiresUserConsent
-    func test_gate_localWrite_communitySigned_returnsRequiresConsent() async {
+    /// local-write + communitySigned → 调用 presenter 并在 approve 后返回 .approved
+    func test_gate_localWrite_communitySigned_callsPresenterAndReturnsApproved() async {
         let broker = Self.makeBroker()
         let outcome = await broker.gate(
             effective: [Self.permFileWrite],
@@ -149,8 +149,8 @@ final class PermissionBrokerTests: XCTestCase {
         XCTAssertEqual(outcome, .approved, "local-write + communitySigned 经 presenter 一次确认后应通过")
     }
 
-    /// local-write + selfManaged → .requiresUserConsent
-    func test_gate_localWrite_selfManaged_returnsRequiresConsent() async {
+    /// local-write + selfManaged → 调用 presenter 并在 approve 后返回 .approved
+    func test_gate_localWrite_selfManaged_callsPresenterAndReturnsApproved() async {
         let broker = Self.makeBroker()
         let outcome = await broker.gate(
             effective: [Self.permFileWrite],
@@ -161,8 +161,8 @@ final class PermissionBrokerTests: XCTestCase {
         XCTAssertEqual(outcome, .approved, "local-write + selfManaged 经 presenter 一次确认后应通过")
     }
 
-    /// local-write + unknown → .requiresUserConsent（每次确认；M2 仍单次返回，UX 差异由 hint 表达）
-    func test_gate_localWrite_unknown_returnsRequiresConsent() async {
+    /// local-write + unknown → 调用 presenter 并在 approve 后返回 .approved
+    func test_gate_localWrite_unknown_callsPresenterAndReturnsApproved() async {
         let broker = Self.makeBroker()
         let outcome = await broker.gate(
             effective: [Self.permFileWrite],
@@ -177,8 +177,8 @@ final class PermissionBrokerTests: XCTestCase {
 
     // MARK: - network-write × 4 provenance（4 cell；D-22 每次确认，不可缓存）
 
-    /// network-write + firstParty → .requiresUserConsent（D-22：firstParty 也不能放行）
-    func test_gate_networkWrite_firstParty_returnsRequiresConsent() async {
+    /// network-write + firstParty → 调用 presenter 并在 approve 后返回 .approved（D-22：firstParty 也不能静默放行）
+    func test_gate_networkWrite_firstParty_callsPresenterAndReturnsApproved() async {
         let broker = Self.makeBroker()
         let outcome = await broker.gate(
             effective: [Self.permNetwork],
@@ -193,8 +193,8 @@ final class PermissionBrokerTests: XCTestCase {
         XCTAssertTrue(hint.contains("network-write"))
     }
 
-    /// network-write + communitySigned → .requiresUserConsent
-    func test_gate_networkWrite_communitySigned_returnsRequiresConsent() async {
+    /// network-write + communitySigned → 调用 presenter 并在 approve 后返回 .approved
+    func test_gate_networkWrite_communitySigned_callsPresenterAndReturnsApproved() async {
         let broker = Self.makeBroker()
         let outcome = await broker.gate(
             effective: [Self.permNetwork],
@@ -205,8 +205,8 @@ final class PermissionBrokerTests: XCTestCase {
         XCTAssertEqual(outcome, .approved, "network-write + communitySigned 经 presenter 单次确认后应通过")
     }
 
-    /// network-write + selfManaged → .requiresUserConsent
-    func test_gate_networkWrite_selfManaged_returnsRequiresConsent() async {
+    /// network-write + selfManaged → 调用 presenter 并在 approve 后返回 .approved
+    func test_gate_networkWrite_selfManaged_callsPresenterAndReturnsApproved() async {
         let broker = Self.makeBroker()
         let outcome = await broker.gate(
             effective: [Self.permNetwork],
@@ -217,8 +217,8 @@ final class PermissionBrokerTests: XCTestCase {
         XCTAssertEqual(outcome, .approved, "network-write + selfManaged 经 presenter 单次确认后应通过")
     }
 
-    /// network-write + unknown → .requiresUserConsent
-    func test_gate_networkWrite_unknown_returnsRequiresConsent() async {
+    /// network-write + unknown → 调用 presenter 并在 approve 后返回 .approved
+    func test_gate_networkWrite_unknown_callsPresenterAndReturnsApproved() async {
         let broker = Self.makeBroker()
         let outcome = await broker.gate(
             effective: [Self.permNetwork],
@@ -233,8 +233,8 @@ final class PermissionBrokerTests: XCTestCase {
 
     // MARK: - exec × 4 provenance（4 cell；D-22 每次确认）
 
-    /// exec + firstParty → .requiresUserConsent
-    func test_gate_exec_firstParty_returnsRequiresConsent() async {
+    /// exec + firstParty → 调用 presenter 并在 approve 后返回 .approved
+    func test_gate_exec_firstParty_callsPresenterAndReturnsApproved() async {
         let broker = Self.makeBroker()
         let outcome = await broker.gate(
             effective: [Self.permShellExec],
@@ -249,8 +249,8 @@ final class PermissionBrokerTests: XCTestCase {
         XCTAssertTrue(hint.contains("exec"))
     }
 
-    /// exec + communitySigned → .requiresUserConsent
-    func test_gate_exec_communitySigned_returnsRequiresConsent() async {
+    /// exec + communitySigned → 调用 presenter 并在 approve 后返回 .approved
+    func test_gate_exec_communitySigned_callsPresenterAndReturnsApproved() async {
         let broker = Self.makeBroker()
         let outcome = await broker.gate(
             effective: [Self.permShellExec],
@@ -261,8 +261,8 @@ final class PermissionBrokerTests: XCTestCase {
         XCTAssertEqual(outcome, .approved, "exec + communitySigned 经 presenter 单次确认后应通过")
     }
 
-    /// exec + selfManaged → .requiresUserConsent
-    func test_gate_exec_selfManaged_returnsRequiresConsent() async {
+    /// exec + selfManaged → 调用 presenter 并在 approve 后返回 .approved
+    func test_gate_exec_selfManaged_callsPresenterAndReturnsApproved() async {
         let broker = Self.makeBroker()
         let outcome = await broker.gate(
             effective: [Self.permShellExec],
@@ -273,8 +273,8 @@ final class PermissionBrokerTests: XCTestCase {
         XCTAssertEqual(outcome, .approved, "exec + selfManaged 经 presenter 单次确认后应通过")
     }
 
-    /// exec + unknown → .requiresUserConsent
-    func test_gate_exec_unknown_returnsRequiresConsent() async {
+    /// exec + unknown → 调用 presenter 并在 approve 后返回 .approved
+    func test_gate_exec_unknown_callsPresenterAndReturnsApproved() async {
         let broker = Self.makeBroker()
         let outcome = await broker.gate(
             effective: [Self.permShellExec],
@@ -408,7 +408,7 @@ final class PermissionBrokerTests: XCTestCase {
         do {
             try await store.record(permission: Self.permNetwork, provenance: Self.firstParty, scope: .session)
             XCTFail("network-write grant 不应允许写入")
-        } catch PermissionGrantStoreError.nonCacheablePermission {
+        } catch SessionPermissionGrantStoreError.nonCacheablePermission {
             // 预期路径：不可缓存权限由 store 层拒绝
         }
         let broker = Self.makeBroker(store: store)
@@ -428,7 +428,7 @@ final class PermissionBrokerTests: XCTestCase {
         do {
             try await store.record(permission: Self.permShellExec, provenance: Self.firstParty, scope: .session)
             XCTFail("exec grant 不应允许写入")
-        } catch PermissionGrantStoreError.nonCacheablePermission {
+        } catch SessionPermissionGrantStoreError.nonCacheablePermission {
             // 预期路径：不可缓存权限由 store 层拒绝
         }
         let broker = Self.makeBroker(store: store)

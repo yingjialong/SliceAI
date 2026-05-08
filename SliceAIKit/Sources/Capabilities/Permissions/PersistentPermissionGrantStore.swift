@@ -8,9 +8,13 @@ private let persistentGrantStoreLog = Logger(
 )
 
 /// Persistent permission grant 存储错误
-public enum PermissionGrantStoreError: Error, Sendable, Equatable {
+public enum PersistentPermissionGrantStoreError: Error, Sendable, Equatable {
     /// 尝试持久化必须逐次确认的权限
     case nonCacheablePermission(Permission)
+    /// 磁盘文件 schemaVersion 与当前实现不兼容
+    case unsupportedSchemaVersion(Int)
+    /// 磁盘中的 grant 记录不满足持久授权约束
+    case invalidStoredGrant(Permission)
 }
 
 /// 磁盘持久化的 permission grant store。
@@ -47,7 +51,7 @@ public actor PersistentPermissionGrantStore {
                 entry.permission == permission && entry.provenanceTag == tag
             }
         } catch {
-            persistentGrantStoreLog.error("failed to load permission grants: \(String(describing: error), privacy: .public)")
+            persistentGrantStoreLog.error("failed to load permission grants")
             return false
         }
     }
@@ -60,7 +64,7 @@ public actor PersistentPermissionGrantStore {
     /// - Throws: 不可缓存权限或文件读写错误。
     public func record(permission: Permission, provenance: Provenance, scope: GrantScope) throws {
         guard Self.isCacheable(permission) else {
-            throw PermissionGrantStoreError.nonCacheablePermission(permission)
+            throw PersistentPermissionGrantStoreError.nonCacheablePermission(permission)
         }
         guard scope == .persistent else {
             persistentGrantStoreLog.debug("skip non-persistent grant scope=\(scope.rawValue, privacy: .public)")
@@ -111,6 +115,7 @@ public actor PersistentPermissionGrantStore {
 
         let data = try Data(contentsOf: fileURL)
         let configuration = try JSONDecoder().decode(PermissionGrantConfiguration.self, from: data)
+        try Self.validate(configuration)
         persistentGrantStoreLog.debug(
             "loaded permission grants count=\(configuration.grants.count, privacy: .public)"
         )
@@ -144,6 +149,26 @@ public actor PersistentPermissionGrantStore {
             return false
         case .fileRead, .fileWrite, .clipboard, .clipboardHistory, .screen, .systemAudio, .memoryAccess:
             return true
+        }
+    }
+
+    /// 校验磁盘 grant 文件是否满足当前持久授权约束。
+    /// - Parameter configuration: 已解码的 grant 配置。
+    /// - Throws: schema 不兼容或存在非法 grant 记录。
+    private static func validate(_ configuration: PermissionGrantConfiguration) throws {
+        guard configuration.schemaVersion == currentSchemaVersion else {
+            throw PersistentPermissionGrantStoreError.unsupportedSchemaVersion(configuration.schemaVersion)
+        }
+
+        for entry in configuration.grants {
+            guard isCacheable(entry.permission) else {
+                throw PersistentPermissionGrantStoreError.nonCacheablePermission(entry.permission)
+            }
+            guard entry.grant.scope == .persistent,
+                  entry.grant.permission == entry.permission,
+                  entry.provenanceTag == tag(for: entry.provenance) else {
+                throw PersistentPermissionGrantStoreError.invalidStoredGrant(entry.permission)
+            }
         }
     }
 

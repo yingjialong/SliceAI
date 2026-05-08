@@ -404,7 +404,7 @@ fi
 
 - [x] `cd SliceAIKit && swift test --filter OrchestrationTests.PermissionBrokerTests`
 - [x] `cd SliceAIKit && swift test --filter OrchestrationTests.PermissionGrantStoreTests`
-- [x] `cd SliceAIKit && swift test --filter CapabilitiesTests.PersistentPermissionGrantStoreTests`
+- [x] `cd SliceAIKit && swift test --filter CapabilitiesTests.PersistentPermissionGrantStoreTests`（7 tests）
 - [x] `cd SliceAIKit && swift test`
 - [x] `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`
 
@@ -815,6 +815,7 @@ fi
 - session grant 只进入 `PermissionGrantStore`；persistent grant 只由 `PersistentPermissionGrantStore` 写入 `~/Library/Application Support/SliceAI/permission-grants.json`，运行时 broker 只读。
 - `.mcp`、`.network`、`.shellExec`、`.appIntents` 在 session 与 persistent 存储层均拒绝缓存；MCP 即使 presenter 返回 session approval 也只对本次 invocation 生效。
 - `AppContainer` 当前注入 fail-closed runtime presenter，真实 AppKit 弹窗留给 Task 9。
-- 验证：`cd SliceAIKit && swift test --filter OrchestrationTests.PermissionBrokerTests`、`cd SliceAIKit && swift test --filter OrchestrationTests.PermissionGrantStoreTests`、`cd SliceAIKit && swift test --filter CapabilitiesTests.PersistentPermissionGrantStoreTests`、`cd SliceAIKit && swift test`、`xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build` 均通过。
+- code-quality review follow-up 已补 persistent grant 读侧 schema/scope/permission/provenanceTag 校验，并拆分 session / persistent store 错误类型，避免跨模块 API 歧义。
+- 验证：`cd SliceAIKit && swift test --filter OrchestrationTests.PermissionBrokerTests`、`cd SliceAIKit && swift test --filter OrchestrationTests.PermissionGrantStoreTests`、`cd SliceAIKit && swift test --filter CapabilitiesTests.PersistentPermissionGrantStoreTests`（7 tests）、`cd SliceAIKit && swift test`、`xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build` 均通过。
 
 **下一步**：启动 M2 Task 9：AppContainer Wires Real Context And Permission UI。

@@ -2,7 +2,7 @@ import Foundation
 import SliceCore
 
 /// Permission grant 存储错误
-public enum PermissionGrantStoreError: Error, Sendable, Equatable {
+public enum SessionPermissionGrantStoreError: Error, Sendable, Equatable {
     /// 尝试缓存必须逐次确认的权限
     case nonCacheablePermission(Permission)
 }
@@ -99,10 +99,10 @@ public actor PermissionGrantStore {
     ///   - permission: 被授予的 permission
     ///   - provenance: 工具来源
     ///   - scope: 授权时长；仅 `.session` 会写入内存缓存。
-    /// - Throws: `PermissionGrantStoreError.nonCacheablePermission`。
+    /// - Throws: `SessionPermissionGrantStoreError.nonCacheablePermission`。
     public func record(permission: Permission, provenance: Provenance, scope: GrantScope) throws {
         guard Self.isCacheable(permission) else {
-            throw PermissionGrantStoreError.nonCacheablePermission(permission)
+            throw SessionPermissionGrantStoreError.nonCacheablePermission(permission)
         }
         guard scope == .session else {
             return

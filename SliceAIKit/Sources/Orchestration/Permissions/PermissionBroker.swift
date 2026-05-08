@@ -32,8 +32,7 @@ internal enum PermissionTier: Sendable {
 ///
 /// **核心约束（D-22 + D-25）**：
 /// - lowerBound 仅依赖 tier，与 provenance **完全无关**——provenance 只决定 UX hint 文案
-/// - dry-run 不豁免下限：readonly-* / local-write 仍走完整 gate；只有 network-write / exec
-///   才返回 `.wouldRequireConsent` 占位
+/// - dry-run 不调用 presenter；任何需要确认的下限都返回 `.wouldRequireConsent` 占位
 /// - short-circuit：对 `effective` set 中第一个非 `.approved` permission 即返回，避免 UI 风暴
 ///
 /// **测试覆盖**：`PermissionBrokerTests` 5 tier × 4 provenance = 20 cell 全覆盖（不抽样）+
@@ -146,8 +145,7 @@ public actor PermissionBroker: PermissionBrokerProtocol {
             )
 
         case .readonlyNetwork, .localWrite:
-            // 首次确认：所有 4 provenance 都需要确认（unknown 实际上每次确认，但 M2 实现仍走 requiresUserConsent
-            // 一次返回；M3+ "记住" 选项只对 firstParty/signed 显示，由 UI 层判断 provenance）
+            // 首次确认：所有 4 provenance 都需要确认；Task 8 后由 presenter 在 broker 内解析为 approved/denied
             let lowerBound = GateOutcome.requiresUserConsent(
                 permission: permission,
                 uxHint: Self.uxHint(tier: tier, provenance: provenance)
@@ -161,7 +159,7 @@ public actor PermissionBroker: PermissionBrokerProtocol {
             )
 
         case .networkWrite, .exec:
-            // 每次确认：dry-run 替换为 wouldRequireConsent；非 dry-run 走 requiresUserConsent
+            // 每次确认：dry-run 替换为 wouldRequireConsent；非 dry-run 交给 presenter 做一次性确认
             let hint = Self.uxHint(tier: tier, provenance: provenance)
             let lowerBound = GateOutcome.requiresUserConsent(permission: permission, uxHint: hint)
             return await resolveIfConsentNeeded(
@@ -241,7 +239,7 @@ public actor PermissionBroker: PermissionBrokerProtocol {
                 permissionBrokerLog.debug("session permission grant recorded")
                 return .approved
             } catch {
-                permissionBrokerLog.error("failed to record session grant: \(String(describing: error), privacy: .public)")
+                permissionBrokerLog.error("failed to record session grant")
                 return .denied(permission: permission, reason: "failed to record permission grant")
             }
 
