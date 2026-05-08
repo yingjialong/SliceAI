@@ -125,6 +125,7 @@ final class AppContainer {
         let permissionBroker: any PermissionBrokerProtocol
         let providerResolver: any ProviderResolverProtocol
         let promptExecutor: PromptExecutor
+        let mcpClient: any MCPClientProtocol
         let costAccounting: CostAccounting
         let auditLog: any AuditLogProtocol
         let outputDispatcher: any OutputDispatcherProtocol
@@ -215,11 +216,22 @@ final class AppContainer {
         llmProviderFactory: any LLMProviderFactory,
         resultPanel: ResultPanel
     ) async throws -> RuntimeDependencies {
-        let providerRegistry = ContextProviderRegistry(providers: [:])
+        let providerRegistry = makeContextProviderRegistry()
         let permissionBroker: any PermissionBrokerProtocol = PermissionBroker(
             store: PermissionGrantStore(),
-            persistentStore: PersistentPermissionGrantStore(),
-            consentPresenter: RuntimePermissionConsentPresenter()
+            persistentStore: PersistentPermissionGrantStore(
+                fileURL: appSupport.appendingPathComponent("permission-grants.json")
+            ),
+            consentPresenter: AppPermissionConsentPresenter()
+        )
+        let mcpServerStore = MCPServerStore(fileURL: appSupport.appendingPathComponent("mcp.json"))
+        let mcpDescriptorsProvider: @Sendable () async throws -> [MCPDescriptor] = {
+            try await mcpServerStore.snapshot()
+        }
+        let stdioMCPClient = StdioMCPClient(descriptors: mcpDescriptorsProvider)
+        let routingMCPClient = RoutingMCPClient(
+            descriptors: mcpDescriptorsProvider,
+            stdio: stdioMCPClient
         )
         let providerResolver: any ProviderResolverProtocol = DefaultProviderResolver(
             configurationProvider: { [configStore] in try await configStore.current() }
@@ -237,6 +249,7 @@ final class AppContainer {
             permissionBroker: permissionBroker,
             providerResolver: providerResolver,
             promptExecutor: promptExecutor,
+            mcpClient: routingMCPClient,
             costAccounting: costAccounting,
             auditLog: auditLog,
             outputDispatcher: outputDispatcher
@@ -251,7 +264,7 @@ final class AppContainer {
         )
     }
 
-    /// 创建 v2 `ExecutionEngine`，集中保留 mock MCP/Skill 依赖的边界。
+    /// 创建生产 v2 `ExecutionEngine`，集中保留 runtime 依赖的装配边界。
     ///
     /// - Parameter dependencies: 创建执行引擎所需的 v2 内部依赖集合。
     /// - Returns: 完整装配但尚未接入 caller 的 v2 执行引擎。
@@ -262,12 +275,28 @@ final class AppContainer {
             permissionGraph: PermissionGraph(providerRegistry: dependencies.providerRegistry),
             providerResolver: dependencies.providerResolver,
             promptExecutor: dependencies.promptExecutor,
-            mcpClient: MockMCPClient(),
+            mcpClient: dependencies.mcpClient,
             skillRegistry: MockSkillRegistry(),
             costAccounting: dependencies.costAccounting,
             auditLog: dependencies.auditLog,
             output: dependencies.outputDispatcher
         )
+    }
+
+    /// 创建生产上下文 provider 注册表。
+    ///
+    /// - Returns: 包含 Task 7 五个核心 provider 的 registry。
+    private static func makeContextProviderRegistry() -> ContextProviderRegistry {
+        let providers: [String: any ContextProvider] = [
+            "selection": SelectionContextProvider(),
+            "app.windowTitle": AppWindowTitleContextProvider(),
+            "app.url": AppURLContextProvider(),
+            "clipboard.current": ClipboardCurrentContextProvider(
+                readString: AppContextAdapters.readClipboardString
+            ),
+            "file.read": FileReadContextProvider(sandbox: PathSandbox()),
+        ]
+        return ContextProviderRegistry(providers: providers)
     }
 
     /// 创建选区捕获服务：AX 为主路径，剪贴板为 fallback。
@@ -327,21 +356,5 @@ final class AppContainer {
             try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
         }
         return appSupport
-    }
-}
-
-/// 当前 App runtime 的权限确认 presenter。
-///
-/// Task 8 只建立 UI-free 边界，尚未实现真实弹窗；因此生产 App 对运行期新增权限采用 fail-closed。
-/// Settings-only persistent grant 后续由设置页写入，broker 只读取。
-private struct RuntimePermissionConsentPresenter: PermissionConsentPresenting {
-
-    /// 运行期权限确认暂时 fail-closed，避免在无 UI 的情况下静默放行高风险权限
-    /// - Parameter request: 权限确认请求。
-    /// - Returns: 拒绝决策。
-    func requestConsent(_ request: PermissionConsentRequest) async -> PermissionConsentDecision {
-        let log = Logger(subsystem: "com.sliceai.app", category: "RuntimePermissionConsentPresenter")
-        log.warning("runtime permission consent requested before UI is wired")
-        return .deny(reason: "runtime permission consent UI is not available")
     }
 }

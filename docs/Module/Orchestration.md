@@ -8,7 +8,7 @@
 
 - 执行入口：`ExecutionEngine.execute(tool:seed:)`。
 - 上下文采集：`ContextCollector`、`ContextProviderRegistry`。Phase 1 M2 Task 7 后，Capabilities 已提供 `selection`、`app.windowTitle`、`app.url`、`clipboard.current`、`file.read` 五个核心 provider，可通过 registry 注入 collector。
-- 权限闭环：`PermissionGraph`、`PermissionBroker`、`PermissionConsentPresenting`、`PermissionGrantStore`、`EffectivePermissions`。Phase 1 M2 Task 6 后，`EffectivePermissions.undeclared` 使用 case-aware coverage；Task 8 后，生产 `PermissionBroker` 通过 UI-free presenter 在 broker 内部解析 consent，不再把运行期确认需求直接交给 `ExecutionEngine`。
+- 权限闭环：`PermissionGraph`、`PermissionBroker`、`PermissionConsentPresenting`、`PermissionGrantStore`、`EffectivePermissions`。Phase 1 M2 Task 6 后，`EffectivePermissions.undeclared` 使用 case-aware coverage；Task 8 后，生产 `PermissionBroker` 通过 UI-free presenter 在 broker 内部解析 consent，不再把运行期确认需求直接交给 `ExecutionEngine`；Task 9 后，App target 提供 `AppPermissionConsentPresenter` 作为真实 AppKit presenter。
 - Provider 解析：`ProviderResolver`、`DefaultProviderResolver`。
 - Prompt 执行：`PromptExecutor`，负责 prompt 渲染、Keychain 取 key、调用 `LLMProviderFactory` 和流式 provider。
 - 输出派发：`OutputDispatcher`、`WindowSinkProtocol`、`InvocationGate`。
@@ -22,7 +22,7 @@
 
 1. 发送 `.started`。
 2. `PermissionGraph.compute` 计算 effective permissions，并通过 `Permission.covers` 校验每个 effective permission 是否被 declared permission 覆盖。
-3. `PermissionBroker.gate` 对权限集合做授权决策；cacheable grant 命中时直接放行，否则通过 `PermissionConsentPresenting` 获取 approve / deny。
+3. `PermissionBroker.gate` 对权限集合做授权决策；cacheable grant 命中时直接放行，否则通过 App 层注入的 `PermissionConsentPresenting` 获取 approve / deny。
 4. `ContextCollector.resolve` 并发解析 `ContextRequest`；内置 provider 可采集 seed/app 快照、剪贴板和 `PathSandbox` 允许的文件内容。
 5. `ProviderResolver.resolve` 解析 `ProviderSelection`。
 6. `.prompt` 工具进入 `PromptExecutor`；`.agent` / `.pipeline` 在 v0.2.0 返回 not implemented。
@@ -71,6 +71,8 @@
 ## 运行逻辑
 
 `SliceAIApp.AppDelegate` 在用户选择工具后创建 `ExecutionSeed`，先设置 `InvocationGate` active id，再打开 `ResultPanel`，最后启动 stream consumer。`ExecutionEventConsumer` 把 `.llmChunk`、`.finished`、`.failed`、`.notImplemented` 等事件翻译为面板操作。
+
+`SliceAIApp.AppContainer` 在启动期创建真实 `ContextProviderRegistry`，注册 `selection`、`app.windowTitle`、`app.url`、`clipboard.current`、`file.read` 五个 provider，并让 `ContextCollector` 与 `PermissionGraph` 共享该 registry。运行期权限确认由 AppKit `NSAlert` presenter 完成；presenter 只返回 `.oneTime` 或 `.session`，persistent grant 仍是 Settings-only。
 
 `OutputDispatcher` 在 v0.2.0 中只有 `.window` 真实 sink。`.bubble`、`.replace`、`.file`、`.silent`、`.structured` 会 fallback 到 window sink 并记录一次去重日志，保证旧配置迁移后用户仍能看到结果，不会因为 Phase 2 UI 未实现而丢输出。
 

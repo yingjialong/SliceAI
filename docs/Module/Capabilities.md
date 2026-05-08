@@ -2,7 +2,7 @@
 
 ## 模块定位
 
-`Capabilities` 是 v2 能力边界模块，承载 Phase 1+ 会接入的 MCP、Skill、ContextProvider、本地安全能力和跨启动能力状态。Phase 0 提供协议、mock 和纯函数安全基础设施；Phase 1 M1 已接入本地 MCP server store、Claude Desktop stdio importer、真实 stdio MCP JSON-RPC client，并暴露给 SettingsUI 的 MCP Servers 设置页使用。Phase 1 M2 Task 7 已补齐五个核心 ContextProvider；Task 8 新增 persistent permission grant store。当前仍不实现 Streamable HTTP / WebSocket 远程 transport，也不做真实 skill 文件扫描；旧 HTTP+SSE 明确弃用，不再支持。
+`Capabilities` 是 v2 能力边界模块，承载 Phase 1+ 会接入的 MCP、Skill、ContextProvider、本地安全能力和跨启动能力状态。Phase 0 提供协议、mock 和纯函数安全基础设施；Phase 1 M1 已接入本地 MCP server store、Claude Desktop stdio importer、真实 stdio MCP JSON-RPC client，并暴露给 SettingsUI 的 MCP Servers 设置页使用。Phase 1 M2 Task 7 已补齐五个核心 ContextProvider；Task 8 新增 persistent permission grant store；Task 9 已由 AppContainer 把真实 provider registry、persistent grant store 和 routing MCP client 接入生产启动路径。当前仍不实现 Streamable HTTP / WebSocket 远程 transport，也不做真实 skill 文件扫描；旧 HTTP+SSE 明确弃用，不再支持。
 
 ## 功能范围
 
@@ -65,11 +65,11 @@ M2 Task 8 新增 `PersistentPermissionGrantStore`，默认路径为 `~/Library/A
 
 ## 运行逻辑
 
-当前生产 App 仍未把真实 MCP 调用接入 `AgentExecutor`；`.agent` / `.pipeline` 工具在执行引擎中仍返回 not implemented，不会触发真实 MCP 或 Skill 调用。M1 的 stdio client 已用于 Settings MCP Servers 页面测试连接，并可作为后续 AgentExecutor wiring 的底层 transport。
+当前生产 App 已创建 `MCPServerStore(fileURL: appSupport/mcp.json)`、`StdioMCPClient` 和 `RoutingMCPClient`，并把 routing client 注入 `ExecutionEngine`。由于 `AgentExecutor` 仍属于后续 M3，`.agent` / `.pipeline` 工具在执行引擎中仍返回 not implemented，不会触发真实 MCP 或 Skill 调用。M1 的 stdio client 已用于 Settings MCP Servers 页面测试连接，并作为后续 AgentExecutor wiring 的底层 transport。
 
-后续 runtime 可通过 `MCPServerStore.snapshot()` 获取已校验 descriptors，再把 `RoutingMCPClient` 作为唯一 MCP facade 注入执行链路。Phase 2 接入 Skill 文件扫描时，同样替换 `SkillRegistryProtocol` 实现。`PathSandbox` 已作为 `file.read` 的真实读取入口，后续也会作为文件写入和 MCP/Skill 本地路径访问的统一安全入口。
+runtime 通过 `MCPServerStore.snapshot()` 获取已校验 descriptors，并把 `RoutingMCPClient` 作为唯一 MCP facade 注入执行链路。Phase 2 接入 Skill 文件扫描时，同样替换 `SkillRegistryProtocol` 实现。`PathSandbox` 已作为 `file.read` 的真实读取入口，后续也会作为文件写入和 MCP/Skill 本地路径访问的统一安全入口。
 
-`PersistentPermissionGrantStore` 是 Settings-only 的持久授权后端。运行时 `PermissionBroker` 可以读取它命中的 persistent grant，但不会在执行过程中写入 `.persistent`；真实授权 UI 与 Settings 写入入口在 M2 Task 9 之后继续补齐。
+`PersistentPermissionGrantStore` 是 Settings-only 的持久授权后端。运行时 `PermissionBroker` 读取 `permission-grants.json` 命中的 persistent grant，但不会在执行过程中写入 `.persistent`；Task 9 已接入真实 AppKit 运行期确认 UI，Settings 写入入口仍留给后续任务。
 
 ## 代码实现说明
 

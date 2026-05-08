@@ -17,8 +17,8 @@
 |---|---|
 | 最后更新 | 2026-05-08 |
 | 当前 Phase | **Phase 1 实施期**（MCP + Context 主干） |
-| 当前 Milestone | **M2 Context 与 Permission 进行中** |
-| 下一个动作 | 启动 M2 Task 9 |
+| 当前 Milestone | **M2 Context 与 Permission 已完成** |
+| 下一个动作 | 启动 Phase 1 M3 AgentExecutor 与工具调用 UI |
 | 阻塞 | 暂无产品口径阻塞；旧 HTTP+SSE 已明确弃用且不实现，远程传输仅保留 M4 Streamable HTTP |
 
 **Milestone 状态**
@@ -31,7 +31,7 @@
 | 0 | M2 | ✅ 已完成：Orchestration + Capabilities 骨架落地 |
 | 0 | M3 | ✅ 已完成并发布：PR #3 merged，`v0.2.0` tag + GitHub Release |
 | 1 | M1 | ✅ 已完成：MCP 数据契约、store/importer、stdio client、Settings MCP Servers 页面 |
-| 1 | M2 | ⏳ 进行中：Task 6 PermissionGraph case-aware coverage、Task 7 Core ContextProviders、Task 8 Permission Consent Grants 已完成 |
+| 1 | M2 | ✅ 已完成：Task 6 PermissionGraph case-aware coverage、Task 7 Core ContextProviders、Task 8 Permission Consent Grants、Task 9 AppContainer wiring |
 | 2–5 | — | 🟦 Directional，进入前需重新 spec |
 
 ---
@@ -306,7 +306,7 @@ fi
 
 **目标**：把 Phase 0 的 `ContextProvider` / `MCPClient` / `AgentExecutor` 填实；用户可以在 Settings 加 MCP server，并在 Tool 勾选哪些 MCP tool 可用；Per-Tool Hotkey 生效。
 
-**状态**：**设计 / plan 已完成 review**，当前 worktree `feature/phase-1-mcp-context` 正在实施。M1 Task 1-5 已完成并通过 Task 5 二次 code-quality 复审；M2 Task 6-7 已完成。
+**状态**：**设计 / plan 已完成 review**，当前 worktree `feature/phase-1-mcp-context` 正在实施。M1 Task 1-5 已完成并通过 Task 5 二次 code-quality 复审；M2 Task 6-9 已完成。
 
 **Entry criteria**（Phase 1 实施启动前置条件）：
 
@@ -371,20 +371,20 @@ fi
 - [x] `swift test`（639 tests）
 - [x] Task 5 二次 code-quality 复审 APPROVED
 
-**下一步**：进入 M2 Task 9。
+**下一步**：进入 Phase 1 M3 AgentExecutor 与工具调用 UI。
 
 ---
 
 ### 4.2 M2：Context 与 Permission
 
-**状态**：Task 6-8 已完成；下一步 Task 9。
+**状态**：Task 6-9 已完成。
 
 | Task | 内容 | 状态 | 备注 |
 |---|---|---|---|
 | M2 Task 6 | PermissionGraph Case-Aware Coverage | ✅ 已完成 | `EffectivePermissions.undeclared` 改为 declared covers effective；支持文件 exact / 目录前缀 / glob、PathSandbox hard-deny、MCP nil/superset、shellExec exact |
 | M2 Task 7 | Five ContextProviders | ✅ 已完成 | 新增 `selection` / `app.windowTitle` / `app.url` / `clipboard.current` / `file.read`；剪贴板和文件 IO 支持取消检查，文件读取先经 `PathSandbox`，并按 chunk 读取且默认 1 MiB 上限 |
 | M2 Task 8 | Permission Grant Persistence And UI-Gate Protocol | ✅ 已完成 | 新增 UI-free consent boundary、session grant cache、persistent permission-grants store；MCP / network / shell / AppIntents 永不缓存 |
-| M2 Task 9 | AppContainer Wires Real Context And Permission UI | ⏭️ 下一步 | 接入真实 AppKit presenter 和 App context adapters；`PermissionBroker` 已提供注入边界 |
+| M2 Task 9 | AppContainer Wires Real Context And Permission UI | ✅ 已完成 | `AppContainer` 注册真实 provider registry，接入 AppKit presenter、`permission-grants.json` persistent store、`mcp.json` + stdio/routing MCP client；`.agent` stub 保持不变 |
 
 **Task 6 验证**：
 
@@ -408,7 +408,15 @@ fi
 - [x] `cd SliceAIKit && swift test`
 - [x] `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`
 
-**下一步**：启动 M2 Task 9。
+**Task 9 验证**：
+
+- [x] `cd SliceAIKit && swift test --filter OrchestrationTests.ExecutionEngineTests`
+- [x] `cd SliceAIKit && swift test --filter CapabilitiesTests.ContextProviderTests`
+- [x] `cd SliceAIKit && swift test --filter OrchestrationTests.PermissionBrokerTests`
+- [x] `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`
+- [x] `git diff --check`
+
+**下一步**：启动 Phase 1 M3 AgentExecutor 与工具调用 UI。
 
 ---
 

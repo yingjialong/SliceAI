@@ -4,6 +4,15 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 
 ---
 
+## Task 47 · Phase 1 M2 Task 9 · AppContainer Context And Permission UI Wiring
+
+- **时间**：2026-05-08
+- **描述**：把 M2 Task 7/8 的真实 ContextProvider、MCP runtime client 和 UI-free permission consent boundary 接入 AppContainer，替换空 registry 与 fail-closed 临时 presenter。
+- **详情**：[docs/Task-detail/2026-05-08-phase-1-m2-task-9-appcontainer-context-permission-ui.md](Task-detail/2026-05-08-phase-1-m2-task-9-appcontainer-context-permission-ui.md)
+- **结果**：完成。未新增重复 Orchestration 行为测试，原因是现有 `ExecutionEngineTests` / `PermissionBrokerTests` / `ContextProviderTests` 已覆盖未声明权限、权限拒绝、批准继续执行和 provider 权限推导；本任务改用 focused tests 与 App Debug build 验证组合根 wiring。`AppContainer` 已注册真实 context providers，接入 AppKit permission presenter、persistent grant store 显式路径和 `mcp.json` 驱动的 routing MCP client。
+
+---
+
 ## Task 46 · Phase 1 M2 Task 8 · Permission Consent Grants
 
 - **时间**：2026-05-08

@@ -8,6 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		533BA7882F9695D00078EF4F /* AppContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 533BA7802F9695D00078EF4F /* AppContainer.swift */; };
+		533BA7B02F9E02000078EF4F /* AppContextAdapters.swift in Sources */ = {isa = PBXBuildFile; fileRef = 533BA7AE2F9E02000078EF4F /* AppContextAdapters.swift */; };
+		533BA7B12F9E02000078EF4F /* AppPermissionConsentPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 533BA7AF2F9E02000078EF4F /* AppPermissionConsentPresenter.swift */; };
 		533BA7892F9695D00078EF4F /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 533BA7812F9695D00078EF4F /* AppDelegate.swift */; };
 		533BA7A42F9695D00078EF4F /* AppDelegate+Execution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 533BA7A52F9695D00078EF4F /* AppDelegate+Execution.swift */; };
 		533BA78A2F9695D00078EF4F /* MenuBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 533BA7842F9695D00078EF4F /* MenuBarController.swift */; };
@@ -29,6 +31,8 @@
 /* Begin PBXFileReference section */
 		533BA76C2F9691D20078EF4F /* SliceAI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SliceAI.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		533BA7802F9695D00078EF4F /* AppContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppContainer.swift; sourceTree = "<group>"; };
+		533BA7AE2F9E02000078EF4F /* AppContextAdapters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppContextAdapters.swift; sourceTree = "<group>"; };
+		533BA7AF2F9E02000078EF4F /* AppPermissionConsentPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPermissionConsentPresenter.swift; sourceTree = "<group>"; };
 		533BA7812F9695D00078EF4F /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		533BA7A52F9695D00078EF4F /* AppDelegate+Execution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+Execution.swift"; sourceTree = "<group>"; };
 		533BA7822F9695D00078EF4F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -82,6 +86,8 @@
 			isa = PBXGroup;
 			children = (
 				533BA7802F9695D00078EF4F /* AppContainer.swift */,
+				533BA7AE2F9E02000078EF4F /* AppContextAdapters.swift */,
+				533BA7AF2F9E02000078EF4F /* AppPermissionConsentPresenter.swift */,
 				533BA7812F9695D00078EF4F /* AppDelegate.swift */,
 				533BA7A52F9695D00078EF4F /* AppDelegate+Execution.swift */,
 				533BA7822F9695D00078EF4F /* Assets.xcassets */,
@@ -186,6 +192,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				533BA7882F9695D00078EF4F /* AppContainer.swift in Sources */,
+				533BA7B02F9E02000078EF4F /* AppContextAdapters.swift in Sources */,
+				533BA7B12F9E02000078EF4F /* AppPermissionConsentPresenter.swift in Sources */,
 				533BA7892F9695D00078EF4F /* AppDelegate.swift in Sources */,
 				533BA7A42F9695D00078EF4F /* AppDelegate+Execution.swift in Sources */,
 				533BA78A2F9695D00078EF4F /* MenuBarController.swift in Sources */,

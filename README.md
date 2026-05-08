@@ -50,6 +50,24 @@ open SliceAI.xcodeproj
 
 ## 项目修改变动记录
 
+### 2026-05-08 · Phase 1 M2 Task 9 · AppContainer Context And Permission UI Wiring
+
+**范围**：worktree `.worktrees/phase-1-mcp-context`，M2 Task 9
+
+**主要变更**：
+- `AppContainer` 注册真实核心 ContextProvider：`selection`、`app.windowTitle`、`app.url`、`clipboard.current`、`file.read`，并让 `ContextCollector` 与 `PermissionGraph` 共享同一 registry。
+- 新增 `AppContextAdapters`，把生产剪贴板读取封装在 App 层后注入 `ClipboardCurrentContextProvider(readString:)`。
+- 新增 `AppPermissionConsentPresenter`，通过 `NSAlert` 展示权限 case、来源摘要、操作风险和 UX hint；运行期只提供本次允许 / 本次会话允许 / 拒绝，不提供 persistent approval。
+- `PermissionBroker` 改为读取 `appSupport/permission-grants.json` 的 persistent grant store，并接入真实 AppKit presenter。
+- App runtime MCP client 从 `MockMCPClient()` 改为 `MCPServerStore(appSupport/mcp.json)` + `StdioMCPClient` + `RoutingMCPClient`；`.agent` stub 行为保持不变，真实 AgentExecutor 留给后续 M3。
+
+**验证状态**：
+- 未新增重复 Orchestration 行为测试：`ExecutionEngineTests` 已覆盖未声明权限阻断、权限拒绝失败事件、requires-user-consent fallback；Task 9 新增行为主要是 App target wiring，由 `xcodebuild` 编译验证。
+- `cd SliceAIKit && swift test --filter OrchestrationTests.ExecutionEngineTests`
+- `cd SliceAIKit && swift test --filter CapabilitiesTests.ContextProviderTests`
+- `cd SliceAIKit && swift test --filter OrchestrationTests.PermissionBrokerTests`
+- `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`
+
 ### 2026-05-08 · Phase 1 M2 Task 8 · Permission Consent Grants
 
 **范围**：worktree `.worktrees/phase-1-mcp-context`，M2 Task 8
@@ -59,7 +77,7 @@ open SliceAI.xcodeproj
 - `PermissionBroker` 改为持有 presenter，生产非 dry-run 路径内部解析为 `.approved` / `.denied`；`GateOutcome.requiresUserConsent` 仅保留给测试 doubles 与兼容路径。
 - `PermissionGrantStore` 只保存 session grant，并在存储层拒绝 `.mcp`、`.network`、`.shellExec`、`.appIntents`。
 - `Capabilities` 新增 `PersistentPermissionGrantStore`，默认路径 `~/Library/Application Support/SliceAI/permission-grants.json`，仅持久化 `.persistent` 且同样拒绝不可缓存权限；读侧校验 schema、scope、permission 一致性和 provenanceTag，损坏文件 fail-closed。
-- `AppContainer` 暂时注入 fail-closed runtime presenter；真实 AppKit 权限弹窗进入 M2 Task 9。
+- `AppContainer` 在 Task 9 已替换 fail-closed runtime presenter；真实 AppKit 权限弹窗已接入生产 wiring。
 
 **验证状态**：
 - 已按 TDD 先写失败测试并确认 persistent store / consent presenter 缺失红灯。
