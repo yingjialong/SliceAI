@@ -18,7 +18,7 @@
 | 最后更新 | 2026-05-08 |
 | 当前 Phase | **Phase 1 实施期**（MCP + Context 主干） |
 | 当前 Milestone | **M2 Context 与 Permission 进行中** |
-| 下一个动作 | 启动 M2 Task 8 |
+| 下一个动作 | 启动 M2 Task 9 |
 | 阻塞 | 暂无产品口径阻塞；旧 HTTP+SSE 已明确弃用且不实现，远程传输仅保留 M4 Streamable HTTP |
 
 **Milestone 状态**
@@ -31,7 +31,7 @@
 | 0 | M2 | ✅ 已完成：Orchestration + Capabilities 骨架落地 |
 | 0 | M3 | ✅ 已完成并发布：PR #3 merged，`v0.2.0` tag + GitHub Release |
 | 1 | M1 | ✅ 已完成：MCP 数据契约、store/importer、stdio client、Settings MCP Servers 页面 |
-| 1 | M2 | ⏳ 进行中：Task 6 PermissionGraph case-aware coverage、Task 7 Core ContextProviders 已完成 |
+| 1 | M2 | ⏳ 进行中：Task 6 PermissionGraph case-aware coverage、Task 7 Core ContextProviders、Task 8 Permission Consent Grants 已完成 |
 | 2–5 | — | 🟦 Directional，进入前需重新 spec |
 
 ---
@@ -371,19 +371,20 @@ fi
 - [x] `swift test`（639 tests）
 - [x] Task 5 二次 code-quality 复审 APPROVED
 
-**下一步**：进入 M2 Task 8。
+**下一步**：进入 M2 Task 9。
 
 ---
 
 ### 4.2 M2：Context 与 Permission
 
-**状态**：Task 6-7 已完成；下一步 Task 8。
+**状态**：Task 6-8 已完成；下一步 Task 9。
 
 | Task | 内容 | 状态 | 备注 |
 |---|---|---|---|
 | M2 Task 6 | PermissionGraph Case-Aware Coverage | ✅ 已完成 | `EffectivePermissions.undeclared` 改为 declared covers effective；支持文件 exact / 目录前缀 / glob、PathSandbox hard-deny、MCP nil/superset、shellExec exact |
 | M2 Task 7 | Five ContextProviders | ✅ 已完成 | 新增 `selection` / `app.windowTitle` / `app.url` / `clipboard.current` / `file.read`；剪贴板和文件 IO 支持取消检查，文件读取先经 `PathSandbox`，并按 chunk 读取且默认 1 MiB 上限 |
-| M2 Task 8 | 待按 Phase 1 plan 继续实施 | ⏭️ 下一步 | feature worktree 当前缺少已 review 的 Phase 1 plan 文件；按任务正文推进，不从根工作区整份复制 plan |
+| M2 Task 8 | Permission Grant Persistence And UI-Gate Protocol | ✅ 已完成 | 新增 UI-free consent boundary、session grant cache、persistent permission-grants store；MCP / network / shell / AppIntents 永不缓存 |
+| M2 Task 9 | AppContainer Wires Real Context And Permission UI | ⏭️ 下一步 | 接入真实 AppKit presenter 和 App context adapters；`PermissionBroker` 已提供注入边界 |
 
 **Task 6 验证**：
 
@@ -399,7 +400,15 @@ fi
 - [x] `cd SliceAIKit && swift test --filter OrchestrationTests.PermissionGraphTests`
 - [x] `git diff --check`
 
-**下一步**：启动 M2 Task 8。
+**Task 8 验证**：
+
+- [x] `cd SliceAIKit && swift test --filter OrchestrationTests.PermissionBrokerTests`
+- [x] `cd SliceAIKit && swift test --filter OrchestrationTests.PermissionGrantStoreTests`
+- [x] `cd SliceAIKit && swift test --filter CapabilitiesTests.PersistentPermissionGrantStoreTests`
+- [x] `cd SliceAIKit && swift test`
+- [x] `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`
+
+**下一步**：启动 M2 Task 9。
 
 ---
 
@@ -798,3 +807,14 @@ fi
 - 验证：`cd SliceAIKit && swift test --filter CapabilitiesTests.ContextProviderTests`、`cd SliceAIKit && swift test --filter OrchestrationTests.ContextCollectorTests`、`cd SliceAIKit && swift test --filter OrchestrationTests.PermissionGraphTests`、`git diff --check` 均通过。
 
 **下一步**：启动 M2 Task 8。
+
+### 2026-05-08 — Phase 1 M2 Task 8 完成
+
+- Task 8 新增 UI-free permission consent boundary：`PermissionConsentRequest`、`PermissionConsentDecision`、`PermissionConsentPresenting`。
+- `PermissionBroker` 构造函数改为注入 presenter；生产非 dry-run 路径内部解析 approve / deny，不再把 `.requiresUserConsent` 泄漏给 `ExecutionEngine`。
+- session grant 只进入 `PermissionGrantStore`；persistent grant 只由 `PersistentPermissionGrantStore` 写入 `~/Library/Application Support/SliceAI/permission-grants.json`，运行时 broker 只读。
+- `.mcp`、`.network`、`.shellExec`、`.appIntents` 在 session 与 persistent 存储层均拒绝缓存；MCP 即使 presenter 返回 session approval 也只对本次 invocation 生效。
+- `AppContainer` 当前注入 fail-closed runtime presenter，真实 AppKit 弹窗留给 Task 9。
+- 验证：`cd SliceAIKit && swift test --filter OrchestrationTests.PermissionBrokerTests`、`cd SliceAIKit && swift test --filter OrchestrationTests.PermissionGrantStoreTests`、`cd SliceAIKit && swift test --filter CapabilitiesTests.PersistentPermissionGrantStoreTests`、`cd SliceAIKit && swift test`、`xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build` 均通过。
+
+**下一步**：启动 M2 Task 9：AppContainer Wires Real Context And Permission UI。

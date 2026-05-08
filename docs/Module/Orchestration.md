@@ -8,7 +8,7 @@
 
 - 执行入口：`ExecutionEngine.execute(tool:seed:)`。
 - 上下文采集：`ContextCollector`、`ContextProviderRegistry`。Phase 1 M2 Task 7 后，Capabilities 已提供 `selection`、`app.windowTitle`、`app.url`、`clipboard.current`、`file.read` 五个核心 provider，可通过 registry 注入 collector。
-- 权限闭环：`PermissionGraph`、`PermissionBroker`、`PermissionGrantStore`、`EffectivePermissions`。Phase 1 M2 Task 6 后，`EffectivePermissions.undeclared` 使用 case-aware coverage，不再使用字面 `Set.subtracting`。
+- 权限闭环：`PermissionGraph`、`PermissionBroker`、`PermissionConsentPresenting`、`PermissionGrantStore`、`EffectivePermissions`。Phase 1 M2 Task 6 后，`EffectivePermissions.undeclared` 使用 case-aware coverage；Task 8 后，生产 `PermissionBroker` 通过 UI-free presenter 在 broker 内部解析 consent，不再把运行期确认需求直接交给 `ExecutionEngine`。
 - Provider 解析：`ProviderResolver`、`DefaultProviderResolver`。
 - Prompt 执行：`PromptExecutor`，负责 prompt 渲染、Keychain 取 key、调用 `LLMProviderFactory` 和流式 provider。
 - 输出派发：`OutputDispatcher`、`WindowSinkProtocol`、`InvocationGate`。
@@ -22,7 +22,7 @@
 
 1. 发送 `.started`。
 2. `PermissionGraph.compute` 计算 effective permissions，并通过 `Permission.covers` 校验每个 effective permission 是否被 declared permission 覆盖。
-3. `PermissionBroker.gate` 对权限集合做授权决策。
+3. `PermissionBroker.gate` 对权限集合做授权决策；cacheable grant 命中时直接放行，否则通过 `PermissionConsentPresenting` 获取 approve / deny。
 4. `ContextCollector.resolve` 并发解析 `ContextRequest`；内置 provider 可采集 seed/app 快照、剪贴板和 `PathSandbox` 允许的文件内容。
 5. `ProviderResolver.resolve` 解析 `ProviderSelection`。
 6. `.prompt` 工具进入 `PromptExecutor`；`.agent` / `.pipeline` 在 v0.2.0 返回 not implemented。
@@ -41,6 +41,9 @@
 | `ExecutionEvent` | UI / Playground / 测试消费的事件枚举。 |
 | `ContextCollector.resolve(seed:requests:)` | 通过 `ContextProviderRegistry` 并发解析 Tool 声明的 `ContextRequest`。 |
 | `ContextProviderRegistry` | provider name 到实例的只读注册表；PermissionGraph 与 ContextCollector 应共享同一 registry。 |
+| `PermissionBroker.gate(effective:provenance:scope:isDryRun:)` | 权限 gate 入口；生产实现内部解析 presenter 决策并返回 `.approved` / `.denied` / dry-run `.wouldRequireConsent`。 |
+| `PermissionConsentPresenting.requestConsent(_:)` | UI-free runtime consent 边界；App 层实现 presenter，Orchestration 不 import AppKit。 |
+| `PermissionGrantStore` | actor 隔离的 session grant store；只缓存 cacheable permissions，拒绝 MCP / network / shell / AppIntents。 |
 | `PromptExecutor.run(...)` | prompt 渲染 + LLM provider stream。 |
 | `OutputDispatcher.handle(chunk:mode:invocationId:)` | 按 `DisplayMode` 派发输出；v0.2.0 non-window mode fallback 到 window。 |
 | `InvocationGate` | single-flight 状态唯一来源，阻止旧 invocation 污染新结果。 |
@@ -60,6 +63,10 @@
 - `.fileRead` / `.fileWrite` 先做 PathSandbox hard-deny 检查，再比较规范化后的 exact、显式目录前缀和 `*` / `**` glob。
 - `.mcp` 要求 server 相同；declared tools 为 `nil` 覆盖同 server 全部工具，否则 declared tools 必须是 effective tools 的超集。
 - `.shellExec` 只接受命令数组完全相等，空数组不表示全部命令。
+
+`PermissionBroker` 根据 tier × provenance 生成 UX hint，但 provenance 只能调节文案强度，不能降低权限下限。`.mcp`、`.network`、`.shellExec`、`.appIntents` 属于每次确认权限；即使 presenter 返回 `.approve(scope: .session)`，broker 也只允许本次 invocation 通过，不写 session grant。
+
+`.persistent` grant 是 Settings-only：runtime presenter 返回 `.approve(scope: .persistent)` 会被 broker 拒绝。生产路径如果需要跨启动保留授权，必须由 Settings 写入 Capabilities 的 persistent store，再由 broker 只读查询。
 
 ## 运行逻辑
 

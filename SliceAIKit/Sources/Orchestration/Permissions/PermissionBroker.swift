@@ -1,5 +1,9 @@
+import Capabilities
 import Foundation
+import OSLog
 import SliceCore
+
+private let permissionBrokerLog = Logger(subsystem: "com.sliceai.orchestration", category: "PermissionBroker")
 
 // MARK: - Permission tier 枚举（broker 内部使用）
 
@@ -40,14 +44,26 @@ public actor PermissionBroker: PermissionBrokerProtocol {
 
     /// In-memory grant 缓存（actor 隔离）
     private let store: PermissionGrantStore
+    /// Persistent grant 缓存；仅由 Settings-only grant 写入，runtime broker 只读取
+    private let persistentStore: PersistentPermissionGrantStore?
+    /// UI-free consent presenter；broker 不直接依赖 AppKit
+    private let consentPresenter: any PermissionConsentPresenting
 
     // MARK: - Init
 
     /// 构造默认 broker
-    /// - Parameter store: in-memory grant store；默认新建空实例（生产路径同样默认空——
-    ///   session-scoped grant 在用户首次确认后写入；persistent grant 留到 Phase 1 接磁盘）
-    public init(store: PermissionGrantStore = .init()) {
+    /// - Parameters:
+    ///   - store: in-memory session grant store。
+    ///   - persistentStore: persistent grant store；runtime 只读取，Settings 才写入。
+    ///   - consentPresenter: UI-free consent presenter。
+    public init(
+        store: PermissionGrantStore = .init(),
+        persistentStore: PersistentPermissionGrantStore? = nil,
+        consentPresenter: any PermissionConsentPresenting
+    ) {
         self.store = store
+        self.persistentStore = persistentStore
+        self.consentPresenter = consentPresenter
     }
 
     // MARK: - PermissionBrokerProtocol
@@ -109,29 +125,129 @@ public actor PermissionBroker: PermissionBrokerProtocol {
             if hit {
                 return .approved
             }
+            if let persistentStore {
+                let persistentHit = await persistentStore.has(permission: permission, provenance: provenance)
+                if persistentHit {
+                    return .approved
+                }
+            }
         }
 
         // 2. 按 tier 走 §3.9.2 下限决策（与 provenance 无关）
         switch tier {
         case .readonlyLocal:
-            return decideReadonlyLocal(permission: permission, provenance: provenance)
+            let lowerBound = decideReadonlyLocal(permission: permission, provenance: provenance)
+            return await resolveIfConsentNeeded(
+                lowerBound,
+                permission: permission,
+                tier: tier,
+                provenance: provenance,
+                isDryRun: isDryRun
+            )
 
         case .readonlyNetwork, .localWrite:
             // 首次确认：所有 4 provenance 都需要确认（unknown 实际上每次确认，但 M2 实现仍走 requiresUserConsent
             // 一次返回；M3+ "记住" 选项只对 firstParty/signed 显示，由 UI 层判断 provenance）
-            return .requiresUserConsent(
+            let lowerBound = GateOutcome.requiresUserConsent(
                 permission: permission,
                 uxHint: Self.uxHint(tier: tier, provenance: provenance)
+            )
+            return await resolveIfConsentNeeded(
+                lowerBound,
+                permission: permission,
+                tier: tier,
+                provenance: provenance,
+                isDryRun: isDryRun
             )
 
         case .networkWrite, .exec:
             // 每次确认：dry-run 替换为 wouldRequireConsent；非 dry-run 走 requiresUserConsent
             let hint = Self.uxHint(tier: tier, provenance: provenance)
-            if isDryRun {
-                return .wouldRequireConsent(permission: permission, uxHint: hint)
-            } else {
-                return .requiresUserConsent(permission: permission, uxHint: hint)
+            let lowerBound = GateOutcome.requiresUserConsent(permission: permission, uxHint: hint)
+            return await resolveIfConsentNeeded(
+                lowerBound,
+                permission: permission,
+                tier: tier,
+                provenance: provenance,
+                isDryRun: isDryRun
+            )
+        }
+    }
+
+    /// 将 lower-bound 的 consent 需求解析成生产可消费的最终 outcome
+    /// - Parameters:
+    ///   - outcome: 下限决策。
+    ///   - permission: 待确认权限。
+    ///   - tier: 权限 tier。
+    ///   - provenance: 工具来源。
+    ///   - isDryRun: 是否 dry-run。
+    /// - Returns: 生产 broker 的最终 gate outcome。
+    private func resolveIfConsentNeeded(
+        _ outcome: GateOutcome,
+        permission: Permission,
+        tier: PermissionTier,
+        provenance: Provenance,
+        isDryRun: Bool
+    ) async -> GateOutcome {
+        guard case .requiresUserConsent(_, let hint) = outcome else {
+            return outcome
+        }
+
+        if isDryRun {
+            permissionBrokerLog.debug("dry-run would require consent for permission")
+            return .wouldRequireConsent(permission: permission, uxHint: hint)
+        }
+
+        let cacheable = Self.cacheable(tier: tier)
+        let request = PermissionConsentRequest(
+            permission: permission,
+            provenance: provenance,
+            uxHint: hint,
+            allowedScopes: cacheable ? [.oneTime, .session] : [.oneTime]
+        )
+        let decision = await consentPresenter.requestConsent(request)
+        return await apply(decision: decision, permission: permission, provenance: provenance, cacheable: cacheable)
+    }
+
+    /// 应用 presenter 决策，并按需记录 session grant
+    /// - Parameters:
+    ///   - decision: presenter 返回决策。
+    ///   - permission: 当前权限。
+    ///   - provenance: 工具来源。
+    ///   - cacheable: 该权限 tier 是否可缓存。
+    /// - Returns: 最终 gate outcome。
+    private func apply(
+        decision: PermissionConsentDecision,
+        permission: Permission,
+        provenance: Provenance,
+        cacheable: Bool
+    ) async -> GateOutcome {
+        switch decision {
+        case .deny(let reason):
+            permissionBrokerLog.debug("permission denied by presenter")
+            return .denied(permission: permission, reason: reason)
+
+        case .approve(.oneTime):
+            permissionBrokerLog.debug("permission approved one-time")
+            return .approved
+
+        case .approve(.session):
+            guard cacheable else {
+                permissionBrokerLog.debug("non-cacheable permission approved for one invocation")
+                return .approved
             }
+            do {
+                try await store.record(permission: permission, provenance: provenance, scope: .session)
+                permissionBrokerLog.debug("session permission grant recorded")
+                return .approved
+            } catch {
+                permissionBrokerLog.error("failed to record session grant: \(String(describing: error), privacy: .public)")
+                return .denied(permission: permission, reason: "failed to record permission grant")
+            }
+
+        case .approve(.persistent):
+            permissionBrokerLog.debug("runtime persistent approval rejected")
+            return .denied(permission: permission, reason: "persistent permission grants are settings-only")
         }
     }
 

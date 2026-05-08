@@ -9,6 +9,52 @@ import SliceCore
 /// 的 hint 构造函数与 Playground 消费端，与 schema/json round-trip 无关。
 public typealias ConsentUXHint = String
 
+/// 权限确认请求；由 `PermissionBroker` 生成，UI 或测试 presenter 只负责展示并返回决策
+public struct PermissionConsentRequest: Sendable, Equatable {
+    /// 待确认的权限
+    public let permission: Permission
+    /// 工具来源；只影响 UX 文案，不降低权限下限
+    public let provenance: Provenance
+    /// UI 文案 hint
+    public let uxHint: ConsentUXHint
+    /// 当前运行时允许用户选择的授权范围
+    public let allowedScopes: [GrantScope]
+
+    /// 构造权限确认请求
+    /// - Parameters:
+    ///   - permission: 待确认的权限。
+    ///   - provenance: 工具来源。
+    ///   - uxHint: UI 文案 hint。
+    ///   - allowedScopes: 当前运行时允许选择的授权范围。
+    public init(
+        permission: Permission,
+        provenance: Provenance,
+        uxHint: ConsentUXHint,
+        allowedScopes: [GrantScope]
+    ) {
+        self.permission = permission
+        self.provenance = provenance
+        self.uxHint = uxHint
+        self.allowedScopes = allowedScopes
+    }
+}
+
+/// 权限确认决策
+public enum PermissionConsentDecision: Sendable, Equatable {
+    /// 用户批准某个授权范围
+    case approve(scope: GrantScope)
+    /// 用户拒绝，并返回脱敏原因
+    case deny(reason: String)
+}
+
+/// UI-free 权限确认协议；Orchestration 只依赖该协议，不直接依赖 AppKit 或具体 UI
+public protocol PermissionConsentPresenting: Sendable {
+    /// 请求用户确认某条权限
+    /// - Parameter request: 权限确认请求。
+    /// - Returns: 用户决策。
+    func requestConsent(_ request: PermissionConsentRequest) async -> PermissionConsentDecision
+}
+
 /// PermissionBroker.gate 的决策结果（**4 态**）：三个非 approved 态都带
 /// `permission: Permission` 关联值，便于 caller 知道是哪条权限触发的决策。
 ///
@@ -29,7 +75,10 @@ public enum GateOutcome: Sendable, Equatable {
     ///   - reason: 脱敏后的拒绝原因（如 "blacklisted host" / "user previously denied"）
     case denied(permission: Permission, reason: String)
 
-    /// 需要弹 UI 让用户确认某条具体 permission（M2 测试中 Mock 不会返回此态；生产路径 M3 才接 UI）
+    /// 需要弹 UI 让用户确认某条具体 permission。
+    ///
+    /// Task 8 后生产 `PermissionBroker` 会通过 presenter 解析 non-dry-run consent，
+    /// 该 case 主要保留给测试替身和兼容调用方。
     /// - Parameters:
     ///   - permission: 等待用户确认的 permission
     ///   - uxHint: 弹窗文案 hint（按 §3.9.1 表合并 tier × provenance 后的文案强度）
@@ -56,9 +105,9 @@ public protocol PermissionBrokerProtocol: Sendable {
     /// - Parameters:
     ///   - effective: 当前 invocation 的 `EffectivePermissions.union`（context / sideEffect / mcp / builtin / declared 合集）
     ///   - provenance: 工具来源；只能调节 UX hint 文案，**严禁** 影响 lowerBound 决策
-    ///   - scope: 调用方建议的 grant 时长；M2 仅做 in-memory session 缓存，不写持久化
-    ///   - isDryRun: 是否 dry-run；true 时 network-write / exec 走 `.wouldRequireConsent`，
-    ///     readonly-local / readonly-network / local-write 仍走完整 gate 流程（spec §3.9.2）
+    ///   - scope: 调用方建议的 grant 时长；生产 broker 仅接受 one-time/session runtime grant，
+    ///     persistent grant 由 Settings-only 存储写入。
+    ///   - isDryRun: 是否 dry-run；true 时不会调用 presenter，需要 consent 的权限返回 `.wouldRequireConsent`
     /// - Returns: `GateOutcome` 4 态决策结果；non-throwing
     func gate(
         effective: Set<Permission>,

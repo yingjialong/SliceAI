@@ -6,6 +6,7 @@ import Foundation
 import HotkeyManager
 import LLMProviders
 import Orchestration
+import OSLog
 import Permissions
 import SelectionCapture
 import SettingsUI
@@ -215,7 +216,11 @@ final class AppContainer {
         resultPanel: ResultPanel
     ) async throws -> RuntimeDependencies {
         let providerRegistry = ContextProviderRegistry(providers: [:])
-        let permissionBroker: any PermissionBrokerProtocol = PermissionBroker(store: PermissionGrantStore())
+        let permissionBroker: any PermissionBrokerProtocol = PermissionBroker(
+            store: PermissionGrantStore(),
+            persistentStore: PersistentPermissionGrantStore(),
+            consentPresenter: RuntimePermissionConsentPresenter()
+        )
         let providerResolver: any ProviderResolverProtocol = DefaultProviderResolver(
             configurationProvider: { [configStore] in try await configStore.current() }
         )
@@ -322,5 +327,21 @@ final class AppContainer {
             try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
         }
         return appSupport
+    }
+}
+
+/// 当前 App runtime 的权限确认 presenter。
+///
+/// Task 8 只建立 UI-free 边界，尚未实现真实弹窗；因此生产 App 对运行期新增权限采用 fail-closed。
+/// Settings-only persistent grant 后续由设置页写入，broker 只读取。
+private struct RuntimePermissionConsentPresenter: PermissionConsentPresenting {
+
+    /// 运行期权限确认暂时 fail-closed，避免在无 UI 的情况下静默放行高风险权限
+    /// - Parameter request: 权限确认请求。
+    /// - Returns: 拒绝决策。
+    func requestConsent(_ request: PermissionConsentRequest) async -> PermissionConsentDecision {
+        let log = Logger(subsystem: "com.sliceai.app", category: "RuntimePermissionConsentPresenter")
+        log.warning("runtime permission consent requested before UI is wired")
+        return .deny(reason: "runtime permission consent UI is not available")
     }
 }

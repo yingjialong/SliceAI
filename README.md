@@ -50,6 +50,25 @@ open SliceAI.xcodeproj
 
 ## 项目修改变动记录
 
+### 2026-05-08 · Phase 1 M2 Task 8 · Permission Consent Grants
+
+**范围**：worktree `.worktrees/phase-1-mcp-context`，M2 Task 8
+
+**主要变更**：
+- `Orchestration` 新增 UI-free 权限确认协议：`PermissionConsentRequest`、`PermissionConsentDecision`、`PermissionConsentPresenting`。
+- `PermissionBroker` 改为持有 presenter，生产非 dry-run 路径内部解析为 `.approved` / `.denied`；`GateOutcome.requiresUserConsent` 仅保留给测试 doubles 与兼容路径。
+- `PermissionGrantStore` 只保存 session grant，并在存储层拒绝 `.mcp`、`.network`、`.shellExec`、`.appIntents`。
+- `Capabilities` 新增 `PersistentPermissionGrantStore`，默认路径 `~/Library/Application Support/SliceAI/permission-grants.json`，仅持久化 `.persistent` 且同样拒绝不可缓存权限。
+- `AppContainer` 暂时注入 fail-closed runtime presenter；真实 AppKit 权限弹窗进入 M2 Task 9。
+
+**验证状态**：
+- 已按 TDD 先写失败测试并确认 persistent store / consent presenter 缺失红灯。
+- `cd SliceAIKit && swift test --filter OrchestrationTests.PermissionBrokerTests`
+- `cd SliceAIKit && swift test --filter OrchestrationTests.PermissionGrantStoreTests`
+- `cd SliceAIKit && swift test --filter CapabilitiesTests.PersistentPermissionGrantStoreTests`
+- `cd SliceAIKit && swift test`
+- `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`
+
 ### 2026-05-08 · Phase 1 M2 Task 7 · Core Context Providers
 
 **范围**：worktree `.worktrees/phase-1-mcp-context`，M2 Task 7

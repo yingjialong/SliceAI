@@ -4,6 +4,15 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 
 ---
 
+## Task 46 · Phase 1 M2 Task 8 · Permission Consent Grants
+
+- **时间**：2026-05-08
+- **描述**：实现 UI-free 权限确认协议、PermissionBroker presenter 集成、session grant 缓存规则和 persistent permission grant 磁盘存储。
+- **详情**：[docs/Task-detail/2026-05-08-phase-1-m2-task-8-permission-consent-grants.md](Task-detail/2026-05-08-phase-1-m2-task-8-permission-consent-grants.md)
+- **结果**：完成。已按 TDD 补齐 broker / session store / persistent store 测试；`PermissionBroker` 通过 UI-free presenter 在生产路径内部解析确认决策；不可缓存权限在 session 与 persistent 存储层均 fail-closed；指定测试、全量 `swift test` 与 App Debug build 已通过。
+
+---
+
 ## Task 45 · Phase 1 M2 Task 7 · Core Context Providers
 
 - **时间**：2026-05-08

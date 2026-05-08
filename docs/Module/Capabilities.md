@@ -2,12 +2,13 @@
 
 ## 模块定位
 
-`Capabilities` 是 v2 能力边界模块，承载 Phase 1+ 会接入的 MCP、Skill、ContextProvider 和本地安全能力。Phase 0 提供协议、mock 和纯函数安全基础设施；Phase 1 M1 已接入本地 MCP server store、Claude Desktop stdio importer、真实 stdio MCP JSON-RPC client，并暴露给 SettingsUI 的 MCP Servers 设置页使用。Phase 1 M2 Task 7 已补齐五个核心 ContextProvider。当前仍不实现 Streamable HTTP / WebSocket 远程 transport，也不做真实 skill 文件扫描；旧 HTTP+SSE 明确弃用，不再支持。
+`Capabilities` 是 v2 能力边界模块，承载 Phase 1+ 会接入的 MCP、Skill、ContextProvider、本地安全能力和跨启动能力状态。Phase 0 提供协议、mock 和纯函数安全基础设施；Phase 1 M1 已接入本地 MCP server store、Claude Desktop stdio importer、真实 stdio MCP JSON-RPC client，并暴露给 SettingsUI 的 MCP Servers 设置页使用。Phase 1 M2 Task 7 已补齐五个核心 ContextProvider；Task 8 新增 persistent permission grant store。当前仍不实现 Streamable HTTP / WebSocket 远程 transport，也不做真实 skill 文件扫描；旧 HTTP+SSE 明确弃用，不再支持。
 
 ## 功能范围
 
 - SecurityKit：`PathSandbox`、`PathSandboxError`。
 - ContextProviders：`SelectionContextProvider`、`AppWindowTitleContextProvider`、`AppURLContextProvider`、`ClipboardCurrentContextProvider`、`FileReadContextProvider`。
+- Permissions：`PersistentPermissionGrantStore`。
 - MCP：`MCPClientProtocol`、`MockMCPClient`、`StdioMCPClient`、`RoutingMCPClient`、`MCPDiagnosticLog`、`MCPClientError`、`MCPServerStore`、`MCPServerValidation`、`ClaudeDesktopMCPImporter`；server descriptor、tool descriptor、工具引用、结构化参数与调用结果均复用 SliceCore 的 canonical 类型。
 - Skills：`SkillRegistryProtocol`、`MockSkillRegistry`、`Skill`。
 
@@ -35,6 +36,8 @@ M2 Task 7 新增五个核心 ContextProvider：
 4. `clipboard.current` 读取当前剪贴板文本，静态权限推导为 `.clipboard`，IO 前后检查取消。
 5. `file.read` 使用 `args["path"]` 推导 `.fileRead(path:)`，执行时先经 `PathSandbox.normalize(_:role: .read)` 规范化和校验，再按 chunk 读取 UTF-8 文本；默认最大 1 MiB，超限抛固定非敏感 `SliceError.execution(.unknown("file.read.maxBytesExceeded"))`，IO 边界前后和每个 chunk 后检查取消。
 
+M2 Task 8 新增 `PersistentPermissionGrantStore`，默认路径为 `~/Library/Application Support/SliceAI/permission-grants.json`。该 store 只写入 `.persistent` grant；`.session` 由 Orchestration 的 `PermissionGrantStore` 保存在内存中，`.oneTime` 不缓存。存储层会拒绝 `.mcp`、`.network`、`.shellExec`、`.appIntents`，避免 Settings 或未来导入路径绕过 broker 把每次确认权限持久化。
+
 ## 关键接口
 
 | 接口 | 说明 |
@@ -46,6 +49,7 @@ M2 Task 7 新增五个核心 ContextProvider：
 | `AppURLContextProvider` | 返回前台 app 快照中的 URL 字符串。 |
 | `ClipboardCurrentContextProvider` | 读取当前剪贴板文本；推导 `.clipboard` 权限。 |
 | `FileReadContextProvider` | 分块读取 `PathSandbox` 允许的 UTF-8 文本文件；默认 1 MiB 上限；推导 `.fileRead(path:)` 权限。 |
+| `PersistentPermissionGrantStore` | 读写 `permission-grants.json`；只持久化 `.persistent` cacheable permission，拒绝 MCP / network / shell / AppIntents。 |
 | `MCPClientProtocol.tools(for:)` | 使用 SliceCore `MCPDescriptor` 查询 MCP server 暴露的 `MCPToolDescriptor` 列表。 |
 | `MCPClientProtocol.call(ref:args:)` | 使用 `MCPJSONValue.Object` 调用 MCP tool；`MCPCallResult.isError` 表示工具执行错误而非 transport/protocol error。 |
 | `StdioMCPClient` | M1 stdio JSON-RPC client，lazy 启动本地进程并执行 initialize / tools/list / tools/call。 |
@@ -64,6 +68,8 @@ M2 Task 7 新增五个核心 ContextProvider：
 当前生产 App 仍未把真实 MCP 调用接入 `AgentExecutor`；`.agent` / `.pipeline` 工具在执行引擎中仍返回 not implemented，不会触发真实 MCP 或 Skill 调用。M1 的 stdio client 已用于 Settings MCP Servers 页面测试连接，并可作为后续 AgentExecutor wiring 的底层 transport。
 
 后续 runtime 可通过 `MCPServerStore.snapshot()` 获取已校验 descriptors，再把 `RoutingMCPClient` 作为唯一 MCP facade 注入执行链路。Phase 2 接入 Skill 文件扫描时，同样替换 `SkillRegistryProtocol` 实现。`PathSandbox` 已作为 `file.read` 的真实读取入口，后续也会作为文件写入和 MCP/Skill 本地路径访问的统一安全入口。
+
+`PersistentPermissionGrantStore` 是 Settings-only 的持久授权后端。运行时 `PermissionBroker` 可以读取它命中的 persistent grant，但不会在执行过程中写入 `.persistent`；真实授权 UI 与 Settings 写入入口在 M2 Task 9 之后继续补齐。
 
 ## 代码实现说明
 
