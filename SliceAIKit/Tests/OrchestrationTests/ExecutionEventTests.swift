@@ -29,11 +29,14 @@ final class ExecutionEventTests: XCTestCase {
             .promptRendered(preview: "Translate the following text to English: …"),
             .llmChunk(delta: "Hello"),
             .toolCallProposed(
+                id: UUID(),
                 ref: MCPToolRef(server: "fs", tool: "read"),
                 argsDescription: "{\"path\":\"~/Documents/foo.md\"}"
             ),
             .toolCallApproved(id: UUID()),
             .toolCallResult(id: UUID(), summary: "<file contents 1234 bytes>"),
+            .toolCallDenied(id: UUID(), reason: "not allowed"),
+            .toolCallError(id: UUID(), summary: "tool failed"),
             .stepCompleted(step: 1, total: 3),
             .sideEffectTriggered(.copyToClipboard),
             .finished(report: .stub()),
@@ -43,6 +46,6 @@ final class ExecutionEventTests: XCTestCase {
         // .permissionWouldBeRequested 与 .sideEffectSkippedDryRun 是 dry-run 专属事件，
         // 由 ExecutionEngine Step 2.5 / Step 7 在 dry-run 路径下 yield；
         // 主流程 smoke test 不单独构造，由 Task 4 ExecutionEngineTests 的 dry-run 路径覆盖
-        XCTAssertEqual(cases.count, 12)
+        XCTAssertEqual(cases.count, 14)
     }
 }

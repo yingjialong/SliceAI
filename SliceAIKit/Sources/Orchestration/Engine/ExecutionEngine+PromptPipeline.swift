@@ -62,4 +62,40 @@ extension ExecutionEngine {
             isDryRun: seed.isDryRun, context: context
         )
     }
+
+    /// .agent ToolKind 的 Step 3-9 流程：ContextCollector → ProviderResolver →
+    /// AgentExecutor → sideEffects → CostAccounting → finishSuccess。
+    ///
+    /// 与 prompt 路径保持同一外壳：context/provider/cost/audit/output 都由
+    /// ExecutionEngine 统一负责，AgentExecutor 只产出事件，不直接接触 UI。
+    func runAgentKindPipeline(
+        tool: Tool,
+        agent: AgentTool,
+        seed: ExecutionSeed,
+        context: FlowContext
+    ) async {
+        guard agentExecutor != nil else {
+            await finishNotImplementedKind(context: context)
+            return
+        }
+        if Task.isCancelled { return }
+        guard let resolved = await runContextCollection(
+            tool: tool, seed: seed, context: context
+        ) else { return }
+        if Task.isCancelled { return }
+        guard let provider = await runProviderResolution(tool: tool, context: context) else { return }
+        if Task.isCancelled { return }
+        guard let usage = await runAgentStream(
+            tool: tool, agent: agent, resolved: resolved, provider: provider,
+            context: context
+        ) else { return }
+        if Task.isCancelled { return }
+        let partialFailure = await runSideEffects(tool: tool, isDryRun: seed.isDryRun, context: context)
+        if partialFailure { context.flags.insert(.partialFailure) }
+        if Task.isCancelled { return }
+        await recordCostAndFinishSuccess(
+            tool: tool, provider: provider, usage: usage,
+            isDryRun: seed.isDryRun, context: context
+        )
+    }
 }

@@ -52,7 +52,7 @@ final class ExecutionEventConsumer {
             logPreparationEvent(event)
         case .contextResolved, .promptRendered, .llmChunk:
             logPreparationEvent(event)
-        case .toolCallProposed, .toolCallApproved, .toolCallResult, .stepCompleted:
+        case .toolCallProposed, .toolCallApproved, .toolCallResult, .toolCallDenied, .toolCallError, .stepCompleted:
             logToolProgressEvent(event)
         case .sideEffectTriggered, .sideEffectSkippedDryRun, .permissionWouldBeRequested:
             logPermissionEvent(event)
@@ -105,15 +105,20 @@ final class ExecutionEventConsumer {
     /// - Parameter event: 需要记录的执行事件。
     private func logToolProgressEvent(_ event: ExecutionEvent) {
         switch event {
-        case .toolCallProposed(let ref, let argsDescription):
+        case .toolCallProposed(let id, let ref, let argsDescription):
             let refDescription = String(describing: ref)
+            let detail = "ref=\(refDescription) args=\(argsDescription)"
             logger.debug(
-                "toolCallProposed ref=\(refDescription, privacy: .private) args=\(argsDescription, privacy: .private)"
+                "toolCallProposed id=\(id, privacy: .public) detail=\(detail, privacy: .private)"
             )
         case .toolCallApproved(let id):
             logger.debug("toolCallApproved id=\(id, privacy: .public)")
         case .toolCallResult(let id, let summary):
             logger.debug("toolCallResult id=\(id, privacy: .public) summary=\(summary, privacy: .private)")
+        case .toolCallDenied(let id, let reason):
+            logger.debug("toolCallDenied id=\(id, privacy: .public) reason=\(reason, privacy: .private)")
+        case .toolCallError(let id, let summary):
+            logger.debug("toolCallError id=\(id, privacy: .public) summary=\(summary, privacy: .private)")
         case .stepCompleted(let step, let total):
             logger.debug("stepCompleted \(step, privacy: .public)/\(total, privacy: .public)")
         default:

@@ -39,6 +39,8 @@ public actor ExecutionEngine {
     let providerResolver: any ProviderResolverProtocol
     /// Prompt 渲染 + LLM 流调用器（actor）
     let promptExecutor: PromptExecutor
+    /// Agent ReAct loop 执行器（actor）；测试可传 nil 保留 prompt-only 装配简洁性
+    let agentExecutor: AgentExecutor?
     /// MCP tool call 客户端（protocol，Task 13 落地）
     let mcpClient: any MCPClientProtocol
     /// Skill 注册表（protocol，Task 13 落地）
@@ -75,13 +77,15 @@ public actor ExecutionEngine {
         skillRegistry: any SkillRegistryProtocol,
         costAccounting: CostAccounting,
         auditLog: any AuditLogProtocol,
-        output: any OutputDispatcherProtocol
+        output: any OutputDispatcherProtocol,
+        agentExecutor: AgentExecutor? = nil
     ) {
         self.contextCollector = contextCollector
         self.permissionBroker = permissionBroker
         self.permissionGraph = permissionGraph
         self.providerResolver = providerResolver
         self.promptExecutor = promptExecutor
+        self.agentExecutor = agentExecutor
         self.mcpClient = mcpClient
         self.skillRegistry = skillRegistry
         self.costAccounting = costAccounting
@@ -173,23 +177,19 @@ public actor ExecutionEngine {
             tool: tool, effective: effective, isDryRun: seed.isDryRun, context: context
         ) else { return }
 
-        // Step 5/6 提前分流：先按 tool.kind 选路，避免 .agent / .pipeline 浪费 ContextCollector +
-        // ProviderResolver 的预执行（spec M2 范围内 .agent/.pipeline 应是 stub —— 不应让真实
-        // ContextProvider 做 IO，也不该走 ProviderResolver 抛 fake .notFound 写 .failed audit）。
-        let promptTool: PromptTool
+        // Step 5/6 分流：.agent 现在进入真实 AgentExecutor；.pipeline 仍保留 M2 stub。
         switch tool.kind {
         case .prompt(let p):
-            promptTool = p
-        case .agent, .pipeline:
-            // M2 不实现 .agent / .pipeline；yield .notImplemented + finishSuccess（stub 报告）
+            await runPromptKindPipeline(
+                tool: tool, promptTool: p, seed: seed, context: context
+            )
+        case .agent(let agent):
+            await runAgentKindPipeline(
+                tool: tool, agent: agent, seed: seed, context: context
+            )
+        case .pipeline:
+            // .pipeline 仍未实现；yield .notImplemented + finishSuccess（stub 报告）
             await finishNotImplementedKind(context: context)
-            return
         }
-
-        // .prompt 路径：Step 3-9 拆到独立 helper，让 cancellation 防线覆盖每道 await
-        // 同时让 runMainFlow / runPromptKindPipeline 各自 ≤ swiftlint cyclomatic 12 + body 40。
-        await runPromptKindPipeline(
-            tool: tool, promptTool: promptTool, seed: seed, context: context
-        )
     }
 }
