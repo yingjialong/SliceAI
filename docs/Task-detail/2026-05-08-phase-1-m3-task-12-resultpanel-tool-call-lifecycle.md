@@ -31,8 +31,8 @@ Phase 1 plan 指定修改 `ResultContentView.swift`、`ResultPanel.swift` 与 `E
 - [x] 更新 ExecutionEventConsumer 映射 tool-call events。
 - [x] 运行 focused tests、回归测试、targeted lint、App Debug build。
 - [x] 更新任务文档的变动文件、代码修改逻辑、测试结果。
-- [ ] 提交 commit。
-- [ ] 运行 `claude-review-loop` 并记录结果。
+- [x] 提交 commit。
+- [x] 运行 `claude-review-loop` 并记录结果。
 
 ## 变动文件
 
@@ -43,6 +43,7 @@ Phase 1 plan 指定修改 `ResultContentView.swift`、`ResultPanel.swift` 与 `E
 - `SliceAIApp/ExecutionEventConsumer.swift`：将 tool-call events 映射到 ResultPanel API，同时保留日志。
 - `docs/Task_history.md`：登记 Task 12。
 - `docs/Task-detail/2026-05-08-phase-1-m3-task-12-resultpanel-tool-call-lifecycle.md`：记录任务过程与验证结果。
+- `docs/Task-detail/claude-loop-phase-1-m3-task-12-resultpanel-tool-call-lifecycle.md`：记录 Claude review loop goal contract、Round 1 approve 和收敛结论。
 
 ## 代码修改逻辑
 
@@ -74,7 +75,8 @@ Phase 1 plan 指定修改 `ResultContentView.swift`、`ResultPanel.swift` 与 `E
 - Green：`swiftlint lint --strict SliceAIKit/Sources/Windowing/ResultToolCallState.swift SliceAIKit/Sources/Windowing/ResultContentView.swift SliceAIKit/Sources/Windowing/ResultPanel.swift SliceAIApp/ExecutionEventConsumer.swift SliceAIKit/Tests/WindowingTests/ResultPanelToolCallStateTests.swift` 通过，0 violations。测试文件被当前 SwiftLint 配置排除，实际 lint 了 4 个源文件。
 - Known historical blocker：`swiftlint lint --strict` 全仓仍失败，13 个既有违规均不在本任务新增/修改文件中，主要位于 `MCPServersPage.swift`、`StdioMCPClient.swift`、`MCPDiagnosticLog.swift`、`PersistentPermissionGrantStore.swift`、`MCPServerStore.swift`、`ClaudeDesktopMCPImporter.swift`、`PermissionBroker.swift`、`AppPermissionConsentPresenter.swift`。
 - Green：`xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build` 通过。
+- Claude review loop：Round 1 使用 `branch --base HEAD~1` 范围审查实现 commit，结果 `verdict: "approve"`、`findings: []`；`mutation-check.json` 显示 `mutation_detected: false`。
 
 ## Self-review
 
-已检查本任务没有改变 `.llmChunk` 的单一正文写入契约，tool-call lifecycle 只作为 ResultPanel 状态行展示。UI 方案没有嵌套滚动容器，避免和现有 Markdown ScrollView 冲突；状态模型单独成文件，避免继续膨胀 `ResultPanel.swift`。下一步提交后按用户要求运行 `claude-review-loop`。
+已检查本任务没有改变 `.llmChunk` 的单一正文写入契约，tool-call lifecycle 只作为 ResultPanel 状态行展示。UI 方案没有嵌套滚动容器，避免和现有 Markdown ScrollView 冲突；状态模型单独成文件，避免继续膨胀 `ResultPanel.swift`。Claude review loop 已 Round 1 approve，无需额外修复。
