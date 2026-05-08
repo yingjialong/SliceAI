@@ -9,7 +9,7 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 - **时间**：2026-05-08
 - **描述**：启动 M3 第二项任务，在 Task 10 的 LLM tool calling contract 基础上实现 AgentExecutor ReAct loop，把 `.agent` ToolKind 从 stub 路由到真实 MCP tool calling 执行链。
 - **详情**：[docs/Task-detail/2026-05-08-phase-1-m3-task-11-agentexecutor-react-loop.md](Task-detail/2026-05-08-phase-1-m3-task-11-agentexecutor-react-loop.md)
-- **结果**：进行中。已确认计划中的 `AgentExecutor` 构造参数缺少创建真实 `LLMProvider` 所需的 `KeychainAccessing` 与 `LLMProviderFactory`；本任务将按现有 `PromptExecutor` 架构做显式依赖注入的最小调整。
+- **结果**：完成。已实现 `AgentExecutor` ReAct loop、MCP allowlist catalog、PermissionBroker gate、MCP result 回填、ExecutionEngine `.agent` 路由和 AppContainer 生产接线。验证通过：AgentExecutorTests 19、OrchestrationTests 231、全量 SwiftPM 701、targeted lint、`git diff --check`、App Debug build。全仓库 strict lint 仍被既有历史文件阻塞。Claude review loop 两轮收敛：Round 1 修复 catalog 非 allowlist 同名冲突、重复 descriptor id trap、unsupported `.maxStepsReached` 静默生效；Round 2 approve，`findings: []`。
 
 ---
 

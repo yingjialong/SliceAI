@@ -34,8 +34,8 @@ Phase 1 plan 中给出的 `AgentExecutor` 构造参数只有 `ProviderResolverPr
 - [x] 运行 focused tests 与回归测试。
 - [x] 更新任务文档的变动文件、代码修改逻辑、测试结果。
 - [x] 运行 `git diff --check`、targeted lint、App Debug build。
-- [ ] 提交 commit。
-- [ ] 运行 `claude-review-loop` 并记录结果。
+- [x] 提交 commit。
+- [x] 运行 `claude-review-loop` 并记录结果。
 
 ## 变动文件
 
@@ -66,6 +66,7 @@ Phase 1 plan 中给出的 `AgentExecutor` 构造参数只有 `ProviderResolverPr
 5. `ExecutionEngine` 仅在存在 `AgentExecutor` 时把 `.agent` 接入真实执行链；没有注入 executor 时保留旧 stub 行为，降低测试与迁移风险。`.pipeline` 仍保持 not implemented，避免扩大本任务范围。
 6. `ExecutionEngine+AgentPipeline` 复用现有 `OutputDispatcher` 单写路径处理 `.llmChunk`，把 agent 最终内容纳入 cost accounting 的输出估算；当前 input token 仍为 `0`，后续如果 provider 暴露 usage 再补精确统计。
 7. `AppContainer` 在生产路径注入 `AgentExecutor`，复用现有 MCP descriptor provider、routing MCP client、permission broker、keychain 和 provider factory；`ExecutionEventConsumer` 先记录 tool lifecycle 日志，ResultPanel 可视化留给 Task 12。
+8. Claude review Round 1 后修正 catalog 与 stop condition 边界：LLM function namespace 只注册 allowlist 内工具，available refs 单独用于存在性校验；重复 MCP server id 改为可恢复配置错误；当前不支持的 `.maxStepsReached` fail-closed，避免配置静默生效失败。
 
 ## 测试计划
 
@@ -81,19 +82,21 @@ Phase 1 plan 中给出的 `AgentExecutor` 构造参数只有 `ProviderResolverPr
 ## 测试结果
 
 - 红灯确认：`cd SliceAIKit && swift test --filter OrchestrationTests.AgentExecutorTests` 编译失败，核心错误为缺少 `AgentExecutor` 类型；测试自身的 Swift 6 `await` autoclosure 写法已修正。
-- `cd SliceAIKit && swift test --filter OrchestrationTests.AgentExecutorTests`：通过（16 tests）。
+- `cd SliceAIKit && swift test --filter OrchestrationTests.AgentExecutorTests`：通过（16 tests；Claude review 修复后为 19 tests）。
 - `cd SliceAIKit && swift test --filter OrchestrationTests.ExecutionEngineTests`：通过（19 tests）。
-- `cd SliceAIKit && swift test --filter OrchestrationTests`：通过（228 tests）。
-- `cd SliceAIKit && swift test`：通过（698 tests）。
+- `cd SliceAIKit && swift test --filter OrchestrationTests`：通过（228 tests；Claude review 修复后为 231 tests）。
+- `cd SliceAIKit && swift test`：通过（698 tests；Claude review 修复后为 701 tests）。
 - `git diff --check`：通过。
 - `swiftlint lint --strict <Task 11 touched Swift files>`：通过（0 violations, 0 serious in 12 files；测试文件未被当前 SwiftLint 配置纳入计数）。
 - `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`：首次失败，原因是 `ExecutionEventConsumer` 中 `Logger.debug` 的 `OSLogMessage` 被 `+` 拼接；已改为先生成 private `String` detail 后重新构建，复跑通过。
 - `swiftlint lint --strict`：失败（13 serious），阻塞点均为既有历史文件：`MCPServersPage.swift`、`StdioMCPClient.swift`、`MCPDiagnosticLog.swift`、`MCPServerStore.swift`、`ClaudeDesktopMCPImporter.swift`、`PersistentPermissionGrantStore.swift`、`PermissionBroker.swift`、`AppPermissionConsentPresenter.swift`。Task 11 新增/修改文件在 targeted lint 中已通过，本任务不扩大修复历史 lint 债务。
+- `claude-review-loop`：Round 1 `needs_attention`（1 high、3 medium、1 low）；接受并修复 allowlist catalog 非授权同名冲突、重复 descriptor id trap；部分接受 stopCondition 问题并对 `.maxStepsReached` fail-closed；defer agent MCP audit log 与非协作 MCP cancellation。Round 2 `approve`，`findings: []`。详见 `docs/Task-detail/claude-loop-phase-1-m3-task-11-agentexecutor-react-loop.md`。
 
 ## Self-review
 
 已自查的风险与边界：
 
-- **重复 tool function name**：当前 `ChatTool` function name 直接使用 MCP tool name；如果不同 server 暴露同名 tool，`AgentExecutor` 会 fail-closed，而不是临时编码 server id。这样保持 Task 11 简单，但未来多 server 同名工具需要一个稳定命名/映射方案。
+- **重复 allowlisted tool function name**：当前 `ChatTool` function name 仍直接使用 MCP tool name；如果两个 allowlist 内工具来自不同 server 但同名，`AgentExecutor` 会 fail-closed。非 allowlist 同名工具不再阻断合法多 server agent。
 - **usage 统计**：agent pipeline 暂只估算输出 token，input token 为 `0`。这不会影响执行正确性，但 cost accounting 精度低于 prompt pipeline。
 - **UI 展示**：App consumer 只记录 tool lifecycle 日志，不改 ResultPanel 状态。原因是 Task 12 明确负责 lifecycle UI，本任务只交付执行链。
+- **deferred review follow-ups**：agent MCP tool-call audit log 需要 Task 12+ 结合 audit schema 设计；非协作 MCP cancellation 需要 MCPClient/StdioMCPClient 层统一处理，不能只在 AgentExecutor 做局部 workaround。

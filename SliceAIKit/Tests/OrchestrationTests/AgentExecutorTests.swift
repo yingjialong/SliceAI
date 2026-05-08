@@ -52,7 +52,8 @@ final class AgentExecutorTests: XCTestCase {
     /// - Returns: AgentTool。
     private func makeAgent(
         allowlist: [MCPToolRef]? = nil,
-        maxSteps: Int = 4
+        maxSteps: Int = 4,
+        stopCondition: StopCondition = .finalAnswerProvided
     ) -> AgentTool {
         AgentTool(
             systemPrompt: "You are an agent.",
@@ -63,7 +64,7 @@ final class AgentExecutorTests: XCTestCase {
             mcpAllowlist: allowlist ?? [readRef],
             builtinCapabilities: [],
             maxSteps: maxSteps,
-            stopCondition: .finalAnswerProvided
+            stopCondition: stopCondition
         )
     }
 
@@ -251,6 +252,44 @@ final class AgentExecutorTests: XCTestCase {
         XCTAssertEqual(brokerCallCount, 1)
     }
 
+    /// 多 server 暴露同名非 allowlist 工具时，不应阻断实际 allowlist 内的不同工具。
+    func test_agentExecutor_allowsMultiServerCatalogWhenOnlyNonAllowlistedNamesOverlap() async throws {
+        let queryRef = MCPToolRef(server: "db", tool: "query")
+        let llm = MockToolCallingLLMProvider(turns: [
+            toolCallTurn(id: "call-query", name: "query", arguments: "{\"sql\":\"select 1\"}"),
+            finalAnswerTurn("Query complete")
+        ])
+        let dbDescriptor = Self.dbDescriptor
+        let mcp = MockMCPClient(
+            tools: [
+                Self.fsDescriptor: [Self.readToolDescriptor, Self.writeToolDescriptor],
+                dbDescriptor: [Self.dbReadToolDescriptor, Self.queryToolDescriptor]
+            ],
+            responses: [queryRef: mcpSuccess("rows")]
+        )
+        let executor = makeExecutor(
+            llm: llm,
+            mcpClient: mcp,
+            descriptors: [Self.fsDescriptor, dbDescriptor]
+        )
+        let agent = makeAgent(allowlist: [readRef, queryRef])
+
+        let events = await collectEvents(from: await executor.run(
+            tool: makeTool(agent: agent),
+            agent: agent,
+            resolved: makeResolvedContext(),
+            provider: MockProvider.openAIStub()
+        ))
+
+        XCTAssertFalse(events.contains { event in
+            if case .failed = event { return true }
+            return false
+        })
+        let mcpCallCount = await mcp.callCount
+        XCTAssertEqual(mcpCallCount, 1)
+        XCTAssertEqual(llm.capturedToolRequests.first?.tools.map(\.name).sorted(), ["query", "read"])
+    }
+
     /// allowlist 外 tool 必须在 broker/MCP 之前被拒绝。
     func test_agentExecutor_rejectsToolNotInAllowlistBeforeBroker() async throws {
         let llm = MockToolCallingLLMProvider(turns: [
@@ -276,7 +315,8 @@ final class AgentExecutorTests: XCTestCase {
         guard case .toolCallProposed(let proposedId, let ref, _) = events[0] else {
             XCTFail("event[0] expected proposed, got \(events)"); return
         }
-        XCTAssertEqual(ref, writeRef)
+        XCTAssertEqual(ref.server, "<redacted>")
+        XCTAssertEqual(ref.tool, writeRef.tool)
         guard case .toolCallDenied(let deniedId, let reason) = events[1] else {
             XCTFail("event[1] expected denied, got \(events)"); return
         }
@@ -490,6 +530,28 @@ final class AgentExecutorTests: XCTestCase {
         XCTAssertEqual(llm.toolStreamCallCount, 1)
     }
 
+    /// 当前执行器不支持“必须跑满 maxSteps”的 stopCondition，必须 fail-closed，避免配置静默失效。
+    func test_agentExecutor_rejectsUnsupportedMaxStepsStopConditionBeforeLLMCall() async throws {
+        let llm = MockToolCallingLLMProvider(turns: [finalAnswerTurn("should-not-run")])
+        let executor = makeExecutor(llm: llm, mcpClient: makeMCPClient())
+        let agent = makeAgent(stopCondition: .maxStepsReached)
+
+        let events = await collectEvents(from: await executor.run(
+            tool: makeTool(agent: agent),
+            agent: agent,
+            resolved: makeResolvedContext(),
+            provider: MockProvider.openAIStub()
+        ))
+
+        XCTAssertEqual(llm.toolStreamCallCount, 0)
+        guard case .failed(.configuration(.invalidTool(let id, let reason))) = events.first else {
+            XCTFail("expected failed event, got \(events)")
+            return
+        }
+        XCTAssertEqual(id, "agent.read")
+        XCTAssertTrue(reason.contains("maxStepsReached"))
+    }
+
     /// 单个 MCP 调用超时应转为 toolCallError，并继续下一轮模型 final answer。
     func test_agentExecutor_timesOutSingleToolCall() async throws {
         let llm = MockToolCallingLLMProvider(turns: [
@@ -605,6 +667,31 @@ final class AgentExecutorTests: XCTestCase {
         XCTAssertEqual(id, "agent.read")
     }
 
+    /// 重复 MCPDescriptor id 必须走可恢复失败，不能触发 `Dictionary(uniqueKeysWithValues:)` trap。
+    func test_agentExecutor_duplicateDescriptorIDsFailBeforeLLMCall() async throws {
+        let llm = MockToolCallingLLMProvider(turns: [finalAnswerTurn()])
+        let executor = makeExecutor(
+            llm: llm,
+            mcpClient: makeMCPClient(),
+            descriptors: [Self.fsDescriptor, Self.duplicateFSDescriptor]
+        )
+        let agent = makeAgent()
+
+        let events = await collectEvents(from: await executor.run(
+            tool: makeTool(agent: agent),
+            agent: agent,
+            resolved: makeResolvedContext(),
+            provider: MockProvider.openAIStub()
+        ))
+
+        XCTAssertEqual(llm.toolStreamCallCount, 0)
+        guard case .failed(.configuration(.validationFailed(let reason))) = events.first else {
+            XCTFail("expected validationFailed, got \(events)")
+            return
+        }
+        XCTAssertTrue(reason.contains("Duplicate MCP server id"))
+    }
+
     /// 下一轮请求必须先包含 assistant tool_calls message，再包含 tool result message。
     func test_agentExecutor_appendsAssistantToolCallMessageBeforeToolResult() async throws {
         let llm = MockToolCallingLLMProvider(turns: [
@@ -666,6 +753,18 @@ final class AgentExecutorTests: XCTestCase {
         provenance: .selfManaged(userAcknowledgedAt: Date(timeIntervalSince1970: 0))
     )
 
+    /// 与 `fsDescriptor` 重复 id 的 descriptor，用于验证 fail-closed 去重。
+    private static let duplicateFSDescriptor = MCPDescriptor(
+        id: "fs",
+        transport: .stdio,
+        command: "mock-fs-duplicate",
+        args: nil,
+        url: nil,
+        env: nil,
+        capabilities: [.tools(["read"])],
+        provenance: .selfManaged(userAcknowledgedAt: Date(timeIntervalSince1970: 0))
+    )
+
     /// `fs.read` MCP tool descriptor。
     private static let readToolDescriptor = MCPToolDescriptor(
         ref: MCPToolRef(server: "fs", tool: "read"),
@@ -688,6 +787,44 @@ final class AgentExecutorTests: XCTestCase {
             "type": .string("object"),
             "properties": .object([
                 "path": .object(["type": .string("string")])
+            ])
+        ]
+    )
+
+    /// 测试用 `db` MCP server descriptor。
+    private static let dbDescriptor = MCPDescriptor(
+        id: "db",
+        transport: .stdio,
+        command: "mock-db",
+        args: nil,
+        url: nil,
+        env: nil,
+        capabilities: [.tools(["read", "query"])],
+        provenance: .selfManaged(userAcknowledgedAt: Date(timeIntervalSince1970: 0))
+    )
+
+    /// `db.read` MCP tool descriptor，用于构造非 allowlist 同名冲突。
+    private static let dbReadToolDescriptor = MCPToolDescriptor(
+        ref: MCPToolRef(server: "db", tool: "read"),
+        title: "DB Read",
+        description: "Read database metadata",
+        inputSchema: [
+            "type": .string("object"),
+            "properties": .object([
+                "table": .object(["type": .string("string")])
+            ])
+        ]
+    )
+
+    /// `db.query` MCP tool descriptor。
+    private static let queryToolDescriptor = MCPToolDescriptor(
+        ref: MCPToolRef(server: "db", tool: "query"),
+        title: "Query Database",
+        description: "Run a read-only query",
+        inputSchema: [
+            "type": .string("object"),
+            "properties": .object([
+                "sql": .object(["type": .string("string")])
             ])
         ]
     )

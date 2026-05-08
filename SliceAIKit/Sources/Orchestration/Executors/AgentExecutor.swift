@@ -125,6 +125,7 @@ public actor AgentExecutor {
         continuation: AsyncThrowingStream<ExecutionEvent, any Error>.Continuation
     ) async throws {
         _ = providerResolver
+        try validateSupportedStopCondition(agent.stopCondition, toolId: tool.id)
         let llm = try await makeLLMProvider(provider: provider)
         let catalog = try await makeToolCatalog(tool: tool, agent: agent)
         var messages = AgentPromptBuilder.buildInitialMessages(agent: agent, resolved: resolved)
@@ -154,6 +155,22 @@ public actor AgentExecutor {
                 continuation: continuation
             )
             messages.append(contentsOf: toolMessages)
+        }
+    }
+
+    /// 校验当前 AgentExecutor 支持的 stop condition。
+    ///
+    /// `.maxStepsReached` 语义要求即使模型没有继续发起 tool call 也要跑满 step，
+    /// 这需要额外的 follow-up prompt 设计。Task 11 先 fail-closed，避免配置静默失效。
+    private func validateSupportedStopCondition(_ stopCondition: StopCondition, toolId: String) throws {
+        switch stopCondition {
+        case .finalAnswerProvided, .noToolCall:
+            return
+        case .maxStepsReached:
+            throw SliceError.configuration(.invalidTool(
+                id: toolId,
+                reason: "Agent stopCondition maxStepsReached is not supported yet"
+            ))
         }
     }
 
