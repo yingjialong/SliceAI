@@ -17,6 +17,13 @@ private let appPermissionConsentLog = Logger(
 @MainActor
 final class AppPermissionConsentPresenter: PermissionConsentPresenting {
 
+    /// NSAlert 第一个按钮：只批准本次调用。
+    private static let approveOnceResponse = NSApplication.ModalResponse.alertFirstButtonReturn
+    /// NSAlert 第二个按钮：显式作为取消 / 拒绝路径，避免 Escape 误触发授权。
+    private static let denyResponse = NSApplication.ModalResponse.alertSecondButtonReturn
+    /// NSAlert 第三个按钮：批准本次 App 会话。
+    private static let approveSessionResponse = NSApplication.ModalResponse.alertThirdButtonReturn
+
     /// 构造 App 权限确认 presenter。
     init() {}
 
@@ -37,6 +44,37 @@ final class AppPermissionConsentPresenter: PermissionConsentPresenting {
     private static func presentConsentAlert(for request: PermissionConsentRequest) -> PermissionConsentDecision {
         appPermissionConsentLog.notice("presenting permission consent alert")
 
+        let alert = makeConsentAlert(for: request)
+
+        let response = alert.runModal()
+        switch response {
+        case Self.approveOnceResponse:
+            appPermissionConsentLog.debug("permission consent approved once")
+            return .approve(scope: .oneTime)
+
+        case Self.approveSessionResponse:
+            guard request.allowedScopes.contains(.session) else {
+                appPermissionConsentLog.debug("disabled session approval response treated as deny")
+                return .deny(reason: "runtime permission session approval is not allowed")
+            }
+            appPermissionConsentLog.debug("permission consent approved for session")
+            return .approve(scope: .session)
+
+        case Self.denyResponse:
+            appPermissionConsentLog.debug("permission consent denied by user")
+            return .deny(reason: "user denied runtime permission")
+
+        default:
+            appPermissionConsentLog.debug("permission consent denied by user")
+            return .deny(reason: "user denied runtime permission")
+        }
+    }
+
+    /// 构造权限确认 Alert，并显式锁定按钮快捷键。
+    ///
+    /// - Parameter request: 权限确认请求。
+    /// - Returns: 已配置按钮和快捷键的 `NSAlert`。
+    private static func makeConsentAlert(for request: PermissionConsentRequest) -> NSAlert {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "SliceAI 请求运行期权限"
@@ -48,26 +86,33 @@ final class AppPermissionConsentPresenter: PermissionConsentPresenting {
         ].joined(separator: "\n\n")
 
         alert.addButton(withTitle: "本次允许")
-        alert.addButton(withTitle: "本次会话允许")
         alert.addButton(withTitle: "拒绝")
+        alert.addButton(withTitle: "本次会话允许")
+        configureConsentButtonShortcuts(alert)
 
         // Orchestration 对高风险 each-time 权限只允许 one-time；保留按钮但禁用，避免误导用户。
-        if !request.allowedScopes.contains(.session), alert.buttons.indices.contains(1) {
-            alert.buttons[1].isEnabled = false
+        if !request.allowedScopes.contains(.session), alert.buttons.indices.contains(2) {
+            alert.buttons[2].isEnabled = false
         }
+        return alert
+    }
 
-        let response = alert.runModal()
-        switch response {
-        case .alertFirstButtonReturn:
-            appPermissionConsentLog.debug("permission consent approved once")
-            return .approve(scope: .oneTime)
-        case .alertSecondButtonReturn:
-            appPermissionConsentLog.debug("permission consent approved for session")
-            return .approve(scope: .session)
-        default:
-            appPermissionConsentLog.debug("permission consent denied by user")
-            return .deny(reason: "user denied runtime permission")
+    /// 显式配置按钮快捷键，确保取消键永远走拒绝路径。
+    ///
+    /// - Parameter alert: 已添加三个按钮的权限确认 alert。
+    private static func configureConsentButtonShortcuts(_ alert: NSAlert) {
+        guard alert.buttons.count >= 3 else {
+            assertionFailure("Permission consent alert must have three buttons")
+            return
         }
+        alert.buttons[0].keyEquivalent = "\r"
+        alert.buttons[1].keyEquivalent = "\u{1b}"
+        alert.buttons[2].keyEquivalent = ""
+
+        // Debug 期锁住 fail-closed contract：Return 可批准一次，Escape 只能拒绝，session 无快捷键。
+        assert(alert.buttons[0].keyEquivalent == "\r")
+        assert(alert.buttons[1].keyEquivalent == "\u{1b}")
+        assert(alert.buttons[2].keyEquivalent.isEmpty)
     }
 
     /// 返回权限 case 名称和关键关联值摘要。

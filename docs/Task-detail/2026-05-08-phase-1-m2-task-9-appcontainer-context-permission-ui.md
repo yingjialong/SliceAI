@@ -24,7 +24,8 @@ M2 Task 7 已实现五个核心 `ContextProvider`，M2 Task 8 已建立 UI-free 
 - [x] 修改 AppContainer wiring。
 - [x] 运行 focused tests 与 App build。
 - [x] 更新 README、模块文档和 master todolist。
-- [ ] 提交 commit。
+- [x] 提交 commit。
+- [x] 修复 Claude review 发现的 Escape / Cancel 误授 session 风险。
 
 ## 变动文件
 
@@ -44,6 +45,7 @@ M2 Task 7 已实现五个核心 `ContextProvider`，M2 Task 8 已建立 UI-free 
 - `AppContainer.makeContextProviderRegistry()` 集中创建五个核心 provider，替换原空 `ContextProviderRegistry(providers: [:])`。`clipboard.current` 通过 `AppContextAdapters.readClipboardString` 读取系统剪贴板；`file.read` 使用当前 Task 7 API `FileReadContextProvider(sandbox: PathSandbox())`。
 - `PermissionBroker` 继续使用内存 `PermissionGrantStore` 保存 session grant，同时显式读取 `appSupport/permission-grants.json` 的 `PersistentPermissionGrantStore`。运行期 consent presenter 从 fail-closed placeholder 换成 `AppPermissionConsentPresenter()`。
 - `AppPermissionConsentPresenter` 是 `@MainActor` AppKit presenter，协议方法用 `nonisolated` async bridge 回主线程展示 `NSAlert`，避免从 Orchestration actor 直接触碰 AppKit。弹窗展示权限 case、provenance summary、operation risk copy 和 `uxHint`；按钮为本次允许、本次会话允许、拒绝，且不返回 `.persistent`。
+- Claude review follow-up：`AppPermissionConsentPresenter` 按 fail-closed 顺序创建按钮：本次允许 / 拒绝 / 本次会话允许；显式把 Return 绑定到本次允许、Escape 绑定到拒绝，并清空 session 快捷键。即使禁用的 session 按钮意外返回，也按拒绝处理。
 - `AppContextAdapters` 只封装当前确实需要的剪贴板读取，没有提前扩展 AX / URL 快照 helper，保持 KISS。
 - MCP runtime 改为从 `appSupport/mcp.json` 创建 `MCPServerStore`，通过 `snapshot()` 提供 descriptors，再创建 `StdioMCPClient` 和 `RoutingMCPClient` 注入 `ExecutionEngine`。`.agent` / `.pipeline` stub 未改动，避免把后续 M3 的 AgentExecutor 强塞进 Task 9。
 - 新增 App target Swift 文件已同步写入 `SliceAI.xcodeproj/project.pbxproj` 的 file reference、group 和 sources build phase。
@@ -66,10 +68,12 @@ M2 Task 7 已实现五个核心 `ContextProvider`，M2 Task 8 已建立 UI-free 
 - `cd SliceAIKit && swift test --filter OrchestrationTests.PermissionBrokerTests`：通过（37 tests）。
 - `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`：通过（BUILD SUCCEEDED）。
 - `git diff --check`：通过（无输出）。
+- Claude review follow-up 后复跑验证记录见 `docs/Task-detail/claude-loop-phase-1-m2-task-9-appcontainer-context-permission-ui.md`。
 
 ## Self-review
 
 - `AppPermissionConsentPresenter` 没有提供 persistent approval，符合 Settings-only persistent grant 要求。
+- Escape / Cancel 已显式落到拒绝路径，避免将用户取消误解为 session grant。
 - 非 cacheable 权限的 session 按钮保留但禁用，避免 presenter 返回 misleading 的 session grant；broker 侧仍对不可缓存权限 fail-safe 为 one invocation。
 - `AppContextAdapters` 未过度设计，只放当前生产 wiring 需要的剪贴板读取。
 - MCP routing client 已注入 `ExecutionEngine`，但 AgentExecutor 未实现，因此不会改变 `.agent` stub 行为。
