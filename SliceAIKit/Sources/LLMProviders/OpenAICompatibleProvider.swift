@@ -45,12 +45,47 @@ public struct OpenAICompatibleProvider: LLMProvider {
         return Self.makeStream(from: firstBytes)
     }
 
+    /// 发起带 tool calling 的流式 chat completion 请求。
+    /// - Parameter request: 含 tools/tool_choice 的领域层请求。
+    /// - Returns: `ChatStreamEvent` 流；文本和 tool call delta 按 SSE 原始顺序产出。
+    public func streamToolChat(
+        request: ChatToolRequest
+    ) async throws -> AsyncThrowingStream<ChatStreamEvent, any Error> {
+        let httpReq = try buildURLRequest(for: request)
+
+        let (firstBytes, firstResp) = try await performRequest(httpReq)
+        if firstResp.statusCode == 429 {
+            try await backoff(for: firstResp)
+            let (secondBytes, secondResp) = try await performRequest(httpReq)
+            try Self.throwIfErrorStatus(secondResp)
+            return Self.makeToolStream(from: secondBytes)
+        }
+
+        try Self.throwIfErrorStatus(firstResp)
+        return Self.makeToolStream(from: firstBytes)
+    }
+
     /// 构造发起 chat completion 请求的 URLRequest
     /// - Parameter request: 领域层 ChatRequest，需追加 stream: true
     /// - Returns: 已设置 headers / body / timeout 的 URLRequest
     /// - Throws: JSONEncoder / JSONSerialization 的编码错误
     private func buildURLRequest(for request: ChatRequest) throws -> URLRequest {
-        // 组装 URL：baseURL 通常形如 https://api.openai.com/v1
+        try buildStreamingURLRequest(body: JSONEncoder().encode(request))
+    }
+
+    /// 构造发起 tool calling chat completion 请求的 URLRequest。
+    /// - Parameter request: 领域层 ChatToolRequest，需追加 stream: true。
+    /// - Returns: 已设置 headers / body / timeout 的 URLRequest。
+    /// - Throws: JSONEncoder / JSONSerialization 的编码错误。
+    private func buildURLRequest(for request: ChatToolRequest) throws -> URLRequest {
+        try buildStreamingURLRequest(body: JSONEncoder().encode(request))
+    }
+
+    /// 为 OpenAI-compatible chat completions 构造通用 streaming 请求。
+    /// - Parameter body: 已编码的 request JSON。
+    /// - Returns: 已追加 `stream: true` 的 URLRequest。
+    /// - Throws: JSONSerialization 解析或重编码失败时抛出。
+    private func buildStreamingURLRequest(body: Data) throws -> URLRequest {
         let endpoint = baseURL.appendingPathComponent("chat/completions")
         var httpReq = URLRequest(url: endpoint)
         httpReq.httpMethod = "POST"
@@ -60,7 +95,7 @@ public struct OpenAICompatibleProvider: LLMProvider {
         httpReq.timeoutInterval = 30
 
         // 追加 stream: true，保持其它字段由 ChatRequest 编码产出
-        var body = try JSONEncoder().encode(request)
+        var body = body
         if var dict = try JSONSerialization.jsonObject(with: body) as? [String: Any] {
             dict["stream"] = true
             body = try JSONSerialization.data(withJSONObject: dict)
@@ -215,5 +250,106 @@ public struct OpenAICompatibleProvider: LLMProvider {
         case .dataCorrupted: return "dataCorrupted"
         @unknown default: return "unknown"
         }
+    }
+}
+
+private extension OpenAICompatibleProvider {
+    /// 将 URLSession.AsyncBytes 封装为 tool calling stream。
+    /// - Parameter bytes: URLSession 返回的 SSE 字节流。
+    /// - Returns: `ChatStreamEvent` 异步流。
+    static func makeToolStream(
+        from bytes: URLSession.AsyncBytes
+    ) -> AsyncThrowingStream<ChatStreamEvent, any Error> {
+        AsyncThrowingStream { continuation in
+            let task = Task {
+                var decoder = SSEDecoder()
+                var buffer: [UInt8] = []
+                do {
+                    for try await byte in bytes {
+                        buffer.append(byte)
+                        if byte == UInt8(ascii: "\n") {
+                            if let line = String(bytes: buffer, encoding: .utf8) {
+                                let events = decoder.feed(line)
+                                if try emitToolAndCheckDone(events, continuation: continuation) {
+                                    return
+                                }
+                            }
+                            buffer.removeAll(keepingCapacity: true)
+                        }
+                    }
+                    var tail = ""
+                    if !buffer.isEmpty, let s = String(bytes: buffer, encoding: .utf8) {
+                        tail = s
+                    }
+                    let rest = decoder.feed(tail + "\n\n")
+                    _ = try emitToolAndCheckDone(rest, continuation: continuation)
+                    continuation.finish()
+                } catch {
+                    if (error as? URLError)?.code == .timedOut {
+                        continuation.finish(throwing: SliceError.provider(.networkTimeout))
+                    } else {
+                        continuation.finish(throwing: error)
+                    }
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    /// 把 SSE 事件转换成 tool calling stream event。
+    /// - Returns: 是否遇到 `[DONE]`。
+    /// - Throws: 当 data 行 JSON 解析失败时抛出 `SliceError.provider(.sseParseError)`。
+    static func emitToolAndCheckDone(
+        _ events: [SSEDecoder.Event],
+        continuation: AsyncThrowingStream<ChatStreamEvent, any Error>.Continuation
+    ) throws -> Bool {
+        for event in events {
+            switch event {
+            case .data(let json):
+                for streamEvent in try decodeToolEvents(json: json) {
+                    continuation.yield(streamEvent)
+                }
+            case .done:
+                continuation.finish()
+                return true
+            }
+        }
+        return false
+    }
+
+    /// 解码一条 SSE `data:` JSON 行为 tool calling 事件。
+    /// - Parameter json: SSE data 字段的原始 JSON 字符串。
+    /// - Returns: 本 chunk 对应的 0 到多个流式事件。
+    /// - Throws: `SliceError.provider(.sseParseError)` 当 JSON 无法解析或结构不符。
+    static func decodeToolEvents(json: String) throws -> [ChatStreamEvent] {
+        guard let data = json.data(using: .utf8) else {
+            throw SliceError.provider(.sseParseError("non-utf8 data line"))
+        }
+        let parsed: OpenAIStreamChunk
+        do {
+            parsed = try JSONDecoder().decode(OpenAIStreamChunk.self, from: data)
+        } catch let error as DecodingError {
+            throw SliceError.provider(.sseParseError(summarize(decodingError: error)))
+        } catch {
+            throw SliceError.provider(.sseParseError("decode failed"))
+        }
+
+        guard let choice = parsed.choices.first else { return [] }
+        var events: [ChatStreamEvent] = []
+        if let content = choice.delta.content, !content.isEmpty {
+            events.append(.textDelta(content))
+        }
+        for toolCall in choice.delta.toolCalls ?? [] {
+            events.append(.toolCallDelta(ChatToolCallDelta(
+                index: toolCall.index,
+                id: toolCall.id,
+                name: toolCall.function.name,
+                argumentsDelta: toolCall.function.arguments ?? ""
+            )))
+        }
+        if let reason = choice.finishReason.flatMap(FinishReason.init(rawValue:)) {
+            events.append(.finished(reason))
+        }
+        return events
     }
 }

@@ -4,6 +4,15 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 
 ---
 
+## Task 48 · Phase 1 M3 Task 10 · LLM Tool Calling Contract
+
+- **时间**：2026-05-08
+- **描述**：启动 M3 第一项任务，为 OpenAI-compatible tool calling 建立 SliceCore / LLMProviders 数据契约、流式解析和 provider API，给后续 AgentExecutor 提供稳定边界。
+- **详情**：[docs/Task-detail/2026-05-08-phase-1-m3-task-10-llm-tool-calling-contract.md](Task-detail/2026-05-08-phase-1-m3-task-10-llm-tool-calling-contract.md)
+- **结果**：进行中。已同步 Phase 1 implementation plan 到当前 worktree；已按 TDD 完成 SliceCore tool calling contract、OpenAI-compatible DTO 解码、`streamToolChat(request:)` 和 SSE tool-call fixture；focused tests、LLMProviders 回归、PromptExecutor / ExecutionEngine 回归、全量 `swift test`、`git diff --check`、touched Swift files targeted lint 和 App Debug build 已通过。全仓库 `swiftlint lint --strict` 当前被 M1/M2 历史违规阻塞，Task 10 暂不扩大修复范围。
+
+---
+
 ## Task 47 · Phase 1 M2 Task 9 · AppContainer Context And Permission UI Wiring
 
 - **时间**：2026-05-08

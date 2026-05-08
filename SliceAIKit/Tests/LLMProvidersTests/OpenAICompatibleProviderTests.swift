@@ -237,4 +237,141 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         for try await _ in try await provider.stream(request: ChatRequest(model: "x", messages: [])) {}
         XCTAssertEqual(cap.auth, "Bearer sk-123")
     }
+
+    /// Tool calling 请求必须发送 OpenAI-compatible tools/tool_choice，并继续使用 SSE streaming。
+    func test_openAIProvider_sendsToolsAndToolChoice() async throws {
+        final class Capture: @unchecked Sendable { var body: [String: Any]? }
+        let capture = Capture()
+
+        MockURLProtocol.requestHandler = { req in
+            if let body = Self.requestBodyData(from: req) {
+                capture.body = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+            }
+            let resp = HTTPURLResponse(
+                url: req.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "text/event-stream"]
+            )!
+            return (resp, Data("data: [DONE]\n\n".utf8))
+        }
+
+        let provider = OpenAICompatibleProvider(
+            baseURL: URL(string: "https://api.example.com/v1")!,
+            apiKey: "sk-test",
+            session: URLSession.mocked()
+        )
+        let request = ChatToolRequest(
+            model: "gpt-5",
+            messages: [ChatMessage(role: .user, content: "search")],
+            tools: [
+                ChatTool(
+                    name: "brave_web_search",
+                    description: "Search the web",
+                    inputSchema: ["type": .string("object")]
+                ),
+            ],
+            toolChoice: .auto
+        )
+
+        for try await _ in try await provider.streamToolChat(request: request) {}
+
+        let body = try XCTUnwrap(capture.body)
+        XCTAssertEqual(body["model"] as? String, "gpt-5")
+        XCTAssertEqual(body["stream"] as? Bool, true)
+        XCTAssertEqual(body["tool_choice"] as? String, "auto")
+
+        let tools = try XCTUnwrap(body["tools"] as? [[String: Any]])
+        XCTAssertEqual(tools.count, 1)
+        XCTAssertEqual(tools.first?["type"] as? String, "function")
+
+        let function = try XCTUnwrap(tools.first?["function"] as? [String: Any])
+        XCTAssertEqual(function["name"] as? String, "brave_web_search")
+        XCTAssertEqual(function["description"] as? String, "Search the web")
+        XCTAssertEqual(function["parameters"] as? [String: String], ["type": "object"])
+    }
+
+    /// Tool call streaming 必须按 OpenAI delta.index 聚合调用片段，保留原始 arguments 增量。
+    func test_openAIProvider_streamsToolCallArguments() async throws {
+        let fixtureURL = try XCTUnwrap(Bundle.module.url(
+            forResource: "openai_chat_tool_call",
+            withExtension: "sse",
+            subdirectory: "Fixtures"
+        ))
+        let sse = try Data(contentsOf: fixtureURL)
+
+        MockURLProtocol.requestHandler = { req in
+            let resp = HTTPURLResponse(
+                url: req.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "text/event-stream"]
+            )!
+            return (resp, sse)
+        }
+
+        let provider = OpenAICompatibleProvider(
+            baseURL: URL(string: "https://api.example.com/v1")!,
+            apiKey: "sk-test",
+            session: URLSession.mocked()
+        )
+        let request = ChatToolRequest(
+            model: "gpt-5",
+            messages: [ChatMessage(role: .user, content: "search")],
+            tools: [
+                ChatTool(
+                    name: "brave_web_search",
+                    description: "Search the web",
+                    inputSchema: ["type": .string("object")]
+                ),
+            ],
+            toolChoice: .auto
+        )
+
+        var events: [ChatStreamEvent] = []
+        for try await event in try await provider.streamToolChat(request: request) {
+            events.append(event)
+        }
+
+        XCTAssertEqual(events, [
+            .toolCallDelta(ChatToolCallDelta(
+                index: 0,
+                id: "call_1",
+                name: "brave_web_search",
+                argumentsDelta: "{\"q\""
+            )),
+            .toolCallDelta(ChatToolCallDelta(
+                index: 0,
+                id: nil,
+                name: nil,
+                argumentsDelta: ":\"SliceAI\"}"
+            )),
+            .finished(.toolCalls),
+        ])
+    }
+
+    /// 从 URLProtocol 捕获到的 request 中读取 body。
+    ///
+    /// URLSession 交给 URLProtocol 时可能把 `httpBody` 转为 `httpBodyStream`，
+    /// 测试断言请求 JSON 时两种形态都要支持。
+    private static func requestBodyData(from request: URLRequest) -> Data? {
+        if let body = request.httpBody {
+            return body
+        }
+        guard let stream = request.httpBodyStream else {
+            return nil
+        }
+
+        stream.open()
+        defer { stream.close() }
+
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while stream.hasBytesAvailable {
+            let count = stream.read(&buffer, maxLength: buffer.count)
+            if count <= 0 { break }
+            data.append(buffer, count: count)
+        }
+        return data.isEmpty ? nil : data
+    }
 }
