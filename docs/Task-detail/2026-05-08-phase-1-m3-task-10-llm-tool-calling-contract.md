@@ -29,7 +29,7 @@ M3 的目标是跑通真实 Agent Tool。Task 10 是 M3 的第一步：先把 Sl
 - [x] 更新任务文档的变动文件、代码修改逻辑、测试结果。
 - [x] 运行 `git diff --check`、touched Swift files targeted lint、App Debug build。
 - [x] 提交 commit。
-- [ ] 走 `claude-review-loop` 评审；无阻断项后进入 Task 11。
+- [x] 走 `claude-review-loop` 评审；Round 1 approve，无阻断项。
 
 ## 变动文件
 
@@ -78,6 +78,7 @@ M3 的目标是跑通真实 Agent Tool。Task 10 是 M3 的第一步：先把 Sl
 - `swiftlint lint --strict <本次触及 Swift 文件>`：通过（0 violations / 0 serious）。
 - `swiftlint lint --strict`（全仓库）：未通过，当前报 16 个 serious violation，集中在 M1/M2 历史文件（如 `MCPServersPage.swift`、`StdioMCPClient.swift`、`AppContainer.swift`、`AppPermissionConsentPresenter.swift` 等）的 file length / function body / trailing comma / line length；本次新增的 `OpenAICompatibleProvider` type body 超限已通过拆同文件 extension 修复。
 - `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`：通过（BUILD SUCCEEDED）。
+- `claude-review-loop` Round 1：approve，`findings: []`，mutation check `mutation_detected: false`。
 
 ## Self-review
 
