@@ -8,7 +8,7 @@ import SliceCore
 /// 1. `.fixed` 路径：按 providerId 命中正确 Provider
 /// 2. `.fixed` 路径：providerId 不存在时抛 `.notFound`
 /// 3. `.fixed` 路径：传入 modelId 不影响返回的 Provider（M2 resolver 不消费 modelId）
-/// 4. `.capability` 路径：在 M2 范围内抛 `.notImplemented(.capabilityRouting)`
+/// 4. `.capability` 路径：按 required capabilities 和 prefer 顺序命中 Provider
 /// 5. `.cascade` 路径：在 M2 范围内抛 `.notImplemented(.cascadeRouting)`
 final class ProviderResolverTests: XCTestCase {
 
@@ -66,21 +66,48 @@ final class ProviderResolverTests: XCTestCase {
         XCTAssertEqual(resolvedNil.defaultModel, "gpt-5")
     }
 
-    // MARK: - .capability / .cascade 路径（M2 范围抛 notImplemented）
+    // MARK: - .capability 路径
 
-    /// `.capability` 路径：M2 范围内抛 `.notImplemented(.capabilityRouting)`
-    func test_resolve_capability_throwsNotImplemented_capabilityRouting() async throws {
-        // 准备：空配置（capability 路由在 M2 不依赖配置内容）
-        let resolver = DefaultProviderResolver { MockProvider.configWith([]) }
+    /// `.capability` 命中：prefer 列表中的 provider 满足能力时优先返回它。
+    func test_resolve_capability_returnsPreferredCapableProvider() async throws {
+        let openai = MockProvider.openAIStub(id: "openai-1")
+        let claude = MockProvider.anthropicStub(id: "claude-1")
+        let resolver = DefaultProviderResolver { MockProvider.configWith([openai, claude]) }
 
-        // 执行 + 断言：`.capability` 触发 notImplemented + capabilityRouting 原因
+        let resolved = try await resolver.resolve(
+            .capability(requires: [.toolCalling], prefer: ["claude-1"])
+        )
+
+        XCTAssertEqual(resolved.id, "claude-1")
+    }
+
+    /// `.capability` 兜底：prefer 缺失或不满足能力时返回配置中第一个满足能力的 provider。
+    func test_resolve_capability_fallsBackToFirstCapableProvider() async throws {
+        let promptOnly = makeProvider(id: "prompt-only", capabilities: [])
+        let openai = MockProvider.openAIStub(id: "openai-1")
+        let resolver = DefaultProviderResolver { MockProvider.configWith([promptOnly, openai]) }
+
+        let resolved = try await resolver.resolve(
+            .capability(requires: [.toolCalling], prefer: ["missing", "prompt-only"])
+        )
+
+        XCTAssertEqual(resolved.id, "openai-1")
+    }
+
+    /// `.capability` 未命中：没有 provider 满足全部能力时抛明确错误。
+    func test_resolve_capability_throwsNoProviderMatchingCapabilities() async throws {
+        let promptOnly = makeProvider(id: "prompt-only", capabilities: [])
+        let resolver = DefaultProviderResolver { MockProvider.configWith([promptOnly]) }
+
         do {
-            _ = try await resolver.resolve(.capability(requires: [.toolCalling], prefer: ["claude"]))
-            XCTFail("expected ProviderResolutionError.notImplemented to be thrown")
-        } catch ProviderResolutionError.notImplemented(let reason) {
-            XCTAssertEqual(reason, .capabilityRouting)
+            _ = try await resolver.resolve(.capability(requires: [.toolCalling], prefer: []))
+            XCTFail("expected noProviderMatchingCapabilities to be thrown")
+        } catch ProviderResolutionError.noProviderMatchingCapabilities(let requires) {
+            XCTAssertEqual(requires, [.toolCalling])
         }
     }
+
+    // MARK: - .cascade 路径（Phase 5 范围抛 notImplemented）
 
     /// `.cascade` 路径：M2 范围内抛 `.notImplemented(.cascadeRouting)`
     func test_resolve_cascade_throwsNotImplemented_cascadeRouting() async throws {
@@ -94,5 +121,23 @@ final class ProviderResolverTests: XCTestCase {
         } catch ProviderResolutionError.notImplemented(let reason) {
             XCTAssertEqual(reason, .cascadeRouting)
         }
+    }
+
+    /// 构造指定 capabilities 的 OpenAI-compatible provider。
+    /// - Parameters:
+    ///   - id: provider id。
+    ///   - capabilities: provider 支持能力。
+    /// - Returns: 测试用 provider。
+    private func makeProvider(id: String, capabilities: [ProviderCapability]) -> Provider {
+        Provider(
+            id: id,
+            kind: .openAICompatible,
+            name: id,
+            // swiftlint:disable:next force_unwrapping — 硬编码测试 URL，启动时强制解包安全
+            baseURL: URL(string: "https://api.example.com/v1")!,
+            apiKeyRef: "keychain:\(id)",
+            defaultModel: "test-model",
+            capabilities: capabilities
+        )
     }
 }

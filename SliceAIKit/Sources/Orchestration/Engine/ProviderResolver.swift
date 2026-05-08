@@ -3,9 +3,11 @@ import SliceCore
 
 /// 把 `ProviderSelection`（fixed / capability / cascade）解析到具体 `Provider`。
 ///
-/// M2 只实现 `.fixed`：按 providerId 在 `Configuration.providers` 里查找，命中则返回 Provider，
-/// 命中失败抛 `ProviderResolutionError.notFound`。`.capability` / `.cascade` 形态在 M2 范围抛
-/// `.notImplemented(.capabilityRouting)` / `.notImplemented(.cascadeRouting)`，由 Phase 1 / Phase 5 实现。
+/// 已实现 `.fixed` 与 `.capability`：
+/// - `.fixed`：按 providerId 在 `Configuration.providers` 里查找，命中则返回 Provider；
+/// - `.capability`：先筛选满足全部 required capabilities 的 Provider，再按 prefer 顺序优先命中。
+///
+/// `.cascade` 形态仍在 Phase 5 范围，当前抛 `.notImplemented(.cascadeRouting)`。
 ///
 /// `selection.modelId` 在 M2 阶段**不**被本协议消费——返回的 `Provider` 始终是配置里的原始定义，
 /// 调用方（PromptExecutor / 未来 AgentExecutor）按 `selection.modelId ?? provider.defaultModel` 决定
@@ -49,7 +51,7 @@ public actor DefaultProviderResolver: ProviderResolverProtocol {
 
     /// 解析 ProviderSelection 到具体 Provider
     ///
-    /// M2 范围：`.fixed` 完整实现；`.capability` / `.cascade` 抛 notImplemented
+    /// `.fixed` 按 id 命中；`.capability` 按能力集合命中；`.cascade` 暂未实现。
     public func resolve(_ selection: ProviderSelection) async throws -> Provider {
         switch selection {
         case .fixed(let providerId, _):
@@ -60,9 +62,20 @@ public actor DefaultProviderResolver: ProviderResolverProtocol {
             }
             return provider
 
-        case .capability:
-            // Phase 1 实现：按 capability requires/prefer 路由
-            throw ProviderResolutionError.notImplemented(.capabilityRouting)
+        case .capability(let requires, let prefer):
+            let config = try await configurationProvider()
+            let candidates = config.providers.filter { provider in
+                Set(provider.capabilities).isSuperset(of: requires)
+            }
+            for preferredId in prefer {
+                if let provider = candidates.first(where: { $0.id == preferredId }) {
+                    return provider
+                }
+            }
+            if let provider = candidates.first {
+                return provider
+            }
+            throw ProviderResolutionError.noProviderMatchingCapabilities(requires: requires)
 
         case .cascade:
             // Phase 5 实现：按 CascadeRule 降级路由

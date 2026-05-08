@@ -91,7 +91,7 @@ final class ConfigurationStoreTests: XCTestCase {
         let cfg = try await store.load()
 
         XCTAssertEqual(cfg.schemaVersion, 2)
-        XCTAssertEqual(cfg.tools.count, 4)  // 4 个内置工具（DefaultConfiguration）
+        XCTAssertEqual(cfg.tools.count, 5)  // 4 个 prompt 工具 + 1 个 Agent 工具（DefaultConfiguration）
     }
 
     /// 两个配置文件都不存在时，load/current 必须返回默认 v2 并只创建 config-v2.json
@@ -266,7 +266,7 @@ final class ConfigurationStoreTests: XCTestCase {
         let cfg = try await store.current()
 
         XCTAssertEqual(cfg.schemaVersion, Configuration.currentSchemaVersion)
-        XCTAssertEqual(cfg.tools.count, 4)  // DefaultConfiguration 4 个内置工具
+        XCTAssertEqual(cfg.tools.count, 5)  // DefaultConfiguration 4 个 prompt 工具 + 1 个 Agent 工具
     }
 
     // MARK: - 写入边界 validation（第八轮 P2-1/P2-2 修复）

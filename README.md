@@ -14,7 +14,8 @@ v0.2.0 Phase 0 底层重构已正式发布：v2 数据模型、Orchestration 执
 - `⌥Space` 快捷键唤起中央命令面板
 - 独立浮窗 Markdown 流式渲染
 - 支持 OpenAI 兼容协议（OpenAI、DeepSeek、Moonshot、OpenRouter、自建中转…）
-- 4 个内置工具：Translate / Polish / Summarize / Explain
+- 4 个内置 Prompt 工具：Translate / Polish / Summarize / Explain
+- 1 个内置 Agent 工具：Web Search Summarize（需要配置 Brave Search MCP）
 - 自定义 prompt、供应商、模型
 - API Key 存 macOS Keychain
 
@@ -49,6 +50,29 @@ open SliceAI.xcodeproj
 | `DesignSystem` / `Permissions` | 设计 token、主题管理、共享控件与 Accessibility onboarding / monitor。 |
 
 ## 项目修改变动记录
+
+### 2026-05-08 · Phase 1 M3 Task 13 · Built-In web-search-summarize Agent Tool
+
+**范围**：worktree `.worktrees/phase-1-mcp-context`，M3 Task 13
+
+**主要变更**：
+- 默认配置从 4 个 prompt tool 扩展为 5 个首方工具，新增 `web-search-summarize` Agent tool。
+- 新工具使用 `selection` context，要求 provider 支持 `.toolCalling`，allowlist 仅开放 `brave-search.brave_web_search`。
+- 新工具显式声明 `.mcp(server: "brave-search", tools: ["brave_web_search"])` 权限，确保 PermissionGraph / PermissionBroker 保持 fail-closed。
+- `DefaultProviderResolver` 已实现 `.capability` 路由：优先选中 `prefer` 中满足能力的 provider，否则回退到第一个满足能力的 provider。
+- 保留旧 4 个 prompt tool 的 `.prompt` 类型与首方 provenance，不改变既有 prompt 工具行为。
+
+**验证状态**：
+- 已按 TDD 先更新默认配置测试并确认红灯。
+- `cd SliceAIKit && swift test --filter SliceCoreTests.ConfigurationTests`
+- `cd SliceAIKit && swift test --filter SliceCoreTests.ConfigurationStoreTests`
+- `cd SliceAIKit && swift test --filter SliceCoreTests.ToolTests`
+- `cd SliceAIKit && swift test --filter OrchestrationTests.ProviderResolverTests`
+- `cd SliceAIKit && swift test --filter OrchestrationTests.ExecutionEngineTests`
+- `cd SliceAIKit && swift test`
+- `git diff --check`
+- touched Swift files targeted `swiftlint lint --strict`
+- `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`
 
 ### 2026-05-08 · Phase 1 M2 Task 9 · AppContainer Context And Permission UI Wiring
 
