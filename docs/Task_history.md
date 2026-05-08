@@ -4,6 +4,15 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 
 ---
 
+## Task 50 · Phase 1 M3 Task 12 · ResultPanel Tool Call Lifecycle
+
+- **时间**：2026-05-08
+- **描述**：启动 M3 第三项任务，把 Task 11 的 AgentExecutor tool-call lifecycle events 显示到 ResultPanel，让用户看到 MCP tool call 的 proposed、approved、result、denied 和 error 状态。
+- **详情**：[docs/Task-detail/2026-05-08-phase-1-m3-task-12-resultpanel-tool-call-lifecycle.md](Task-detail/2026-05-08-phase-1-m3-task-12-resultpanel-tool-call-lifecycle.md)
+- **结果**：实现完成，待 Claude review loop。已新增 Windowing 纯状态模型和 ResultPanel lifecycle rows，`ExecutionEventConsumer` 已把 tool-call events 映射到 UI，同时保持 `.llmChunk` 仍由 OutputDispatcher 单一路径写入正文。验证通过：focused tests、WindowingTests、全量 SwiftPM 706、targeted lint、`git diff --check`、App Debug build。全仓 strict lint 仍被既有历史文件阻塞。
+
+---
+
 ## Task 49 · Phase 1 M3 Task 11 · AgentExecutor ReAct Loop
 
 - **时间**：2026-05-08

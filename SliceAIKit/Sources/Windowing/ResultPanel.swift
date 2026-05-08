@@ -128,6 +128,45 @@ public final class ResultPanel {
         viewModel.finish()
     }
 
+    /// 展示 LLM 提出的 MCP 工具调用。
+    /// - Parameters:
+    ///   - id: 生命周期稳定 id，来自 `ExecutionEvent`。
+    ///   - title: 面向用户的工具标题。
+    ///   - detail: 已脱敏的参数摘要。
+    public func showToolCallProposed(id: UUID, title: String, detail: String) {
+        viewModel.showToolCallProposed(id: id, title: title, detail: detail)
+    }
+
+    /// 将 MCP 工具调用标记为已通过权限检查。
+    /// - Parameter id: 生命周期稳定 id，来自 `ExecutionEvent`。
+    public func showToolCallApproved(id: UUID) {
+        viewModel.showToolCallApproved(id: id)
+    }
+
+    /// 将 MCP 工具调用标记为成功返回结果。
+    /// - Parameters:
+    ///   - id: 生命周期稳定 id，来自 `ExecutionEvent`。
+    ///   - summary: 已脱敏的结果摘要。
+    public func showToolCallResult(id: UUID, summary: String) {
+        viewModel.showToolCallResult(id: id, summary: summary)
+    }
+
+    /// 将 MCP 工具调用标记为被权限或 allowlist 拒绝。
+    /// - Parameters:
+    ///   - id: 生命周期稳定 id，来自 `ExecutionEvent`。
+    ///   - reason: 已脱敏的拒绝原因。
+    public func showToolCallDenied(id: UUID, reason: String) {
+        viewModel.showToolCallDenied(id: id, reason: reason)
+    }
+
+    /// 将 MCP 工具调用标记为执行错误。
+    /// - Parameters:
+    ///   - id: 生命周期稳定 id，来自 `ExecutionEvent`。
+    ///   - summary: 已脱敏的错误摘要。
+    public func showToolCallError(id: UUID, summary: String) {
+        viewModel.showToolCallError(id: id, summary: summary)
+    }
+
     /// 标记流式输出以错误结束；将错误的 userMessage 显示在结果区，并挂载可选恢复动作
     /// - Parameters:
     ///   - error: 统一错误类型；`userMessage` 展示给用户、`developerContext` 填入折叠详情
@@ -306,6 +345,11 @@ final class ResultViewModel: ObservableObject {
     @Published var errorDetail: String?
     /// 是否钉住；同步自 ResultPanel.isPinned，用于切换 pin 按钮的图标
     @Published var isPinned: Bool = false
+    /// 当前 Agent MCP 工具调用生命周期行。
+    @Published var toolCalls: [ResultToolCallState] = []
+
+    /// 纯状态模型，负责按 tool-call id 维护 upsert 与状态转换。
+    private var toolCallStore = ResultToolCallStateStore()
 
     // MARK: - 动作回调
 
@@ -341,6 +385,9 @@ final class ResultViewModel: ObservableObject {
         // 错误相关字段全部清空，避免上次错误残留
         self.errorMessage = nil
         self.errorDetail = nil
+        // 新一次打开必须清空上一次 Agent tool-call 行，避免跨 invocation 污染。
+        self.toolCallStore.reset()
+        self.toolCalls = toolCallStore.calls
         // 恢复动作清掉，防止误触发上一次的 closure
         self.onRetry = nil
         self.onOpenSettings = nil
@@ -358,6 +405,50 @@ final class ResultViewModel: ObservableObject {
             streamingState = .streaming
         }
         text += delta
+    }
+
+    /// 展示 LLM 提出的 MCP 工具调用。
+    /// - Parameters:
+    ///   - id: 生命周期稳定 id。
+    ///   - title: 工具标题。
+    ///   - detail: 参数摘要。
+    func showToolCallProposed(id: UUID, title: String, detail: String) {
+        toolCallStore.proposed(id: id, title: title, detail: detail)
+        publishToolCalls()
+    }
+
+    /// 将 MCP 工具调用标记为已通过权限检查。
+    /// - Parameter id: 生命周期稳定 id。
+    func showToolCallApproved(id: UUID) {
+        toolCallStore.approved(id: id)
+        publishToolCalls()
+    }
+
+    /// 将 MCP 工具调用标记为成功返回结果。
+    /// - Parameters:
+    ///   - id: 生命周期稳定 id。
+    ///   - summary: 结果摘要。
+    func showToolCallResult(id: UUID, summary: String) {
+        toolCallStore.result(id: id, summary: summary)
+        publishToolCalls()
+    }
+
+    /// 将 MCP 工具调用标记为被权限或 allowlist 拒绝。
+    /// - Parameters:
+    ///   - id: 生命周期稳定 id。
+    ///   - reason: 拒绝原因。
+    func showToolCallDenied(id: UUID, reason: String) {
+        toolCallStore.denied(id: id, reason: reason)
+        publishToolCalls()
+    }
+
+    /// 将 MCP 工具调用标记为执行错误。
+    /// - Parameters:
+    ///   - id: 生命周期稳定 id。
+    ///   - summary: 错误摘要。
+    func showToolCallError(id: UUID, summary: String) {
+        toolCallStore.error(id: id, summary: summary)
+        publishToolCalls()
     }
 
     /// 标记流正常结束，隐藏 ProgressStripe 和闪烁光标
@@ -383,6 +474,11 @@ final class ResultViewModel: ObservableObject {
         self.errorDetail = detail
         self.onRetry = onRetry
         self.onOpenSettings = onOpenSettings
+    }
+
+    /// 发布当前工具调用状态数组，集中保留 `@Published` 写入点。
+    private func publishToolCalls() {
+        toolCalls = toolCallStore.calls
     }
 }
 

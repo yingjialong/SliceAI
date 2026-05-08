@@ -53,7 +53,7 @@ final class ExecutionEventConsumer {
         case .contextResolved, .promptRendered, .llmChunk:
             logPreparationEvent(event)
         case .toolCallProposed, .toolCallApproved, .toolCallResult, .toolCallDenied, .toolCallError, .stepCompleted:
-            logToolProgressEvent(event)
+            handleToolProgressEvent(event, panel: panel)
         case .sideEffectTriggered, .sideEffectSkippedDryRun, .permissionWouldBeRequested:
             logPermissionEvent(event)
         case .notImplemented(let reason):
@@ -78,6 +78,34 @@ final class ExecutionEventConsumer {
                 onRetry: { [weak self] in self?.onRetry() },
                 onOpenSettings: { [weak self] in self?.onOpenSettings() }
             )
+        }
+    }
+
+    /// 处理工具调用生命周期事件：保留日志，同时同步 ResultPanel 状态行。
+    /// - Parameters:
+    ///   - event: 工具调用或步骤推进事件。
+    ///   - panel: 需要更新的结果面板。
+    private func handleToolProgressEvent(_ event: ExecutionEvent, panel: ResultPanel) {
+        logToolProgressEvent(event)
+
+        switch event {
+        case .toolCallProposed(let id, let ref, let argsDescription):
+            panel.showToolCallProposed(
+                id: id,
+                title: toolTitle(for: ref),
+                detail: argsDescription
+            )
+        case .toolCallApproved(let id):
+            panel.showToolCallApproved(id: id)
+        case .toolCallResult(let id, let summary):
+            panel.showToolCallResult(id: id, summary: summary)
+        case .toolCallDenied(let id, let reason):
+            panel.showToolCallDenied(id: id, reason: reason)
+        case .toolCallError(let id, let summary):
+            panel.showToolCallError(id: id, summary: summary)
+        default:
+            // stepCompleted 只用于日志与未来 pipeline UI，不修改当前 tool-call rows。
+            break
         }
     }
 
@@ -124,6 +152,13 @@ final class ExecutionEventConsumer {
         default:
             break
         }
+    }
+
+    /// 生成面向 ResultPanel 的工具标题。
+    /// - Parameter ref: MCP 工具引用。
+    /// - Returns: `server.tool` 形式的紧凑标题。
+    private func toolTitle(for ref: MCPToolRef) -> String {
+        "\(ref.server).\(ref.tool)"
     }
 
     /// 记录权限与 side effect 相关的非 UI 变更事件。
