@@ -9,7 +9,7 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 - **时间**：2026-05-08
 - **描述**：启动 M3 第四项任务，在默认配置中新增首方 `web-search-summarize` Agent 工具，使用 Brave Search MCP 搜索并总结选中内容，同时声明 tool-calling provider 能力需求和 MCP 权限。
 - **详情**：[docs/Task-detail/2026-05-08-phase-1-m3-task-13-web-search-summarize-agent-tool.md](Task-detail/2026-05-08-phase-1-m3-task-13-web-search-summarize-agent-tool.md)
-- **结果**：实现完成，待 Claude review loop。已新增 `web-search-summarize` 首方 Agent tool，声明 selection context、tool-calling provider capability、Brave Search MCP allowlist 和 MCP 权限；`DefaultProviderResolver` 已实现 `.capability` 路由；旧 4 个 prompt tools 保持不变。验证通过：ConfigurationTests、ConfigurationStoreTests、ToolTests、ProviderResolverTests、ExecutionEngineTests、全量 SwiftPM 712、targeted lint、`git diff --check`、App Debug build。全仓 strict lint 仍被 13 个既有历史违规阻塞。
+- **结果**：完成。已新增 `web-search-summarize` 首方 Agent tool，声明 selection context、tool-calling provider capability、Brave Search MCP allowlist 和 MCP 权限；`DefaultProviderResolver` 已实现 `.capability` 路由；旧 4 个 prompt tools 保持不变。验证通过：ConfigurationTests、ConfigurationStoreTests、ToolTests、ProviderResolverTests、ExecutionEngineTests、全量 SwiftPM 712、targeted lint、`git diff --check`、App Debug build。全仓 strict lint 仍被 13 个既有历史违规阻塞。Claude review loop Round 1 approve，`findings: []`。
 
 ---
 
