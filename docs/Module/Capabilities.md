@@ -33,7 +33,7 @@ M2 Task 7 新增五个核心 ContextProvider：
 2. `app.windowTitle` 返回 `ExecutionSeed.frontApp.windowTitle`，缺失时返回空字符串。
 3. `app.url` 返回 `ExecutionSeed.frontApp.url?.absoluteString`，缺失时返回空字符串。
 4. `clipboard.current` 读取当前剪贴板文本，静态权限推导为 `.clipboard`，IO 前后检查取消。
-5. `file.read` 使用 `args["path"]` 推导 `.fileRead(path:)`，执行时先经 `PathSandbox.normalize(_:role: .read)` 规范化和校验，再读取 UTF-8 文本，IO 前后检查取消。
+5. `file.read` 使用 `args["path"]` 推导 `.fileRead(path:)`，执行时先经 `PathSandbox.normalize(_:role: .read)` 规范化和校验，再按 chunk 读取 UTF-8 文本；默认最大 1 MiB，超限抛固定非敏感 `SliceError.execution(.unknown("file.read.maxBytesExceeded"))`，IO 边界前后和每个 chunk 后检查取消。
 
 ## 关键接口
 
@@ -45,7 +45,7 @@ M2 Task 7 新增五个核心 ContextProvider：
 | `AppWindowTitleContextProvider` | 返回前台 app 快照中的窗口标题。 |
 | `AppURLContextProvider` | 返回前台 app 快照中的 URL 字符串。 |
 | `ClipboardCurrentContextProvider` | 读取当前剪贴板文本；推导 `.clipboard` 权限。 |
-| `FileReadContextProvider` | 读取 `PathSandbox` 允许的 UTF-8 文本文件；推导 `.fileRead(path:)` 权限。 |
+| `FileReadContextProvider` | 分块读取 `PathSandbox` 允许的 UTF-8 文本文件；默认 1 MiB 上限；推导 `.fileRead(path:)` 权限。 |
 | `MCPClientProtocol.tools(for:)` | 使用 SliceCore `MCPDescriptor` 查询 MCP server 暴露的 `MCPToolDescriptor` 列表。 |
 | `MCPClientProtocol.call(ref:args:)` | 使用 `MCPJSONValue.Object` 调用 MCP tool；`MCPCallResult.isError` 表示工具执行错误而非 transport/protocol error。 |
 | `StdioMCPClient` | M1 stdio JSON-RPC client，lazy 启动本地进程并执行 initialize / tools/list / tools/call。 |

@@ -382,7 +382,7 @@ fi
 | Task | 内容 | 状态 | 备注 |
 |---|---|---|---|
 | M2 Task 6 | PermissionGraph Case-Aware Coverage | ✅ 已完成 | `EffectivePermissions.undeclared` 改为 declared covers effective；支持文件 exact / 目录前缀 / glob、PathSandbox hard-deny、MCP nil/superset、shellExec exact |
-| M2 Task 7 | Five ContextProviders | ✅ 已完成 | 新增 `selection` / `app.windowTitle` / `app.url` / `clipboard.current` / `file.read`；剪贴板和文件 IO 支持取消检查，文件读取先经 `PathSandbox` |
+| M2 Task 7 | Five ContextProviders | ✅ 已完成 | 新增 `selection` / `app.windowTitle` / `app.url` / `clipboard.current` / `file.read`；剪贴板和文件 IO 支持取消检查，文件读取先经 `PathSandbox`，并按 chunk 读取且默认 1 MiB 上限 |
 | M2 Task 8 | 待按 Phase 1 plan 继续实施 | ⏭️ 下一步 | feature worktree 当前缺少已 review 的 Phase 1 plan 文件；按任务正文推进，不从根工作区整份复制 plan |
 
 **Task 6 验证**：
@@ -394,9 +394,9 @@ fi
 
 **Task 7 验证**：
 
-- [x] `swift test --filter CapabilitiesTests.ContextProviderTests`
-- [x] `swift test --filter OrchestrationTests.ContextCollectorTests`
-- [x] `swift test --filter OrchestrationTests.PermissionGraphTests`
+- [x] `cd SliceAIKit && swift test --filter CapabilitiesTests.ContextProviderTests`
+- [x] `cd SliceAIKit && swift test --filter OrchestrationTests.ContextCollectorTests`
+- [x] `cd SliceAIKit && swift test --filter OrchestrationTests.PermissionGraphTests`
 - [x] `git diff --check`
 
 **下一步**：启动 M2 Task 8。
@@ -793,8 +793,8 @@ fi
 ### 2026-05-08 — Phase 1 M2 Task 7 完成
 
 - Task 7 新增五个核心 ContextProvider：`selection`、`app.windowTitle`、`app.url`、`clipboard.current`、`file.read`。
-- `clipboard.current` 默认读取系统剪贴板文本并推导 `.clipboard`；`file.read` 根据 `args["path"]` 推导 `.fileRead(path:)`，执行时先通过 `PathSandbox.normalize(_:role: .read)`。
+- `clipboard.current` 默认读取系统剪贴板文本并推导 `.clipboard`；`file.read` 根据 `args["path"]` 推导 `.fileRead(path:)`，执行时先通过 `PathSandbox.normalize(_:role: .read)`，再按 chunk 读取且默认 1 MiB 上限。
 - 触及 IO 的 provider 均在 IO 边界前后调用 `Task.checkCancellation()`。
-- 验证：`swift test --filter CapabilitiesTests.ContextProviderTests`、`swift test --filter OrchestrationTests.ContextCollectorTests`、`swift test --filter OrchestrationTests.PermissionGraphTests`、`git diff --check` 均通过。
+- 验证：`cd SliceAIKit && swift test --filter CapabilitiesTests.ContextProviderTests`、`cd SliceAIKit && swift test --filter OrchestrationTests.ContextCollectorTests`、`cd SliceAIKit && swift test --filter OrchestrationTests.PermissionGraphTests`、`git diff --check` 均通过。
 
 **下一步**：启动 M2 Task 8。
