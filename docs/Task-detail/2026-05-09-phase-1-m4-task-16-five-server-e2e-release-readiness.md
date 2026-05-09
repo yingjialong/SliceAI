@@ -70,6 +70,7 @@ E2E 手工验证依赖本机安装并配置 filesystem、postgres、brave-search
 - `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`：通过，`** BUILD SUCCEEDED **`。
 - `swiftlint lint --strict`：通过，170 files，0 violations。
 - `bash scripts/phase1-mcp-e2e.sh`：通过，脚本完成只读环境检查和手工 checklist 输出；检查结果显示真实 E2E 前置条件缺失。
+- `SLICEAI_MCP_CONFIG_PATH=<fixture> bash scripts/phase1-mcp-e2e.sh` + `rg` 敏感原值检查：通过，包含假 Postgres 密码、URL token 和 API key 的 fixture 未把原值输出到 stdout。
 
 ## 代码修改逻辑
 
@@ -79,7 +80,7 @@ E2E 手工验证依赖本机安装并配置 filesystem、postgres、brave-search
 - 修复 release gate 必需的行长、尾逗号和 `Logger.debug` 拼接问题；日志仍保留写入字节数和配置数量，便于调试。
 - 新增 MCPClient 模块文档，覆盖配置路径、Claude Desktop 导入、stdio / Streamable HTTP 生命周期、权限 / provenance、诊断脱敏和 E2E server 矩阵。
 - 新增 ContextProviders 模块文档，覆盖五个 provider、args schema、权限推导、取消语义和 `file.read` 的 PathSandbox 行为。
-- 新增 E2E checklist 脚本，统一输出本机前置条件、server 命令模板和 App 回归矩阵，不写配置、不打印密钥。
+- 新增 E2E checklist 脚本，统一输出本机前置条件、server 命令模板和 App 回归矩阵，不写配置、不打印密钥；配置摘要只显示非敏感字段、参数数量、URL 是否存在和 env key 名称。
 
 ## E2E 证据
 

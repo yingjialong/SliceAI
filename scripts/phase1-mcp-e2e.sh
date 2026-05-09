@@ -31,9 +31,15 @@ check_env_key() {
   fi
 }
 
-# 安全打印 SliceAI MCP 配置摘要，不泄露 env 值。
+# 返回 SliceAI MCP 配置路径；测试可通过环境变量注入临时 fixture。
+mcp_config_path() {
+  printf '%s' "${SLICEAI_MCP_CONFIG_PATH:-$HOME/Library/Application Support/SliceAI/mcp.json}"
+}
+
+# 安全打印 SliceAI MCP 配置摘要，不泄露 env、args 或 URL 原值。
 print_mcp_config_summary() {
-  local config_path="$HOME/Library/Application Support/SliceAI/mcp.json"
+  local config_path
+  config_path="$(mcp_config_path)"
   if [[ ! -f "$config_path" ]]; then
     log "MISSING config: $config_path"
     return
@@ -50,9 +56,9 @@ print_mcp_config_summary() {
       .servers[]? | {
         id,
         transport,
-        command,
-        args,
-        url,
+        has_command: ((.command // "") != ""),
+        args_count: ((.args // []) | length),
+        has_url: ((.url // "") != ""),
         env_keys: ((.env // {}) | keys)
       }
     ]
