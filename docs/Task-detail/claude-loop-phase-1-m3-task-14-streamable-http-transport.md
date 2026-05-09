@@ -1,9 +1,9 @@
 ---
 slug: phase-1-m3-task-14-streamable-http-transport
 created: 2026-05-09T09:23:16+08:00
-last_updated: 2026-05-09T09:33:24+08:00
-status: in-progress
-total_rounds: 1
+last_updated: 2026-05-09T09:41:45+08:00
+status: complete
+total_rounds: 2
 max_iterations: 5
 reviewer_model: opus
 ---
@@ -51,7 +51,13 @@ Max iterations: 5 (upper bound; exit early on approve)
 </reference_documents>
 
 <prior_round_decisions>
-None.
+Round 1:
+- F1.1 (high, `StreamableHTTPMCPClient.swift`): accepted and fixed. Root cause: production default
+  URLSession followed redirects and could forward MCP session headers / JSON-RPC body outside the
+  validated endpoint. Fix: default redirect-blocking URLSession delegate, with internal test factory.
+- F1.2 (medium, `StreamableHTTPMCPClient.swift`): accepted and fixed. Root cause: HTTP 404 with an
+  existing `Mcp-Session-Id` did not clear cached session state. Fix: detect session-expired 404,
+  reset the server session, and retry the high-level operation once.
 </prior_round_decisions>
 
 <review_constraints>
@@ -66,10 +72,10 @@ None.
 </review_constraints>
 
 <round_meta>
-Round: 1
+Round: 2
 Loop max iterations: 5; upper bound only.
-Cumulative files changed in loop so far: 0
-Review scope: branch diff `HEAD~1..HEAD`
+Cumulative files changed in loop so far: 3
+Review scope: branch diff `HEAD~2..HEAD`
 </round_meta>
 
 ## Goal Contract
@@ -128,6 +134,32 @@ deprecated SSE behavior.
 - **Drift.** in-scope-only
 - **Status.** continue
 
+### Round 2 - 2026-05-09T09:41:45+08:00
+
+- **Claude verdict.** approve
+- **Severity counts.** 0 critical / 0 high / 0 medium / 0 low
+- **Decision ledger.**
+
+| # | Severity | Title | File:line | Decision | Reason / fix plan |
+|---|---|---|---|---|---|
+| - | - | No findings | - | approve | Round 2 confirmed Round 1 findings are fixed and no new material issues remain. |
+
+- **Root-cause groups.** None.
+- **Fix applied.** None in Round 2.
+- **Tests.** Reused post-fix verification from Round 1 fix: focused transport tests, CapabilitiesTests, full SwiftPM, targeted lint, `git diff --check`, and App Debug build passed.
+- **Files touched.** Loop log and task documentation only.
+- **Drift.** in-scope-only
+- **Status.** exit-approve
+
 ## Final Summary
 
-待 Round 2 复审后补充。
+**Termination reason.** Claude returned explicit approve signal.
+**Total rounds.** 2
+**Final verdict.** approve
+**Net findings.**
+- Accepted and fixed: 2
+- Rejected: 0
+- Deferred: 0
+- Partial: 0
+**Deferred follow-ups.**
+- None.

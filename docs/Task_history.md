@@ -9,7 +9,7 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 - **时间**：2026-05-09
 - **描述**：启动 M3 第五项任务，为 MCP client 补齐 Streamable HTTP transport，使 `.streamableHTTP` descriptor 可通过 `RoutingMCPClient` 路由到真实 HTTP transport，同时继续拒绝 deprecated `.sse`。
 - **详情**：[docs/Task-detail/2026-05-09-phase-1-m3-task-14-streamable-http-transport.md](Task-detail/2026-05-09-phase-1-m3-task-14-streamable-http-transport.md)
-- **结果**：进行中。已按 TDD 新增 `StreamableHTTPMCPClient`，支持 initialize、session id、2025-06-18 protocol header、JSON 与 SSE response；`RoutingMCPClient` 和 `AppContainer` 已接入 `.streamableHTTP`，`.sse` / `.websocket` 继续 fail-fast；`MCPServerValidation` 已允许 HTTPS 远程和 localhost 明文 HTTP，拒绝缺 URL、缺 host 与非本机明文 HTTP。Claude review Round 1 接受并修复 redirect 泄露风险和 404 session 过期后未重建。验证通过：focused tests、CapabilitiesTests 92、全量 SwiftPM 728、targeted lint、`git diff --check`、App Debug build。全仓 strict lint 仍被 13 个既有历史违规阻塞。等待 Claude review Round 2 复审。
+- **结果**：完成。已按 TDD 新增 `StreamableHTTPMCPClient`，支持 initialize、session id、2025-06-18 protocol header、JSON 与 SSE response；`RoutingMCPClient` 和 `AppContainer` 已接入 `.streamableHTTP`，`.sse` / `.websocket` 继续 fail-fast；`MCPServerValidation` 已允许 HTTPS 远程和 localhost 明文 HTTP，拒绝缺 URL、缺 host 与非本机明文 HTTP。Claude review Round 1 接受并修复 redirect 泄露风险和 404 session 过期后未重建；Round 2 approve，`findings: []`。验证通过：focused tests、CapabilitiesTests 92、全量 SwiftPM 728、targeted lint、`git diff --check`、App Debug build。全仓 strict lint 仍被 13 个既有历史违规阻塞。
 
 ---
 
