@@ -41,7 +41,7 @@ open SliceAI.xcodeproj
 | `SliceAIApp` | macOS App 薄壳：菜单栏、Onboarding、全局触发监听、Composition Root、ResultPanel 生命周期。 |
 | `SliceCore` | 领域模型与配置：`Tool` / `Provider` / `Configuration` / `ExecutionSeed` / `ResolvedExecutionContext` / 权限 / 输出绑定。 |
 | `Orchestration` | v2 执行引擎：`ExecutionEngine`、上下文采集、权限闭环、PromptExecutor、OutputDispatcher、成本记账、审计日志。 |
-| `Capabilities` | Phase 1+ 能力边界：`PathSandbox`、MCP server store/importer、MCP client 协议与 stdio client、Skill registry 协议和生产侧 mock。 |
+| `Capabilities` | Phase 1+ 能力边界：`PathSandbox`、MCP server store/importer、MCP client 协议、stdio / Streamable HTTP client、Skill registry 协议和生产侧 mock。 |
 | `LLMProviders` | OpenAI 兼容协议实现与 provider factory，负责 Chat Completions / SSE 流式解析。 |
 | `SelectionCapture` | 选区捕获：AX 主路径 + Cmd+C fallback，统一产出 `SelectionPayload`。 |
 | `HotkeyManager` | Carbon `RegisterEventHotKey` 全局快捷键注册与解析。 |
@@ -50,6 +50,30 @@ open SliceAI.xcodeproj
 | `DesignSystem` / `Permissions` | 设计 token、主题管理、共享控件与 Accessibility onboarding / monitor。 |
 
 ## 项目修改变动记录
+
+### 2026-05-09 · Phase 1 M3 Task 14 · Streamable HTTP Transport
+
+**范围**：worktree `.worktrees/phase-1-mcp-context`，M3 Task 14
+
+**主要变更**：
+- 新增 `StreamableHTTPMCPClient` actor，按 MCP 2025-06-18 通过 HTTP POST 发送 JSON-RPC，统一声明 `Accept: application/json, text/event-stream` 与 `Content-Type: application/json`。
+- initialize 后记录 `Mcp-Session-Id`，后续 `notifications/initialized`、`tools/list`、`tools/call` 会携带 `Mcp-Session-Id` 与 `MCP-Protocol-Version`。
+- `tools/list` 结果转换为 canonical `MCPToolDescriptor` 并缓存；`tools/call` 发送结构化 `MCPJSONValue.Object` arguments，支持 `application/json` 和 `text/event-stream` response。
+- `RoutingMCPClient` 现在把 `.streamableHTTP` 委托给注入的 HTTP client；deprecated `.sse` 与 `.websocket` 继续 fail-fast，不做 legacy fallback probe。
+- `AppContainer.makeMCPRuntime` 在生产路径构造并注入 `StreamableHTTPMCPClient`。
+- `MCPServerValidation` 已允许 HTTPS Streamable HTTP URL 和 localhost / 127.0.0.1 / ::1 明文 HTTP；缺 URL、缺 host、非本机明文 HTTP 继续 fail-closed。
+
+**验证状态**：
+- 已按 TDD 先写失败测试并确认红灯：`StreamableHTTPMCPClient` 缺失、store 仍拒绝 `.streamableHTTP`。
+- `cd SliceAIKit && swift test --filter CapabilitiesTests.StreamableHTTPMCPClientTests`
+- `cd SliceAIKit && swift test --filter CapabilitiesTests.RoutingMCPClientTests`
+- `cd SliceAIKit && swift test --filter CapabilitiesTests.MCPServerStoreTests`
+- `cd SliceAIKit && swift test --filter CapabilitiesTests`
+- `cd SliceAIKit && swift test`（726 tests）
+- `git diff --check`
+- touched Swift files targeted `swiftlint lint --strict`
+- `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`
+- 全仓 `swiftlint lint --strict` 仍被 13 个既有历史违规阻塞，Task 14 未扩大到无关 lint 重构。
 
 ### 2026-05-08 · Phase 1 M3 Task 13 · Built-In web-search-summarize Agent Tool
 

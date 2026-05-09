@@ -7,7 +7,7 @@ public actor RoutingMCPClient: MCPClientProtocol {
     private let stdio: any MCPClientProtocol
     private let streamableHTTP: (any MCPClientProtocol)?
 
-    /// 构造 routing MCP client；M1 阶段只真正启用 stdio transport。
+    /// 构造 routing MCP client；当前阶段启用 stdio 与 Streamable HTTP，deprecated SSE 继续拒绝。
     public init(
         descriptors: @escaping @Sendable () async throws -> [MCPDescriptor],
         stdio: any MCPClientProtocol,
@@ -18,14 +18,16 @@ public actor RoutingMCPClient: MCPClientProtocol {
         self.streamableHTTP = streamableHTTP
     }
 
-    /// 查询工具列表；M4 前远程 transport 一律 fail-fast。
+    /// 查询工具列表；按 descriptor transport 委托给具体 client。
     public func tools(for descriptor: MCPDescriptor) async throws -> [MCPToolDescriptor] {
         switch descriptor.transport {
         case .stdio:
             return try await stdio.tools(for: descriptor)
         case .streamableHTTP:
-            _ = streamableHTTP
-            throw MCPClientError.unsupportedTransport(.streamableHTTP)
+            guard let streamableHTTP else {
+                throw MCPClientError.unsupportedTransport(.streamableHTTP)
+            }
+            return try await streamableHTTP.tools(for: descriptor)
         case .sse:
             throw MCPClientError.unsupportedTransport(.sse)
         case .websocket:
@@ -40,8 +42,10 @@ public actor RoutingMCPClient: MCPClientProtocol {
         case .stdio:
             return try await stdio.call(ref: ref, args: args)
         case .streamableHTTP:
-            _ = streamableHTTP
-            throw MCPClientError.unsupportedTransport(.streamableHTTP)
+            guard let streamableHTTP else {
+                throw MCPClientError.unsupportedTransport(.streamableHTTP)
+            }
+            return try await streamableHTTP.call(ref: ref, args: args)
         case .sse:
             throw MCPClientError.unsupportedTransport(.sse)
         case .websocket:

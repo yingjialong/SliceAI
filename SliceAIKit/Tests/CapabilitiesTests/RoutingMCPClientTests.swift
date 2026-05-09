@@ -31,18 +31,57 @@ final class RoutingMCPClientTests: XCTestCase {
         XCTAssertEqual(lastArguments, ["query": .string("hi")])
     }
 
-    /// M4 前远程 descriptor 必须 fail-fast，不能静默 fallback 到 stdio 或 mock remote。
-    func test_routingClient_rejectsUnsupportedRemoteTransportBeforeM4() async throws {
+    /// streamable HTTP descriptor 应委托给注入的 HTTP client，不让上层执行器直接 switch transport。
+    func test_routingClient_routesStreamableHTTPDescriptorToHTTPClient() async throws {
         let streamable = remoteDescriptor(id: "remote-http", transport: .streamableHTTP)
-        let sse = remoteDescriptor(id: "remote-sse", transport: .sse)
-        let websocket = remoteDescriptor(id: "remote-ws", transport: .websocket)
+        let ref = MCPToolRef(server: streamable.id, tool: "echo")
+        let tool = MCPToolDescriptor(
+            ref: ref,
+            title: "echo",
+            description: nil,
+            inputSchema: ["type": .string("object")]
+        )
+        let response = MCPCallResult(content: [.text("remote ok")], structuredContent: nil, isError: false, meta: nil)
+        let http = MockMCPClient(tools: [streamable: [tool]], responses: [ref: response])
         let routing = RoutingMCPClient(
-            descriptors: { [streamable, sse, websocket] },
-            stdio: MockMCPClient()
+            descriptors: { [streamable] },
+            stdio: MockMCPClient(),
+            streamableHTTP: http
         )
 
-        try await assertUnsupportedTools(routing, descriptor: streamable, transport: .streamableHTTP)
+        let tools = try await routing.tools(for: streamable)
+        let callResult = try await routing.call(ref: ref, args: ["query": .string("hi")])
+        let lastToolsDescriptor = await http.lastToolsDescriptor
+        let lastArguments = await http.lastArguments
+
+        XCTAssertEqual(tools, [tool])
+        XCTAssertEqual(callResult, response)
+        XCTAssertEqual(lastToolsDescriptor, streamable)
+        XCTAssertEqual(lastArguments, ["query": .string("hi")])
+    }
+
+    /// deprecated SSE descriptor 必须继续 fail-fast，不能静默 fallback 到 Streamable HTTP。
+    func test_routingClient_rejectsDeprecatedSSEDescriptor() async throws {
+        let sse = remoteDescriptor(id: "remote-sse", transport: .sse)
+        let routing = RoutingMCPClient(
+            descriptors: { [sse] },
+            stdio: MockMCPClient(),
+            streamableHTTP: MockMCPClient()
+        )
+
+        try await assertUnsupportedTools(routing, descriptor: sse, transport: .sse)
         try await assertUnsupportedCall(routing, ref: MCPToolRef(server: sse.id, tool: "echo"), transport: .sse)
+    }
+
+    /// websocket 仍不在当前 milestone 支持范围内。
+    func test_routingClient_rejectsUnsupportedWebSocketTransport() async throws {
+        let websocket = remoteDescriptor(id: "remote-ws", transport: .websocket)
+        let routing = RoutingMCPClient(
+            descriptors: { [websocket] },
+            stdio: MockMCPClient(),
+            streamableHTTP: MockMCPClient()
+        )
+
         try await assertUnsupportedTools(routing, descriptor: websocket, transport: .websocket)
     }
 

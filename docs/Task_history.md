@@ -4,6 +4,15 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 
 ---
 
+## Task 52 · Phase 1 M3 Task 14 · Streamable HTTP Transport
+
+- **时间**：2026-05-09
+- **描述**：启动 M3 第五项任务，为 MCP client 补齐 Streamable HTTP transport，使 `.streamableHTTP` descriptor 可通过 `RoutingMCPClient` 路由到真实 HTTP transport，同时继续拒绝 deprecated `.sse`。
+- **详情**：[docs/Task-detail/2026-05-09-phase-1-m3-task-14-streamable-http-transport.md](Task-detail/2026-05-09-phase-1-m3-task-14-streamable-http-transport.md)
+- **结果**：进行中。已按 TDD 新增 `StreamableHTTPMCPClient`，支持 initialize、session id、2025-06-18 protocol header、JSON 与 SSE response；`RoutingMCPClient` 和 `AppContainer` 已接入 `.streamableHTTP`，`.sse` / `.websocket` 继续 fail-fast；`MCPServerValidation` 已允许 HTTPS 远程和 localhost 明文 HTTP，拒绝缺 URL、缺 host 与非本机明文 HTTP。验证通过：focused tests、CapabilitiesTests 90、全量 SwiftPM 726、targeted lint、`git diff --check`、App Debug build。全仓 strict lint 仍被 13 个既有历史违规阻塞。等待提交后运行 Claude review loop。
+
+---
+
 ## Task 51 · Phase 1 M3 Task 13 · Built-In web-search-summarize Agent Tool
 
 - **时间**：2026-05-08

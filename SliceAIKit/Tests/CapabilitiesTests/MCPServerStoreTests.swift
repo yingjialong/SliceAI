@@ -336,6 +336,90 @@ final class MCPServerStoreTests: XCTestCase {
         }
     }
 
+    /// streamable HTTP descriptor 必须允许 HTTPS URL 写入 store，否则 Task 14 transport 无法从配置启用。
+    func test_store_acceptsStreamableHTTPRemoteHTTPSURL() async throws {
+        let store = MCPServerStore(fileURL: try makeTemporaryFileURL())
+        let descriptor = streamableHTTPDescriptor(
+            id: "remote-http",
+            url: URL(string: "https://mcp.example.com/mcp")!
+        )
+        let configuration = MCPServerConfiguration(
+            schemaVersion: 1,
+            servers: [descriptor],
+            runnerConfirmations: []
+        )
+
+        try await store.save(configuration)
+        let snapshot = try await store.snapshot()
+
+        XCTAssertEqual(snapshot, [descriptor])
+    }
+
+    /// 本机 localhost 明文 HTTP URL 可用于本地开发调试；非本机明文 HTTP 仍必须拒绝。
+    func test_store_acceptsStreamableHTTPLocalPlainHTTPURL() throws {
+        let urls = [
+            URL(string: "http://localhost:8765/mcp")!,
+            URL(string: "http://127.0.0.1:8765/mcp")!,
+            URL(string: "http://[::1]:8765/mcp")!,
+        ]
+
+        for (index, url) in urls.enumerated() {
+            let descriptor = streamableHTTPDescriptor(id: "local-http-\(index)", url: url)
+            XCTAssertNoThrow(try MCPServerValidation.validate(descriptor, runnerConfirmations: []))
+        }
+    }
+
+    /// streamable HTTP descriptor 缺少 URL 时必须 fail closed。
+    func test_store_rejectsStreamableHTTPMissingURL() throws {
+        let descriptor = streamableHTTPDescriptor(id: "missing-url", url: nil)
+
+        XCTAssertThrowsError(try MCPServerValidation.validate(descriptor, runnerConfirmations: [])) { error in
+            XCTAssertEqual(error as? MCPServerValidationError, .invalidRemoteURL(id: "missing-url"))
+        }
+    }
+
+    /// streamable HTTP URL 即使用 HTTPS，也必须包含 host，避免 malformed URL 静默写入配置。
+    func test_store_rejectsStreamableHTTPMissingHost() throws {
+        let descriptor = streamableHTTPDescriptor(id: "missing-host", url: URL(string: "https:/mcp")!)
+
+        XCTAssertThrowsError(try MCPServerValidation.validate(descriptor, runnerConfirmations: [])) { error in
+            XCTAssertEqual(error as? MCPServerValidationError, .invalidRemoteURL(id: "missing-host"))
+        }
+    }
+
+    /// 非 localhost 的明文 HTTP URL 必须拒绝，避免静默连接局域网或公网明文服务。
+    func test_store_rejectsStreamableHTTPNonLocalPlainHTTPURL() throws {
+        let descriptor = streamableHTTPDescriptor(
+            id: "plain-remote",
+            url: URL(string: "http://192.168.1.10:8765/mcp")!
+        )
+
+        XCTAssertThrowsError(try MCPServerValidation.validate(descriptor, runnerConfirmations: [])) { error in
+            XCTAssertEqual(error as? MCPServerValidationError, .invalidRemoteURL(id: "plain-remote"))
+        }
+    }
+
+    /// deprecated SSE descriptor 仍必须拒绝，不能被当成 streamable HTTP 兼容入口。
+    func test_store_rejectsDeprecatedSSETransport() throws {
+        let descriptor = MCPDescriptor(
+            id: "deprecated-sse",
+            transport: .sse,
+            command: nil,
+            args: nil,
+            url: URL(string: "https://mcp.example.com/sse")!,
+            env: nil,
+            capabilities: [.tools(["list"])],
+            provenance: .firstParty
+        )
+
+        XCTAssertThrowsError(try MCPServerValidation.validate(descriptor, runnerConfirmations: [])) { error in
+            XCTAssertEqual(
+                error as? MCPServerValidationError,
+                .unsupportedTransport(id: "deprecated-sse", transport: .sse)
+            )
+        }
+    }
+
     /// 构造临时 mcp.json 路径；每个测试独立目录避免并发测试互相污染。
     private func makeTemporaryFileURL() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
@@ -378,6 +462,20 @@ final class MCPServerStoreTests: XCTestCase {
             args: args,
             env: env,
             acknowledgedAt: acknowledgedAt
+        )
+    }
+
+    /// 构造 streamable HTTP descriptor fixture。
+    private func streamableHTTPDescriptor(id: String, url: URL?) -> MCPDescriptor {
+        MCPDescriptor(
+            id: id,
+            transport: .streamableHTTP,
+            command: nil,
+            args: nil,
+            url: url,
+            env: nil,
+            capabilities: [.tools(["list"])],
+            provenance: .firstParty
         )
     }
 

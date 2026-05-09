@@ -311,9 +311,11 @@ private extension AppContainer {
             try await mcpServerStore.snapshot()
         }
         let stdioMCPClient = StdioMCPClient(descriptors: descriptorsProvider)
+        let streamableHTTPMCPClient = StreamableHTTPMCPClient(descriptors: descriptorsProvider)
         let routingMCPClient = RoutingMCPClient(
             descriptors: descriptorsProvider,
-            stdio: stdioMCPClient
+            stdio: stdioMCPClient,
+            streamableHTTP: streamableHTTPMCPClient
         )
         return AppMCPRuntimeDependencies(descriptorsProvider: descriptorsProvider, client: routingMCPClient)
     }

@@ -17,9 +17,9 @@ public enum MCPServerValidationError: Error, Sendable, Equatable {
     case invalidCommandPath(id: String)
     /// allowlisted runner 缺少首次 typed confirmation。
     case unconfirmedRunner(id: String, command: String)
-    /// M1 不支持写入远程 transport；websocket 也不允许新建。
+    /// 当前 milestone 不支持写入的 transport。
     case unsupportedTransport(id: String, transport: MCPTransport)
-    /// M1 importer/store 不接受远程 URL。
+    /// transport URL 缺失、scheme 不合规，或明文 HTTP 指向非本机 host。
     case invalidRemoteURL(id: String)
 }
 
@@ -60,8 +60,10 @@ public enum MCPServerValidation {
         switch descriptor.transport {
         case .stdio:
             try validateStdio(descriptor, runnerConfirmations: runnerConfirmations)
-        case .streamableHTTP, .sse, .websocket:
-            // M1 只允许本地 stdio；远程 transport 统一留到 M4。
+        case .streamableHTTP:
+            try validateStreamableHTTP(descriptor)
+        case .sse, .websocket:
+            // deprecated SSE 与 websocket 仍不在当前 milestone 支持范围内。
             throw MCPServerValidationError.unsupportedTransport(
                 id: descriptor.id,
                 transport: descriptor.transport
@@ -119,6 +121,35 @@ public enum MCPServerValidation {
                 runnerConfirmations: runnerConfirmations
             )
         }
+    }
+
+    /// 校验 Streamable HTTP descriptor 的 URL 安全边界。
+    /// - Parameter descriptor: transport 为 `.streamableHTTP` 的 descriptor。
+    /// - Throws: `.invalidRemoteURL`。
+    private static func validateStreamableHTTP(_ descriptor: MCPDescriptor) throws {
+        guard let url = descriptor.url,
+              let scheme = url.scheme?.lowercased(),
+              let host = url.host,
+              !host.isEmpty else {
+            throw MCPServerValidationError.invalidRemoteURL(id: descriptor.id)
+        }
+        if scheme == "https" {
+            return
+        }
+        if scheme == "http", isLocalHTTPHost(host) {
+            return
+        }
+        throw MCPServerValidationError.invalidRemoteURL(id: descriptor.id)
+    }
+
+    /// 判断明文 HTTP host 是否限定在本机。
+    /// - Parameter host: URL host。
+    /// - Returns: localhost / 127.0.0.1 / ::1 返回 true。
+    private static func isLocalHTTPHost(_ host: String?) -> Bool {
+        guard let host = host?.lowercased() else {
+            return false
+        }
+        return host == "localhost" || host == "127.0.0.1" || host == "::1"
     }
 
     /// 拒绝会把真实 runner 藏进 args 的 wrapper command。
