@@ -17,8 +17,8 @@
 |---|---|
 | 最后更新 | 2026-05-09 |
 | 当前 Phase | **Phase 1 M4 收口期**（MCP + Context 主干） |
-| 当前 Milestone | **Task 16 release readiness 自动化 gate 已通过，review 待完成** |
-| 下一个动作 | 提交 Task 16 变更并运行 `claude-review-loop`；release 前补齐真实 5-server E2E 环境 |
+| 当前 Milestone | **Task 16 release readiness 已完成 review** |
+| 下一个动作 | 补齐真实 5-server E2E 环境并执行 Safari / Notes / Slack 回归；通过后再决定是否打 `v0.3` |
 | 阻塞 | 真实 5-server MCP E2E / Safari-Notes-Slack 回归缺本机配置：SliceAI `mcp.json`、Brave API key、Postgres 只读连接串、SQLite 测试 DB、filesystem 测试目录 |
 
 **Milestone 状态**
@@ -33,7 +33,7 @@
 | 1 | M1 | ✅ 已完成：MCP 数据契约、store/importer、stdio client、Settings MCP Servers 页面 |
 | 1 | M2 | ✅ 已完成：Task 6 PermissionGraph case-aware coverage、Task 7 Core ContextProviders、Task 8 Permission Consent Grants、Task 9 AppContainer wiring |
 | 1 | M3 | ✅ 已完成：tool calling contract、AgentExecutor ReAct loop、ResultPanel tool-call lifecycle、`web-search-summarize` |
-| 1 | M4 | 🟨 自动化 gate 已通过；真实 5-server / App E2E 已记录环境 blocker |
+| 1 | M4 | 🟨 自动化 gate 与 review 已通过；真实 5-server / App E2E 已记录环境 blocker |
 | 2–5 | — | 🟦 Directional，进入前需重新 spec |
 
 ---
@@ -308,7 +308,7 @@ fi
 
 **目标**：把 Phase 0 的 `ContextProvider` / `MCPClient` / `AgentExecutor` 填实；用户可以在 Settings 加 MCP server，并在 Tool 勾选哪些 MCP tool 可用；Per-Tool Hotkey 生效。
 
-**状态**：**M1-M4 主干已实施**，当前 worktree `feature/phase-1-mcp-context` 正在 Task 16 release readiness 收口。自动化 gate 已通过；真实 5-server MCP E2E 和 Safari / Notes / Slack App 回归因本机缺少 MCP 配置、API key 和测试数据源而记录为 release 环境 blocker。
+**状态**：**M1-M4 主干已实施**，当前 worktree `feature/phase-1-mcp-context` 已完成 Task 16 release readiness review。自动化 gate 已通过；真实 5-server MCP E2E 和 Safari / Notes / Slack App 回归因本机缺少 MCP 配置、API key 和测试数据源而记录为 release 环境 blocker。
 
 **Entry criteria**（Phase 1 实施启动前置条件）：
 
@@ -446,13 +446,13 @@ fi
 
 ### 4.4 M4：Remote Transport、Per-Tool Hotkeys、E2E、Release Docs
 
-**状态**：Task 14-16 已实施；Task 16 review 待完成。
+**状态**：Task 14-16 已实施；Task 16 review 已 approve。
 
 | Task | 内容 | 状态 | 备注 |
 |---|---|---|---|
 | M4 Task 14 | Streamable HTTP Transport | ✅ 已完成 | MCP 2025-06-18 HTTP POST、session id、JSON / SSE response、redirect 阻断、404 session retry |
 | M4 Task 15 | Per-Tool Hotkeys | ✅ 已完成 | `HotkeyBindings.tools`、冲突检测、Settings UI、AppDelegate 多热键注册和 tool id 路由 |
-| M4 Task 16 | Five MCP Server E2E And Release Documentation | 🟨 进行中 | 自动化 gate 和模块文档完成；真实 5-server/App E2E 缺本机配置，已记录 blocker；review 待完成 |
+| M4 Task 16 | Five MCP Server E2E And Release Documentation | ✅ 已完成 | 自动化 gate 和模块文档完成；真实 5-server/App E2E 缺本机配置，已记录 blocker；Claude Round 2 approve |
 
 **Task 16 gate 结果**：
 
@@ -471,7 +471,7 @@ fi
 - [ ] filesystem 安全测试目录
 - [ ] Safari / Notes / Slack 真实选区回归
 
-**下一步**：提交 Task 16 并运行 `claude-review-loop`；review approve 后补齐 release 环境做真实 E2E，再决定是否打 `v0.3`。
+**下一步**：补齐 release 环境做真实 5-server / App E2E，再决定是否打 `v0.3`。
 
 ---
 
@@ -892,4 +892,4 @@ fi
 - 新增 `docs/Module/MCPClient.md`、`docs/Module/ContextProviders.md` 和 `scripts/phase1-mcp-e2e.sh`。
 - 真实 5-server MCP E2E 与 Safari / Notes / Slack App 回归未在当前机器执行成功：缺 SliceAI `mcp.json`、Brave API key、Postgres 只读连接串、SQLite 测试 DB 和 filesystem 测试目录。
 
-**下一步**：提交 Task 16 变更并运行 `claude-review-loop`；review approve 后补齐真实 release 环境做 5-server / App E2E，再决定是否打 `v0.3`。
+**下一步**：补齐真实 release 环境做 5-server / App E2E，再决定是否打 `v0.3`。

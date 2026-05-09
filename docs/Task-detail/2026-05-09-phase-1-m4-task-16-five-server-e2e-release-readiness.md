@@ -36,8 +36,8 @@ E2E 手工验证依赖本机安装并配置 filesystem、postgres、brave-search
 - [x] 编写 `docs/Module/MCPClient.md`。
 - [x] 编写 `docs/Module/ContextProviders.md`。
 - [x] 更新 README、Task_history、planning doc、master todolist。
-- [ ] 提交 commit。
-- [ ] 运行 `claude-review-loop` 并记录结果。
+- [x] 提交 commit。
+- [x] 运行 `claude-review-loop` 并记录结果。
 
 ## 变动文件（计划）
 
@@ -111,4 +111,6 @@ E2E 手工验证依赖本机安装并配置 filesystem、postgres、brave-search
 
 ## Claude Review Loop
 
-- 待记录。
+- Round 1：`needs_attention`，1 个 medium finding。接受并修复 `scripts/phase1-mcp-e2e.sh` 配置摘要会打印 `args/url` 原值的问题；修复后脚本只输出 `has_command`、`args_count`、`has_url`、`env_keys` 等非敏感摘要。
+- 修复验证：使用包含假 Postgres 密码、URL token 和 API key 的临时 fixture 运行脚本，并用 `rg` 确认 stdout 不含原始敏感值；真实环境 `bash scripts/phase1-mcp-e2e.sh` 通过。
+- Round 2：`approve`，`findings: []`。

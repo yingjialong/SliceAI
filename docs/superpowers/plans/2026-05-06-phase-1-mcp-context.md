@@ -833,7 +833,7 @@ swift build
 
 Expected: tests pass and package builds.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add SliceAIKit/Package.swift SliceAIKit/Sources/SettingsUI SliceAIKit/Tests/SettingsUITests
@@ -2060,6 +2060,16 @@ Task 16 execution note, 2026-05-09:
 git add README.md docs scripts
 git commit -m "docs: record phase 1 mcp release readiness"
 ```
+
+Task 16 committed:
+
+- `873aa1d docs: record phase 1 mcp release readiness`
+- `ab05c8f fix(scripts): redact mcp e2e config summary`
+
+Claude review loop:
+
+- Round 1 accepted one medium finding in `scripts/phase1-mcp-e2e.sh`.
+- Round 2 approved with `findings: []`.
 
 ---
 

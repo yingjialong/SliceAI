@@ -9,7 +9,7 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 - **时间**：2026-05-09
 - **描述**：启动 Phase 1 收口任务，运行 M4 release readiness gate，记录 5 个 MCP server E2E 和 App 场景回归证据，补齐 MCPClient / ContextProviders 模块文档，并更新项目状态文档。
 - **详情**：[docs/Task-detail/2026-05-09-phase-1-m4-task-16-five-server-e2e-release-readiness.md](Task-detail/2026-05-09-phase-1-m4-task-16-five-server-e2e-release-readiness.md)
-- **结果**：进行中。已完成 release lint blocker 修复、自动化 gate、E2E checklist 脚本和模块文档；真实 5-server MCP E2E / Safari-Notes-Slack 回归缺本机配置和测试数据源，已记录为 release 环境 blocker。Task 16 commit 与 `claude-review-loop` 待完成。
+- **结果**：完成。已完成 release lint blocker 修复、自动化 gate、E2E checklist 脚本和模块文档；真实 5-server MCP E2E / Safari-Notes-Slack 回归缺本机配置和测试数据源，已记录为 release 环境 blocker。Claude review loop Round 1 接受并修复脚本配置摘要泄漏 `args/url` 原值风险；Round 2 approve，`findings: []`。验证通过：`swift build`、735 tests with coverage、App Debug build、full strict lint、E2E checklist 脚本和敏感 fixture redaction check。
 
 ---
 

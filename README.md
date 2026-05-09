@@ -69,6 +69,7 @@ open SliceAI.xcodeproj
 - `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`
 - `swiftlint lint --strict`（170 files，0 violations）
 - `bash scripts/phase1-mcp-e2e.sh`（完成只读环境检查；真实 5-server E2E 因前置条件缺失未执行）
+- Claude review loop Round 1 接受并修复 E2E 脚本配置摘要泄漏风险；Round 2 approve，`findings: []`。
 
 ### 2026-05-09 · Phase 1 M4 Task 15 · Per-Tool Hotkeys
 
