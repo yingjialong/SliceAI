@@ -1,7 +1,6 @@
 // SliceAIApp/AppDelegate.swift
 import AppKit
 import DesignSystem
-import HotkeyManager
 import OSLog
 import Permissions
 import SelectionCapture
@@ -187,52 +186,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Self.log.info("wireRuntime: done")
     }
 
-    /// 按配置中的 `hotkeys.toggleCommandPalette` （重新）注册全局热键
-    ///
-    /// 每次调用都会先 `unregisterAll` 清空上一次的 Carbon 注册，再按最新配置注册。
-    /// 这样设置页改完热键立即生效，且避免旧热键遗留。
-    ///
-    /// 实现要点：
-    ///   - 仅在 `triggers.commandPaletteEnabled == true` 时注册；
-    ///   - 解析失败或 Carbon 注册失败均静默忽略，遵循"无自由日志"规范（详见任务 26
-    ///     提交 804010f）。未来可由 Settings 面板上的错误指示来暴露；
-    ///   - 回调中显式跳回 MainActor 以保持 UI 操作安全。
-    func reloadHotkey() {
-        guard let container else { return }
-        // 先清空旧注册——必须同步完成，避免与下面 async register 产生窗口期
-        container.hotkeyRegistrar.unregisterAll()
-        Task { @MainActor [weak self] in
-            guard let self, let container = self.container else { return }
-            let cfg: Configuration
-            do {
-                cfg = try await container.configStore.current()
-            } catch {
-                Self.log.info("hotkey: config load failed \(error.localizedDescription, privacy: .private)")
-                return
-            }
-            guard cfg.triggers.commandPaletteEnabled else {
-                Self.log.info("hotkey: commandPaletteEnabled=false, skip")
-                return
-            }
-            // parse 或 register 异常时仍按"无自由日志"规范不向用户抛错；
-            // 但落一条 .info 诊断日志，便于在 Console.app 自检"⌥Space 为何没用"
-            let raw = cfg.hotkeys.toggleCommandPalette
-            guard let hk = try? Hotkey.parse(raw) else {
-                Self.log.info("hotkey: parse failed for '\(raw, privacy: .public)'")
-                return
-            }
-            do {
-                _ = try container.hotkeyRegistrar.register(hk) { [weak self] in
-                    // Carbon 回调已经在主线程，但 Swift 6 严格并发需要显式跳回 MainActor
-                    Task { @MainActor in self?.showCommandPalette() }
-                }
-                Self.log.info("hotkey: registered \(hk.description, privacy: .public)")
-            } catch {
-                Self.log.info("hotkey: register failed \(String(describing: error), privacy: .public)")
-            }
-        }
-    }
-
     /// 安装全局鼠标监视器；同时追踪 mouseDown 起点与 mouseUp 终点
     ///
     /// 实现要点：
@@ -335,34 +288,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         //      ⌘C 在系统标准控件下是 no-op，pasteboard.changeCount 不变即返回 nil，
         //      不会把旧剪贴板内容误当成"选中"；
         //   3. minimumSelectionLength 长度过滤：偶发 1-2 字误读丢弃。
-        let payload: SelectionPayload?
-        do {
-            payload = try await container.selectionService.capture()
-        } catch {
-            // capture() 内部已把子 source 的异常吞成 nil；这里兜底只是防御性，
-            // 万一未来某个 SelectionSource 改为透传错误也能在 Console 看到
-            Self.log.info("capture: throw \(String(describing: error), privacy: .public)")
-            return
-        }
-        guard let payload else {
-            Self.log.info("capture: nil (AX 与 Cmd+C fallback 均未拿到选区)")
-            return
-        }
-        // 黑名单应用：命中则忽略该次触发
-        if cfg.appBlocklist.contains(payload.appBundleID) {
-            Self.log.info("capture: blocked by appBlocklist \(payload.appBundleID, privacy: .public)")
-            return
-        }
-        // 选区过短：避免偶发的 1-2 字选中误触发
-        let len = payload.text.count
-        let minLen = cfg.triggers.minimumSelectionLength
-        guard len >= minLen else {
-            Self.log.info("capture: too short len=\(len, privacy: .public) min=\(minLen, privacy: .public)")
-            return
-        }
+        guard let payload = await capturePayloadForExecution(cfg, logPrefix: "capture") else { return }
         // 把字段值先存短别名，以让 log 模板控制在 SwiftLint line_length=120 以内。
         // src（source）便于在 Console 里区分"AX 命中"还是"Cmd+C fallback 命中"。
         let app = payload.appBundleID
+        let len = payload.text.count
         let src = payload.source.rawValue
         Self.log.info(
             "capture: shown bundle=\(app, privacy: .public) len=\(len, privacy: .public) src=\(src, privacy: .public)"
@@ -377,6 +307,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ) { [weak self] tool in
             self?.execute(tool: tool, payload: payload)
         }
+    }
+
+    /// 工具热键触发：重新读取配置、按 tool id 定位工具、捕获选区后直接执行
+    /// - Parameter toolID: 热键注册时捕获的工具 id
+    func runToolHotkey(toolID: String) {
+        Task { @MainActor [weak self] in
+            guard let self, let container = self.container else { return }
+            let cfg: Configuration
+            do {
+                cfg = try await container.configStore.current()
+            } catch {
+                Self.log.info("hotkey: config load failed \(error.localizedDescription, privacy: .private)")
+                return
+            }
+            guard let tool = cfg.tools.first(where: { $0.id == toolID }) else {
+                Self.log.info("hotkey: tool not found id=\(toolID, privacy: .public)")
+                return
+            }
+            guard let payload = await self.capturePayloadForExecution(cfg, logPrefix: "hotkey") else { return }
+            Self.log.info("hotkey: executing tool id=\(toolID, privacy: .public)")
+            self.execute(tool: tool, payload: payload, triggerSource: .hotkey)
+        }
+    }
+
+    /// 捕获并按配置过滤选区，供浮条和工具热键复用
+    /// - Parameters:
+    ///   - cfg: 当前配置快照
+    ///   - logPrefix: 日志前缀，用于区分浮条捕获与工具热键捕获
+    /// - Returns: 通过黑名单和长度过滤的选区；失败时返回 nil
+    private func capturePayloadForExecution(_ cfg: Configuration, logPrefix: String) async -> SelectionPayload? {
+        guard let container else { return nil }
+        let payload: SelectionPayload?
+        do {
+            payload = try await container.selectionService.capture()
+        } catch {
+            Self.log.info("\(logPrefix, privacy: .public): throw \(String(describing: error), privacy: .public)")
+            return nil
+        }
+        guard let payload else {
+            Self.log.info("\(logPrefix, privacy: .public): nil (AX 与 Cmd+C fallback 均未拿到选区)")
+            return nil
+        }
+        if cfg.appBlocklist.contains(payload.appBundleID) {
+            let bundleID = payload.appBundleID
+            Self.log.info(
+                "\(logPrefix, privacy: .public): blocked by appBlocklist \(bundleID, privacy: .public)"
+            )
+            return nil
+        }
+        let len = payload.text.count
+        let minLen = cfg.triggers.minimumSelectionLength
+        guard len >= minLen else {
+            Self.log.info(
+                "\(logPrefix, privacy: .public): too short len=\(len, privacy: .public) min=\(minLen, privacy: .public)"
+            )
+            return nil
+        }
+        return payload
     }
 
     // MARK: - Command Palette

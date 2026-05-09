@@ -51,9 +51,33 @@ open SliceAI.xcodeproj
 
 ## 项目修改变动记录
 
-### 2026-05-09 · Phase 1 M3 Task 14 · Streamable HTTP Transport
+### 2026-05-09 · Phase 1 M4 Task 15 · Per-Tool Hotkeys
 
-**范围**：worktree `.worktrees/phase-1-mcp-context`，M3 Task 14
+**范围**：worktree `.worktrees/phase-1-mcp-context`，M4 Task 15
+
+**主要变更**：
+- `HotkeyBindings` 新增 `tools: [String: String]`，旧 config-v2 缺字段时默认 `[:]`，v1 migrator 也保持工具热键为空。
+- 新增 `HotkeyBindingValidator` 和 `ToolHotkeyRegistration`，集中处理热键标准化、命令面板冲突、工具间冲突、无效热键和按 tool id 生成注册项；运行时注册会把旧 `Tool.hotkey` fallback 一并纳入冲突过滤。
+- Tools 设置页在每个工具基础信息中新增热键录制器，保存时同步 `configuration.hotkeys.tools[tool.id]` 与 `Tool.hotkey` 兼容字段，并触发运行时重新注册热键。
+- Hotkey 设置页显示命令面板与工具热键的冲突提示；删除工具时同步清理对应工具热键映射。
+- `AppDelegate.reloadHotkey()` 现在同时注册命令面板热键和有效工具热键；工具热键触发后重新读取当前配置、按 tool id 定位工具、捕获选区并以 `.hotkey` trigger source 直接执行。
+- 新增 `AppDelegate+Hotkeys.swift` 拆出热键注册逻辑，避免 `AppDelegate.swift` 文件长度继续膨胀。
+
+**验证状态**：
+- 已按 TDD 先写失败测试并确认红灯：`HotkeyBindings.tools`、`HotkeyBindingValidator`、`ToolHotkeyRegistration` 缺失。
+- `cd SliceAIKit && swift test --filter SliceCoreTests.ConfigurationTests`（11 tests）
+- `cd SliceAIKit && swift test --filter SliceCoreTests.ConfigMigratorV1ToV2Tests`（10 tests）
+- `cd SliceAIKit && swift test --filter HotkeyManagerTests`（9 tests）
+- `cd SliceAIKit && swift test --filter SettingsUITests`（15 tests）
+- `cd SliceAIKit && swift test`（734 tests）
+- `git diff --check`
+- touched Swift files targeted `swiftlint lint --strict`
+- `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`
+- 全仓 `swiftlint lint --strict` 仍被 13 个既有历史违规阻塞，Task 15 touched source 已通过 targeted lint。
+
+### 2026-05-09 · Phase 1 M4 Task 14 · Streamable HTTP Transport
+
+**范围**：worktree `.worktrees/phase-1-mcp-context`，M4 Task 14
 
 **主要变更**：
 - 新增 `StreamableHTTPMCPClient` actor，按 MCP 2025-06-18 通过 HTTP POST 发送 JSON-RPC，统一声明 `Accept: application/json, text/event-stream` 与 `Content-Type: application/json`。

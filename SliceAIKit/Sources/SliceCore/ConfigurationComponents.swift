@@ -4,11 +4,29 @@ import Foundation
 public struct HotkeyBindings: Sendable, Codable, Equatable {
     /// 切换命令面板的全局热键（如 "option+space"）
     public var toggleCommandPalette: String
+    /// 单个工具的全局热键映射，key 为 `Tool.id`，value 为 Hotkey 字符串描述
+    public var tools: [String: String]
 
     /// 构造快捷键绑定
-    /// - Parameter toggleCommandPalette: 命令面板快捷键的字符串描述
-    public init(toggleCommandPalette: String) {
+    /// - Parameters:
+    ///   - toggleCommandPalette: 命令面板快捷键的字符串描述
+    ///   - tools: 工具 id 到快捷键字符串的映射，旧配置默认空字典
+    public init(toggleCommandPalette: String, tools: [String: String] = [:]) {
         self.toggleCommandPalette = toggleCommandPalette
+        self.tools = tools
+    }
+
+    /// JSON 字段名映射
+    private enum CodingKeys: String, CodingKey {
+        case toggleCommandPalette
+        case tools
+    }
+
+    /// 自定义解码：旧版 config-v2 没有 `tools` 字段，必须回落到空字典
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        toggleCommandPalette = try container.decode(String.self, forKey: .toggleCommandPalette)
+        tools = try container.decodeIfPresent([String: String].self, forKey: .tools) ?? [:]
     }
 }
 

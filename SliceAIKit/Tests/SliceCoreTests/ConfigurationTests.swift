@@ -104,4 +104,29 @@ final class ConfigurationTests: XCTestCase {
         let decoded = try JSONDecoder().decode(Configuration.self, from: data)
         XCTAssertEqual(cfg, decoded)
     }
+
+    /// 配置应能集中保存每个工具的全局热键映射，供运行时按 tool id 直接注册。
+    func test_configurationStoresPerToolHotkeys() throws {
+        var cfg = DefaultConfiguration.initial()
+        cfg.hotkeys.tools = [
+            "translate": "cmd+shift+1",
+            "web-search-summarize": "cmd+shift+w"
+        ]
+
+        let data = try JSONEncoder().encode(cfg)
+        let decoded = try JSONDecoder().decode(Configuration.self, from: data)
+
+        XCTAssertEqual(decoded.hotkeys.tools["translate"], "cmd+shift+1")
+        XCTAssertEqual(decoded.hotkeys.tools["web-search-summarize"], "cmd+shift+w")
+    }
+
+    /// 旧版 config-v2 只包含命令面板热键时，工具热键映射必须默认空字典。
+    func test_hotkeyBindingsDecodingDefaultsPerToolHotkeysToEmpty() throws {
+        let json = #"{"toggleCommandPalette":"option+space"}"#.data(using: .utf8)!
+
+        let bindings = try JSONDecoder().decode(HotkeyBindings.self, from: json)
+
+        XCTAssertEqual(bindings.toggleCommandPalette, "option+space")
+        XCTAssertEqual(bindings.tools, [:])
+    }
 }

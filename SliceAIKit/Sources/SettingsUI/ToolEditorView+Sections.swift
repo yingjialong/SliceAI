@@ -58,6 +58,22 @@ extension ToolEditorView {
                 .labelsHidden()
                 .frame(maxWidth: 240)
             }
+
+            SettingsRow("快捷键") {
+                VStack(alignment: .trailing, spacing: SliceSpacing.xs) {
+                    HotkeyEditorView(
+                        binding: toolHotkeyBinding,
+                        onCommit: onHotkeyCommit
+                    )
+                    if let message = toolHotkeyValidationMessage {
+                        Text(message)
+                            .font(SliceFont.caption)
+                            .foregroundColor(.red)
+                            .multilineTextAlignment(.trailing)
+                    }
+                }
+                .frame(maxWidth: 280)
+            }
         }
     }
 

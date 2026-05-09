@@ -1,4 +1,5 @@
 // SliceAIKit/Sources/SettingsUI/ToolEditorView+Bindings.swift
+import HotkeyManager
 import SliceCore
 import SwiftUI
 
@@ -142,6 +143,65 @@ extension ToolEditorView {
             promptTool.variables[key] = ""
             tool.kind = .prompt(promptTool)
             print("[ToolEditorView] addVariable: key=\(key) tool=\(tool.id)")
+        }
+    }
+
+    /// 工具级热键绑定，写入时同步集中映射与 Tool.hotkey 兼容字段
+    var toolHotkeyBinding: Binding<String> {
+        Binding(
+            get: {
+                hotkeys.tools[tool.id] ?? tool.hotkey ?? ""
+            },
+            set: { newValue in
+                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.isEmpty {
+                    hotkeys.tools.removeValue(forKey: tool.id)
+                    tool.hotkey = nil
+                    print("[ToolEditorView] hotkey cleared for tool '\(tool.id)'")
+                } else {
+                    hotkeys.tools[tool.id] = trimmed
+                    tool.hotkey = trimmed
+                    print("[ToolEditorView] hotkey updated for tool '\(tool.id)'")
+                }
+            }
+        )
+    }
+
+    /// 当前工具热键的校验提示；nil 表示没有影响当前工具的问题
+    var toolHotkeyValidationMessage: String? {
+        let issues = HotkeyBindingValidator.issues(
+            commandPalette: hotkeys.toggleCommandPalette,
+            tools: effectiveToolHotkeyMap
+        )
+        guard let issue = issues.first(where: { HotkeyBindingValidator.issue($0, involves: tool.id) }) else {
+            return nil
+        }
+        return message(for: issue)
+    }
+
+    /// 合并集中映射和 Tool.hotkey 兼容字段，避免手写配置只填旧占位字段时 UI 不提示
+    private var effectiveToolHotkeyMap: [String: String] {
+        var result = hotkeys.tools
+        if result[tool.id] == nil, let fallback = tool.hotkey {
+            result[tool.id] = fallback
+        }
+        return result
+    }
+
+    /// 把校验问题转换为设置页展示文案
+    /// - Parameter issue: HotkeyManager 返回的纯校验问题
+    /// - Returns: 面向用户的中文提示
+    private func message(for issue: HotkeyBindingIssue) -> String {
+        switch issue {
+        case .invalidCommandPalette:
+            return "命令面板快捷键无效"
+        case .invalidTool:
+            return "当前工具快捷键无效"
+        case .commandPaletteConflict(_, let hotkey):
+            return "与命令面板快捷键 \(hotkey) 冲突"
+        case .toolConflict(let first, let second, let hotkey):
+            let other = first == tool.id ? second : first
+            return "与工具 \(other) 的快捷键 \(hotkey) 冲突"
         }
     }
 }

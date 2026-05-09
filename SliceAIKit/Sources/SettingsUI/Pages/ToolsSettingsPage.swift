@@ -258,7 +258,13 @@ public struct ToolsSettingsPage: View {
             Rectangle().fill(SliceColor.divider).frame(height: 0.5)
             ToolEditorView(
                 tool: binding,
-                providers: viewModel.configuration.providers
+                providers: viewModel.configuration.providers,
+                hotkeys: $viewModel.configuration.hotkeys,
+                onHotkeyCommit: {
+                    Task {
+                        await viewModel.saveHotkeys()
+                    }
+                }
             )
             .padding(SliceSpacing.xl)
         }
@@ -306,6 +312,7 @@ public struct ToolsSettingsPage: View {
     private func performDelete(id: String) {
         print("[ToolsSettingsPage] performDelete: id=\(id)")
         withAnimation(SliceAnimation.standard) {
+            viewModel.configuration.hotkeys.tools.removeValue(forKey: id)
             viewModel.configuration.tools.removeAll { $0.id == id }
             if expandedId == id { expandedId = nil }
         }
