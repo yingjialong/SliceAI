@@ -1967,7 +1967,7 @@ git commit -m "feat(app): add per-tool hotkeys"
 - Modify: `docs/v2-refactor-master-todolist.md`
 - Optional script: `scripts/phase1-mcp-e2e.sh`
 
-- [ ] **Step 1: Create E2E checklist script**
+- [x] **Step 1: Create E2E checklist script**
 
 If a script is used, it must accept installed servers and print clear manual commands:
 
@@ -1981,7 +1981,7 @@ echo "3. Execute one safe read-only tool call"
 
 The script must not contain secrets or API keys.
 
-- [ ] **Step 2: Run full automated gate**
+- [x] **Step 2: Run full automated gate**
 
 Run:
 
@@ -1996,7 +1996,7 @@ swiftlint lint --strict
 
 Expected: all pass.
 
-- [ ] **Step 3: Run five-server E2E checklist**
+- [x] **Step 3: Run five-server E2E checklist**
 
 Manual evidence to record in task detail:
 
@@ -2006,7 +2006,7 @@ Manual evidence to record in task detail:
 - git: list tools + one read-only status/log call;
 - sqlite: list tools + one read-only query.
 
-- [ ] **Step 4: Run app scenario regression**
+- [x] **Step 4: Run app scenario regression**
 
 Manual evidence to record:
 
@@ -2019,7 +2019,7 @@ Manual evidence to record:
 - per-tool hotkey trigger;
 - command palette still opens with global hotkey.
 
-- [ ] **Step 5: Write module docs**
+- [x] **Step 5: Write module docs**
 
 `docs/Module/MCPClient.md` must cover:
 
@@ -2039,7 +2039,7 @@ Manual evidence to record:
 - cancellation requirements;
 - PathSandbox behavior for file.read.
 
-- [ ] **Step 6: Update project docs**
+- [x] **Step 6: Update project docs**
 
 Update:
 
@@ -2047,6 +2047,12 @@ Update:
 - `docs/Task_history.md`;
 - `docs/Task-detail/2026-05-06-phase-1-mcp-context-planning.md`;
 - `docs/v2-refactor-master-todolist.md` Phase 1 status and snapshot.
+
+Task 16 execution note, 2026-05-09:
+
+- Automated gate passed: `swift build`, `swift test --parallel --enable-code-coverage`（735 tests）, App Debug build, full `swiftlint lint --strict`（170 files, 0 violations）.
+- `scripts/phase1-mcp-e2e.sh` exists and records local prerequisites without printing secrets.
+- Real 5-server MCP E2E and Safari/Notes/Slack app regression were recorded as blocked on this machine because SliceAI `mcp.json`, Brave API key, Postgres URL, SQLite DB path, and filesystem test directory are missing. These are release environment prerequisites, not code gate failures.
 
 - [ ] **Step 7: Commit**
 

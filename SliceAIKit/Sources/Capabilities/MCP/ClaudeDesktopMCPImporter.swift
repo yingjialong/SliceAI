@@ -51,7 +51,8 @@ public struct ClaudeDesktopMCPImporter: Sendable {
             throw MCPServerValidationError.invalidRemoteURL(id: id)
         }
 
-        guard let command = server.command, command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+        guard let command = server.command,
+              command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
             throw MCPServerValidationError.missingCommand(id: id)
         }
 

@@ -135,8 +135,9 @@ public actor PersistentPermissionGrantStore {
             withIntermediateDirectories: true
         )
         try data.write(to: fileURL, options: .atomic)
+        let grantCount = configuration.grants.count
         persistentGrantStoreLog.debug(
-            "saved permission grants bytes=\(data.count, privacy: .public) count=\(configuration.grants.count, privacy: .public)"
+            "saved permission grants bytes=\(data.count, privacy: .public) count=\(grantCount, privacy: .public)"
         )
     }
 

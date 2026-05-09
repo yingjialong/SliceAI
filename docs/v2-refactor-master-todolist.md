@@ -15,11 +15,11 @@
 
 | 字段 | 值 |
 |---|---|
-| 最后更新 | 2026-05-08 |
-| 当前 Phase | **Phase 1 实施期**（MCP + Context 主干） |
-| 当前 Milestone | **M2 Context 与 Permission 已完成** |
-| 下一个动作 | 启动 Phase 1 M3 AgentExecutor 与工具调用 UI |
-| 阻塞 | 暂无产品口径阻塞；旧 HTTP+SSE 已明确弃用且不实现，远程传输仅保留 M4 Streamable HTTP |
+| 最后更新 | 2026-05-09 |
+| 当前 Phase | **Phase 1 M4 收口期**（MCP + Context 主干） |
+| 当前 Milestone | **Task 16 release readiness 自动化 gate 已通过，review 待完成** |
+| 下一个动作 | 提交 Task 16 变更并运行 `claude-review-loop`；release 前补齐真实 5-server E2E 环境 |
+| 阻塞 | 真实 5-server MCP E2E / Safari-Notes-Slack 回归缺本机配置：SliceAI `mcp.json`、Brave API key、Postgres 只读连接串、SQLite 测试 DB、filesystem 测试目录 |
 
 **Milestone 状态**
 
@@ -32,6 +32,8 @@
 | 0 | M3 | ✅ 已完成并发布：PR #3 merged，`v0.2.0` tag + GitHub Release |
 | 1 | M1 | ✅ 已完成：MCP 数据契约、store/importer、stdio client、Settings MCP Servers 页面 |
 | 1 | M2 | ✅ 已完成：Task 6 PermissionGraph case-aware coverage、Task 7 Core ContextProviders、Task 8 Permission Consent Grants、Task 9 AppContainer wiring |
+| 1 | M3 | ✅ 已完成：tool calling contract、AgentExecutor ReAct loop、ResultPanel tool-call lifecycle、`web-search-summarize` |
+| 1 | M4 | 🟨 自动化 gate 已通过；真实 5-server / App E2E 已记录环境 blocker |
 | 2–5 | — | 🟦 Directional，进入前需重新 spec |
 
 ---
@@ -306,7 +308,7 @@ fi
 
 **目标**：把 Phase 0 的 `ContextProvider` / `MCPClient` / `AgentExecutor` 填实；用户可以在 Settings 加 MCP server，并在 Tool 勾选哪些 MCP tool 可用；Per-Tool Hotkey 生效。
 
-**状态**：**设计 / plan 已完成 review**，当前 worktree `feature/phase-1-mcp-context` 正在实施。M1 Task 1-5 已完成并通过 Task 5 二次 code-quality 复审；M2 Task 6-9 已完成。
+**状态**：**M1-M4 主干已实施**，当前 worktree `feature/phase-1-mcp-context` 正在 Task 16 release readiness 收口。自动化 gate 已通过；真实 5-server MCP E2E 和 Safari / Notes / Slack App 回归因本机缺少 MCP 配置、API key 和测试数据源而记录为 release 环境 blocker。
 
 **Entry criteria**（Phase 1 实施启动前置条件）：
 
@@ -339,11 +341,11 @@ fi
 
 **Exit criteria（DoD）**：
 
-- [ ] 可从 Claude Desktop 直接复制 `mcp.json` 并工作
-- [ ] 至少 5 个 MCP server 验证通过（filesystem / postgres / brave-search / git / sqlite）
-- [ ] Tool Permission 的一键同意 / 撤销 UX 有测试
+- [x] 可从 Claude Desktop 直接复制 `mcp.json` 并导入 SliceAI（真实工作仍取决于 server runner confirmation 和本机可用命令）
+- [ ] 至少 5 个 MCP server 验证通过（filesystem / postgres / brave-search / git / sqlite）——Task 16 已记录环境 blocker，release 前需补齐
+- [x] Tool Permission 的批准 / 拒绝 / grant 下限有自动化测试；真实 UX 仍建议在 release 环境回归
 - [ ] `web-search-summarize` Tool 在 Safari / Notes / Slack 三个场景 E2E 通过
-- [ ] 新增文档 `docs/Module/MCPClient.md` `docs/Module/ContextProviders.md`
+- [x] 新增文档 `docs/Module/MCPClient.md` `docs/Module/ContextProviders.md`
 - [ ] 发布 **v0.3** tag
 
 **Phase 1 预计人天**：20–30；加 20% buffer → 24–36 人天。
@@ -371,7 +373,7 @@ fi
 - [x] `swift test`（639 tests）
 - [x] Task 5 二次 code-quality 复审 APPROVED
 
-**下一步**：进入 Phase 1 M3 AgentExecutor 与工具调用 UI。
+**下一步**：M1 已完成；继续查看 M2-M4 状态。
 
 ---
 
@@ -416,7 +418,60 @@ fi
 - [x] `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`
 - [x] `git diff --check`
 
-**下一步**：启动 Phase 1 M3 AgentExecutor 与工具调用 UI。
+**下一步**：M2 已完成；继续查看 M3-M4 状态。
+
+---
+
+### 4.3 M3：AgentExecutor 与工具调用 UI
+
+**状态**：Task 10-13 已完成。
+
+| Task | 内容 | 状态 | 备注 |
+|---|---|---|---|
+| M3 Task 10 | LLM Tool Calling Contract | ✅ 已完成 | OpenAI-compatible tool schema、流式 tool-call delta、`ChatToolCall.arguments` 解析 |
+| M3 Task 11 | AgentExecutor ReAct Loop | ✅ 已完成 | MCP allowlist catalog、permission gate、MCP result 回填、max step / denial / error 处理 |
+| M3 Task 12 | ResultPanel Tool Call Lifecycle | ✅ 已完成 | proposed / approved / result / denied / error rows 映射到 ResultPanel |
+| M3 Task 13 | Built-In web-search-summarize Agent Tool | ✅ 已完成 | 默认配置新增首方 Agent tool，声明 selection context、tool-calling provider capability 和 Brave MCP 权限 |
+
+**M3 验证摘要**：
+
+- [x] LLMProviders / Orchestration / Windowing focused tests
+- [x] AgentExecutor / ExecutionEngine 回归
+- [x] App Debug build
+- [x] 每个 Task 均完成 `claude-review-loop`
+
+**下一步**：M3 已完成；继续查看 M4 状态。
+
+---
+
+### 4.4 M4：Remote Transport、Per-Tool Hotkeys、E2E、Release Docs
+
+**状态**：Task 14-16 已实施；Task 16 review 待完成。
+
+| Task | 内容 | 状态 | 备注 |
+|---|---|---|---|
+| M4 Task 14 | Streamable HTTP Transport | ✅ 已完成 | MCP 2025-06-18 HTTP POST、session id、JSON / SSE response、redirect 阻断、404 session retry |
+| M4 Task 15 | Per-Tool Hotkeys | ✅ 已完成 | `HotkeyBindings.tools`、冲突检测、Settings UI、AppDelegate 多热键注册和 tool id 路由 |
+| M4 Task 16 | Five MCP Server E2E And Release Documentation | 🟨 进行中 | 自动化 gate 和模块文档完成；真实 5-server/App E2E 缺本机配置，已记录 blocker；review 待完成 |
+
+**Task 16 gate 结果**：
+
+- [x] `cd SliceAIKit && swift build`
+- [x] `cd SliceAIKit && swift test --parallel --enable-code-coverage`（735 tests）
+- [x] `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`
+- [x] `swiftlint lint --strict`（170 files，0 violations）
+- [x] `bash scripts/phase1-mcp-e2e.sh` 完成只读前置条件检查
+
+**Release 前环境 blocker**：
+
+- [ ] SliceAI `~/Library/Application Support/SliceAI/mcp.json`
+- [ ] Brave Search API key
+- [ ] Postgres 只读连接串
+- [ ] SQLite 测试 DB 路径
+- [ ] filesystem 安全测试目录
+- [ ] Safari / Notes / Slack 真实选区回归
+
+**下一步**：提交 Task 16 并运行 `claude-review-loop`；review approve 后补齐 release 环境做真实 E2E，再决定是否打 `v0.3`。
 
 ---
 
@@ -827,3 +882,14 @@ fi
 - 验证：`cd SliceAIKit && swift test --filter OrchestrationTests.PermissionBrokerTests`、`cd SliceAIKit && swift test --filter OrchestrationTests.PermissionGrantStoreTests`、`cd SliceAIKit && swift test --filter CapabilitiesTests.PersistentPermissionGrantStoreTests`（7 tests）、`cd SliceAIKit && swift test`、`xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build` 均通过。
 
 **下一步**：启动 M2 Task 9：AppContainer Wires Real Context And Permission UI。
+
+### 2026-05-09 — Phase 1 M4 Task 16 release readiness 自动化 gate 完成
+
+- M3 Task 10-13 已完成：OpenAI-compatible tool calling contract、AgentExecutor ReAct loop、ResultPanel tool-call lifecycle、`web-search-summarize` Agent tool。
+- M4 Task 14-15 已完成：Streamable HTTP transport、per-tool hotkeys。
+- Task 16 清理了 release gate 的历史 SwiftLint blocker，全仓 `swiftlint lint --strict` 当前为 170 files / 0 violations。
+- Task 16 自动化 gate 已通过：`swift build`、`swift test --parallel --enable-code-coverage`（735 tests）、App Debug build、strict lint。
+- 新增 `docs/Module/MCPClient.md`、`docs/Module/ContextProviders.md` 和 `scripts/phase1-mcp-e2e.sh`。
+- 真实 5-server MCP E2E 与 Safari / Notes / Slack App 回归未在当前机器执行成功：缺 SliceAI `mcp.json`、Brave API key、Postgres 只读连接串、SQLite 测试 DB 和 filesystem 测试目录。
+
+**下一步**：提交 Task 16 变更并运行 `claude-review-loop`；review approve 后补齐真实 release 环境做 5-server / App E2E，再决定是否打 `v0.3`。

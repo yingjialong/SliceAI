@@ -39,7 +39,7 @@ public struct MCPDiagnosticLog: Sendable {
             (#"Bearer\s+[A-Za-z0-9_\-\.=]+"#, "<redacted>"),
             ("sk-[A-Za-z0-9_-]{16,}", "<redacted>"),
             ("Authorization:\\s*[^\\r\\n]+", "Authorization: <redacted>"),
-            ("Cookie:\\s*[^\\r\\n]+", "Cookie: <redacted>"),
+            ("Cookie:\\s*[^\\r\\n]+", "Cookie: <redacted>")
         ]
         var compiled: [(NSRegularExpression, String)] = []
         for (pattern, replacement) in rawPatterns {

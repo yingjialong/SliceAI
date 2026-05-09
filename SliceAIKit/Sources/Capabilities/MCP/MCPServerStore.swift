@@ -142,8 +142,9 @@ public actor MCPServerStore {
             withIntermediateDirectories: true
         )
         try data.write(to: fileURL, options: .atomic)
+        let serverCount = configuration.servers.count
         mcpServerStoreLog.debug(
-            "saved mcp.json bytes=\(data.count, privacy: .public) servers=\(configuration.servers.count, privacy: .public)"
+            "saved mcp.json bytes=\(data.count, privacy: .public) count=\(serverCount, privacy: .public)"
         )
     }
 

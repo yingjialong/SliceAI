@@ -6,7 +6,9 @@ SliceAI 让你在任何 Mac 应用里选中文字后，通过快捷工具栏或 
 
 ## Status
 
-v0.2.0 Phase 0 底层重构已正式发布：v2 数据模型、Orchestration 执行引擎、Capabilities 能力边界已接入真实 App 触发链。Release: <https://github.com/yingjialong/SliceAI/releases/tag/v0.2.0>。参见 [docs/v2-refactor-master-todolist.md](docs/v2-refactor-master-todolist.md) 跟踪后续 Phase。
+v0.2.0 Phase 0 底层重构已正式发布：v2 数据模型、Orchestration 执行引擎、Capabilities 能力边界已接入真实 App 触发链。Release: <https://github.com/yingjialong/SliceAI/releases/tag/v0.2.0>。
+
+Phase 1 MCP + Context 主干已完成本地 M4 release-readiness gate：stdio / Streamable HTTP MCP client、MCP Servers 设置页、五个核心 ContextProvider、PermissionBroker UI gate、AgentExecutor tool calling、ResultPanel tool-call lifecycle、`web-search-summarize` 和 per-tool hotkey 均已落地。真实 5-server E2E 仍需本机 `mcp.json`、Brave API key、Postgres 只读连接串、SQLite 测试 DB 和 filesystem 测试目录，当前记录为 release 前置条件。参见 [docs/v2-refactor-master-todolist.md](docs/v2-refactor-master-todolist.md) 跟踪后续 Phase。
 
 ## Features (MVP v0.2)
 
@@ -50,6 +52,23 @@ open SliceAI.xcodeproj
 | `DesignSystem` / `Permissions` | 设计 token、主题管理、共享控件与 Accessibility onboarding / monitor。 |
 
 ## 项目修改变动记录
+
+### 2026-05-09 · Phase 1 M4 Task 16 · Five MCP Server E2E And Release Documentation
+
+**范围**：worktree `.worktrees/phase-1-mcp-context`，M4 Task 16
+
+**主要变更**：
+- 新增 `docs/Module/MCPClient.md` 和 `docs/Module/ContextProviders.md`，记录 MCP store/import/routing/stdio/Streamable HTTP、权限边界、诊断脱敏、五个 ContextProvider、取消语义和 `file.read` 沙箱行为。
+- 新增 `scripts/phase1-mcp-e2e.sh`，以只读方式检查本机 MCP E2E 前置条件并输出不含密钥的手工 checklist。
+- 清理 release gate 的历史 SwiftLint blocker：拆分 `MCPServersPage` 与 `StdioMCPClient` 的超长文件 / 类型，拆出 stdio session helper，并修复行长、尾逗号和 `Logger.debug` 拼接问题。
+- 记录 5-server E2E 当前 blocker：缺 SliceAI `mcp.json`、Brave API key、Postgres 只读连接串、SQLite 测试 DB 路径和 filesystem 测试目录；未伪造真实 E2E 成功。
+
+**验证状态**：
+- `cd SliceAIKit && swift build`
+- `cd SliceAIKit && swift test --parallel --enable-code-coverage`（735 tests）
+- `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`
+- `swiftlint lint --strict`（170 files，0 violations）
+- `bash scripts/phase1-mcp-e2e.sh`（完成只读环境检查；真实 5-server E2E 因前置条件缺失未执行）
 
 ### 2026-05-09 · Phase 1 M4 Task 15 · Per-Tool Hotkeys
 

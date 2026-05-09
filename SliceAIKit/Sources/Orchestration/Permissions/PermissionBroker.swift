@@ -119,56 +119,69 @@ public actor PermissionBroker: PermissionBrokerProtocol {
     ) async -> GateOutcome {
         // 1. 命中已有 grant → .approved（仅对 first-time-confirm tier 有效；each-time tier 不缓存）
         //    network-write / exec 永不缓存，直接走"每次确认"分支，不查 store
-        if Self.cacheable(tier: tier) {
-            let hit = await store.has(permission: permission, provenance: provenance)
-            if hit {
-                return .approved
-            }
-            if let persistentStore {
-                let persistentHit = await persistentStore.has(permission: permission, provenance: provenance)
-                if persistentHit {
-                    return .approved
-                }
-            }
+        if await hasCachedGrant(permission: permission, tier: tier, provenance: provenance) {
+            return .approved
         }
 
         // 2. 按 tier 走 §3.9.2 下限决策（与 provenance 无关）
+        let lowerBound = lowerBoundOutcome(permission: permission, tier: tier, provenance: provenance)
+        return await resolveIfConsentNeeded(
+            lowerBound,
+            permission: permission,
+            tier: tier,
+            provenance: provenance,
+            isDryRun: isDryRun
+        )
+    }
+
+    /// 判断当前 permission 是否已有可复用授权。
+    /// - Parameters:
+    ///   - permission: 待决策权限。
+    ///   - tier: 权限风险分层。
+    ///   - provenance: 工具来源。
+    /// - Returns: 命中 session 或 persistent grant 时返回 true。
+    private func hasCachedGrant(permission: Permission, tier: PermissionTier, provenance: Provenance) async -> Bool {
+        guard Self.cacheable(tier: tier) else {
+            return false
+        }
+
+        if await store.has(permission: permission, provenance: provenance) {
+            return true
+        }
+
+        if let persistentStore {
+            return await persistentStore.has(permission: permission, provenance: provenance)
+        }
+
+        return false
+    }
+
+    /// 计算未命中缓存时的下限决策。
+    /// - Parameters:
+    ///   - permission: 待决策权限。
+    ///   - tier: 权限风险分层。
+    ///   - provenance: 工具来源。
+    /// - Returns: 未经过 presenter 解析的下限 gate outcome。
+    private func lowerBoundOutcome(
+        permission: Permission,
+        tier: PermissionTier,
+        provenance: Provenance
+    ) -> GateOutcome {
         switch tier {
         case .readonlyLocal:
-            let lowerBound = decideReadonlyLocal(permission: permission, provenance: provenance)
-            return await resolveIfConsentNeeded(
-                lowerBound,
-                permission: permission,
-                tier: tier,
-                provenance: provenance,
-                isDryRun: isDryRun
-            )
+            return decideReadonlyLocal(permission: permission, provenance: provenance)
 
         case .readonlyNetwork, .localWrite:
             // 首次确认：所有 4 provenance 都需要确认；Task 8 后由 presenter 在 broker 内解析为 approved/denied
-            let lowerBound = GateOutcome.requiresUserConsent(
+            return GateOutcome.requiresUserConsent(
                 permission: permission,
                 uxHint: Self.uxHint(tier: tier, provenance: provenance)
-            )
-            return await resolveIfConsentNeeded(
-                lowerBound,
-                permission: permission,
-                tier: tier,
-                provenance: provenance,
-                isDryRun: isDryRun
             )
 
         case .networkWrite, .exec:
             // 每次确认：dry-run 替换为 wouldRequireConsent；非 dry-run 交给 presenter 做一次性确认
             let hint = Self.uxHint(tier: tier, provenance: provenance)
-            let lowerBound = GateOutcome.requiresUserConsent(permission: permission, uxHint: hint)
-            return await resolveIfConsentNeeded(
-                lowerBound,
-                permission: permission,
-                tier: tier,
-                provenance: provenance,
-                isDryRun: isDryRun
-            )
+            return GateOutcome.requiresUserConsent(permission: permission, uxHint: hint)
         }
     }
 

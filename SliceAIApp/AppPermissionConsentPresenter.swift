@@ -82,7 +82,7 @@ final class AppPermissionConsentPresenter: PermissionConsentPresenting {
             "权限：\(permissionCaseName(request.permission))",
             "来源：\(provenanceSummary(request.provenance))",
             "风险：\(operationRiskCopy(for: request.permission))",
-            "提示：\(request.uxHint)",
+            "提示：\(request.uxHint)"
         ].joined(separator: "\n\n")
 
         alert.addButton(withTitle: "本次允许")
