@@ -51,8 +51,8 @@ Phase plan 的 Task 15 方向适合继续：在 `HotkeyBindings` 增加 `tools` 
 - [x] 更新 `AppDelegate.reloadHotkey()` 多热键注册和工具直达执行。
 - [x] 运行 focused tests、回归测试、targeted lint、App Debug build。
 - [x] 更新 README、Task 详情和 Task_history。
-- [ ] 提交 commit。
-- [ ] 运行 `claude-review-loop` 并记录结果。
+- [x] 提交 commit。
+- [x] 运行 `claude-review-loop` 并记录结果。
 
 ## 变动文件（计划）
 
@@ -69,7 +69,7 @@ Phase plan 的 Task 15 方向适合继续：在 `HotkeyBindings` 增加 `tools` 
 - `SliceAI.xcodeproj/project.pbxproj`：把 `AppDelegate+Hotkeys.swift` 加入 App target。
 - `SliceAIKit/Tests/SliceCoreTests/ConfigurationTests.swift`：新增配置兼容测试。
 - `SliceAIKit/Tests/HotkeyManagerTests/HotkeyTests.swift`：新增冲突检测测试。
-- `SliceAIKit/Tests/HotkeyManagerTests/HotkeyTests.swift`：用纯 helper 覆盖 AppDelegate tool id 路由输入和旧 `Tool.hotkey` fallback 冲突过滤。
+- `SliceAIKit/Tests/HotkeyManagerTests/HotkeyTests.swift`：用纯 helper 覆盖 AppDelegate tool id 路由输入、有效热键映射合并和旧 `Tool.hotkey` fallback 冲突过滤。
 
 ## 测试计划
 
@@ -87,21 +87,22 @@ Phase plan 的 Task 15 方向适合继续：在 `HotkeyBindings` 增加 `tools` 
 - 红灯测试：`cd SliceAIKit && swift test --filter SliceCoreTests.ConfigurationTests && swift test --filter SliceCoreTests.ConfigMigratorV1ToV2Tests && swift test --filter HotkeyManagerTests` 失败，原因为 `HotkeyBindings.tools`、`HotkeyBindingValidator`、`ToolHotkeyRegistration` 缺失，符合预期。
 - `cd SliceAIKit && swift test --filter SliceCoreTests.ConfigurationTests`：通过，11 tests。
 - `cd SliceAIKit && swift test --filter SliceCoreTests.ConfigMigratorV1ToV2Tests`：通过，10 tests。
-- `cd SliceAIKit && swift test --filter HotkeyManagerTests`：通过，9 tests。
+- `cd SliceAIKit && swift test --filter HotkeyManagerTests`：通过，10 tests。
 - `cd SliceAIKit && swift test --filter SettingsUITests`：通过，15 tests。
-- `cd SliceAIKit && swift test`：通过，734 tests。
+- `cd SliceAIKit && swift test`：通过，735 tests。
 - `git diff --check`：通过。
 - touched Swift files targeted `swiftlint lint --strict`：通过，0 violations。
 - `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`：通过。
 - `swiftlint lint --strict`：失败，13 个既有历史违规，阻塞文件包括 `MCPServersPage.swift`、`MCPServerStore.swift`、`MCPDiagnosticLog.swift`、`StdioMCPClient.swift`、`PersistentPermissionGrantStore.swift`、`ClaudeDesktopMCPImporter.swift`、`PermissionBroker.swift`、`AppPermissionConsentPresenter.swift`。这些文件并非 Task 15 新增，本任务不扩大到无关重构。
+- `claude-review-loop`：Round 1 `needs_attention`，接受并修复 2 条 finding（删除工具后热键未立即重载；Settings UI 与 runtime 对旧 `Tool.hotkey` fallback 的冲突输入不一致）；Round 2 `approve`，`findings: []`。
 
 ## 代码修改逻辑
 
 `HotkeyBindings` 增加 `tools` 字典作为集中工具热键配置，key 为 `Tool.id`。自定义 decoder 用 `decodeIfPresent` 让旧 config-v2 自动回落到空字典；v1 migrator 和默认配置继续显式生成空工具热键映射，避免迁移时产生隐式绑定。
 
-`HotkeyBindingValidator` 是纯逻辑层：先用 `Hotkey.parse(...).description` 标准化热键，再稳定排序生成无效热键、命令面板冲突和工具间冲突。`ToolHotkeyRegistration.validRegistrations(in:)` 会先生成有效工具热键映射：集中 `configuration.hotkeys.tools` 优先，旧 `Tool.hotkey` 仅作 fallback；随后按 `configuration.tools` 顺序生成可注册项，跳过缺失工具、无效热键和冲突热键。命令面板被禁用时不会阻塞同组合的工具热键。
+`HotkeyBindingValidator` 是纯逻辑层：先用 `Hotkey.parse(...).description` 标准化热键，再稳定排序生成无效热键、命令面板冲突和工具间冲突。共享的 `effectiveToolHotkeys(bindings:tools:)` 会生成有效工具热键映射：集中 `configuration.hotkeys.tools` 优先，旧 `Tool.hotkey` 仅作 fallback；runtime 注册、工具编辑器校验和 Hotkey 设置页校验均使用此映射，避免 UI 与运行时行为不一致。`ToolHotkeyRegistration.validRegistrations(in:)` 按 `configuration.tools` 顺序生成可注册项，跳过缺失工具、无效热键和冲突热键。命令面板被禁用时不会阻塞同组合的工具热键。
 
-Settings UI 复用现有 `HotkeyEditorView`。`ToolEditorView` 接收 `configuration.hotkeys` binding，在录制或清除工具热键时同步更新 `hotkeys.tools[tool.id]` 与 `Tool.hotkey` 兼容字段；录制完成后调用 `saveHotkeys()`，使 App 层立刻重新注册 Carbon 热键。工具删除时同步移除对应热键映射，避免 stale id 继续影响冲突提示。
+Settings UI 复用现有 `HotkeyEditorView`。`ToolEditorView` 接收 `configuration.hotkeys` binding 和当前工具列表，在录制或清除工具热键时同步更新 `hotkeys.tools[tool.id]` 与 `Tool.hotkey` 兼容字段；录制完成后调用 `saveHotkeys()`，使 App 层立刻重新注册 Carbon 热键。工具删除时同步移除对应热键映射；若被删工具存在有效热键，则立即调用 `saveHotkeys()` 触发 Carbon 重新注册，避免旧全局热键继续占用。
 
 `AppDelegate.reloadHotkey()` 拆到 `AppDelegate+Hotkeys.swift`，先清空所有 Carbon 注册，再注册命令面板和所有有效工具热键。工具热键回调只捕获 tool id，触发时重新读取当前配置并定位工具，再复用选区捕获、黑名单和最短长度过滤逻辑，最后以 `.hotkey` trigger source 调用既有 `execute(tool:payload:)` 执行链。
 
@@ -110,4 +111,5 @@ Settings UI 复用现有 `HotkeyEditorView`。`ToolEditorView` 接收 `configura
 - 本任务未重写 Carbon `HotkeyRegistrar`，只使用既有多次 `register` + `unregisterAll` 能力，符合 KISS。
 - 冲突检测是纯 helper，SwiftPM 测试不实例化 `NSApp`，避免把 AppKit 生命周期拖进单测。
 - 工具热键保存使用集中 `configuration.hotkeys.tools`，同时同步 `Tool.hotkey` 以避免已有字段长期悬空；运行时 fallback 也纳入同一套冲突过滤，避免旧字段绕过校验。
+- Claude review 指出的删除后热键占用和 UI/runtime fallback 不一致已接受并修复，修复后 Round 2 approve。
 - AppDelegate 主文件因新增逻辑接近 file length 限制，已拆分 `AppDelegate+Hotkeys.swift` 并加入 Xcode project。

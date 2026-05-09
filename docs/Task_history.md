@@ -9,7 +9,7 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 - **时间**：2026-05-09
 - **描述**：启动 M4 第二项任务，为单个工具增加全局热键配置、冲突校验、Settings UI 保存路径和 AppDelegate 直接执行路由。
 - **详情**：[docs/Task-detail/2026-05-09-phase-1-m4-task-15-per-tool-hotkeys.md](Task-detail/2026-05-09-phase-1-m4-task-15-per-tool-hotkeys.md)
-- **结果**：完成。已按 TDD 新增 per-tool hotkey 配置兼容、冲突检测、旧 `Tool.hotkey` fallback 冲突过滤和 tool id 注册 helper 测试；实现 `HotkeyBindings.tools`、`HotkeyBindingValidator`、`ToolHotkeyRegistration`、工具编辑器热键录制、命令面板/工具冲突提示、删除工具清理热键映射，以及 `AppDelegate` 多热键注册和工具热键直达执行。验证通过：focused tests、SettingsUITests、全量 SwiftPM 734、targeted lint、`git diff --check`、App Debug build。全仓 strict lint 仍被 13 个既有历史违规阻塞。
+- **结果**：完成。已按 TDD 新增 per-tool hotkey 配置兼容、冲突检测、旧 `Tool.hotkey` fallback 冲突过滤和 tool id 注册 helper 测试；实现 `HotkeyBindings.tools`、`HotkeyBindingValidator`、`ToolHotkeyRegistration`、工具编辑器热键录制、命令面板/工具冲突提示、删除带热键工具后立即重载注册，以及 `AppDelegate` 多热键注册和工具热键直达执行。Claude review loop Round 1 接受并修复删除工具热键未重载、UI/runtime fallback 校验不一致两条 finding；Round 2 approve，`findings: []`。验证通过：focused tests、SettingsUITests、全量 SwiftPM 735、targeted lint、`git diff --check`、App Debug build。全仓 strict lint 仍被 13 个既有历史违规阻塞。
 
 ---
 
