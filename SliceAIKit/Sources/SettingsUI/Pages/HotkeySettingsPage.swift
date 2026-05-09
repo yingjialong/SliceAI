@@ -65,9 +65,13 @@ public struct HotkeySettingsPage: View {
 
     /// 命令面板热键的跨工具校验提示
     private var commandPaletteValidationMessage: String? {
+        let toolHotkeys = HotkeyBindingValidator.effectiveToolHotkeys(
+            bindings: viewModel.configuration.hotkeys,
+            tools: viewModel.configuration.tools
+        )
         let issues = HotkeyBindingValidator.issues(
             commandPalette: viewModel.configuration.hotkeys.toggleCommandPalette,
-            tools: viewModel.configuration.hotkeys.tools
+            tools: toolHotkeys
         )
         guard let issue = issues.first(where: isCommandPaletteIssue) else { return nil }
         switch issue {

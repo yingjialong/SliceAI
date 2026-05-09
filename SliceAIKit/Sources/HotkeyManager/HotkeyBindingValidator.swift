@@ -16,6 +16,22 @@ public enum HotkeyBindingIssue: Equatable, Sendable {
 /// 快捷键绑定校验器
 public enum HotkeyBindingValidator {
 
+    /// 生成校验和运行时注册共用的工具热键映射
+    /// - Parameters:
+    ///   - bindings: 集中的全局热键配置
+    ///   - tools: 当前配置中的工具列表
+    /// - Returns: 工具 id 到热键字符串的映射；集中配置优先，旧 `Tool.hotkey` 仅作 fallback
+    public static func effectiveToolHotkeys(bindings: HotkeyBindings, tools: [Tool]) -> [String: String] {
+        var toolHotkeys = bindings.tools
+        for tool in tools where toolHotkeys[tool.id] == nil {
+            // 旧配置可能只写在 Tool.hotkey；注册和 UI 校验共用此映射，避免两侧行为不一致。
+            if let hotkey = tool.hotkey {
+                toolHotkeys[tool.id] = hotkey
+            }
+        }
+        return toolHotkeys
+    }
+
     /// 计算命令面板与工具热键之间的无效项和冲突项
     /// - Parameters:
     ///   - commandPalette: 命令面板热键字符串
@@ -127,7 +143,10 @@ public struct ToolHotkeyRegistration: Equatable, Sendable {
         let commandPalette = configuration.triggers.commandPaletteEnabled
             ? configuration.hotkeys.toggleCommandPalette
             : ""
-        let toolHotkeys = effectiveToolHotkeys(in: configuration)
+        let toolHotkeys = HotkeyBindingValidator.effectiveToolHotkeys(
+            bindings: configuration.hotkeys,
+            tools: configuration.tools
+        )
         let issues = HotkeyBindingValidator.issues(
             commandPalette: commandPalette,
             tools: toolHotkeys
@@ -148,17 +167,5 @@ public struct ToolHotkeyRegistration: Equatable, Sendable {
                 hotkey: hotkey
             )
         }
-    }
-
-    /// 生成运行时使用的工具热键映射，优先使用集中配置并兼容旧 `Tool.hotkey`
-    private static func effectiveToolHotkeys(in configuration: Configuration) -> [String: String] {
-        var toolHotkeys = configuration.hotkeys.tools
-        for tool in configuration.tools where toolHotkeys[tool.id] == nil {
-            // 旧配置可能只写在 Tool.hotkey；注册前统一纳入冲突校验，避免重复注册同一组合键。
-            if let hotkey = tool.hotkey {
-                toolHotkeys[tool.id] = hotkey
-            }
-        }
-        return toolHotkeys
     }
 }

@@ -181,11 +181,7 @@ extension ToolEditorView {
 
     /// 合并集中映射和 Tool.hotkey 兼容字段，避免手写配置只填旧占位字段时 UI 不提示
     private var effectiveToolHotkeyMap: [String: String] {
-        var result = hotkeys.tools
-        if result[tool.id] == nil, let fallback = tool.hotkey {
-            result[tool.id] = fallback
-        }
-        return result
+        HotkeyBindingValidator.effectiveToolHotkeys(bindings: hotkeys, tools: tools)
     }
 
     /// 把校验问题转换为设置页展示文案

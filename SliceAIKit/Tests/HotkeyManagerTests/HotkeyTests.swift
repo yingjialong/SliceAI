@@ -57,6 +57,26 @@ final class HotkeyTests: XCTestCase {
         ])
     }
 
+    func test_effectiveToolHotkeys_mergesLegacyFallbackForAllTools() {
+        var cfg = DefaultConfiguration.initial()
+        var translate = DefaultConfiguration.translate
+        translate.hotkey = "cmd+1"
+        var summarize = DefaultConfiguration.summarize
+        summarize.hotkey = "cmd+2"
+        cfg.tools = [translate, summarize]
+        cfg.hotkeys.tools = ["translate": "cmd+3"]
+
+        let toolHotkeys = HotkeyBindingValidator.effectiveToolHotkeys(
+            bindings: cfg.hotkeys,
+            tools: cfg.tools
+        )
+
+        XCTAssertEqual(toolHotkeys, [
+            "summarize": "cmd+2",
+            "translate": "cmd+3"
+        ])
+    }
+
     func test_appDelegateHotkeyRouting_usesToolID() throws {
         var cfg = DefaultConfiguration.initial()
         cfg.hotkeys.tools = [

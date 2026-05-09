@@ -16,6 +16,7 @@
 // 这套相较于"实时挤开"方案更贴近 macOS 原生拖拽体感（Finder / Reminders）：
 // 其他行不抖、被拖项由系统预览跟手、指示线清晰表达落位点。
 import DesignSystem
+import HotkeyManager
 import SliceCore
 import SwiftUI
 import UniformTypeIdentifiers
@@ -259,6 +260,7 @@ public struct ToolsSettingsPage: View {
             ToolEditorView(
                 tool: binding,
                 providers: viewModel.configuration.providers,
+                tools: viewModel.configuration.tools,
                 hotkeys: $viewModel.configuration.hotkeys,
                 onHotkeyCommit: {
                     Task {
@@ -311,10 +313,21 @@ public struct ToolsSettingsPage: View {
     /// 实际执行删除（alert 确认后才调用；save 由 onChange(tools) 兜底）
     private func performDelete(id: String) {
         print("[ToolsSettingsPage] performDelete: id=\(id)")
+        let toolHotkeys = HotkeyBindingValidator.effectiveToolHotkeys(
+            bindings: viewModel.configuration.hotkeys,
+            tools: viewModel.configuration.tools
+        )
+        let removedToolHadHotkey = !(toolHotkeys[id]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
         withAnimation(SliceAnimation.standard) {
             viewModel.configuration.hotkeys.tools.removeValue(forKey: id)
             viewModel.configuration.tools.removeAll { $0.id == id }
             if expandedId == id { expandedId = nil }
+        }
+        if removedToolHadHotkey {
+            print("[ToolsSettingsPage] performDelete: hotkey removed, reloading registrations")
+            Task {
+                await viewModel.saveHotkeys()
+            }
         }
     }
 

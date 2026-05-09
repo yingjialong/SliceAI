@@ -18,6 +18,9 @@ public struct ToolEditorView: View {
     /// 可选的 Provider 列表，作为 Picker 数据源
     public let providers: [Provider]
 
+    /// 当前配置中的完整工具列表，用于跨工具热键冲突校验
+    public let tools: [Tool]
+
     /// 全局热键配置绑定，工具热键通过 `hotkeys.tools[tool.id]` 集中保存
     @Binding public var hotkeys: HotkeyBindings
 
@@ -37,16 +40,19 @@ public struct ToolEditorView: View {
     /// - Parameters:
     ///   - tool: 指向 Configuration 中某个 Tool 的绑定
     ///   - providers: 供 Picker 显示的 Provider 列表
+    ///   - tools: 当前配置中的完整工具列表
     ///   - hotkeys: 指向 Configuration.hotkeys 的绑定
     ///   - onHotkeyCommit: 工具热键录制完成后的回调
     public init(
         tool: Binding<Tool>,
         providers: [Provider],
+        tools: [Tool],
         hotkeys: Binding<HotkeyBindings>,
         onHotkeyCommit: (() -> Void)? = nil
     ) {
         self._tool = tool
         self.providers = providers
+        self.tools = tools
         self._hotkeys = hotkeys
         self.onHotkeyCommit = onHotkeyCommit
     }
