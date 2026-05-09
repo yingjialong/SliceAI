@@ -59,6 +59,7 @@ open SliceAI.xcodeproj
 - 新增 `StreamableHTTPMCPClient` actor，按 MCP 2025-06-18 通过 HTTP POST 发送 JSON-RPC，统一声明 `Accept: application/json, text/event-stream` 与 `Content-Type: application/json`。
 - initialize 后记录 `Mcp-Session-Id`，后续 `notifications/initialized`、`tools/list`、`tools/call` 会携带 `Mcp-Session-Id` 与 `MCP-Protocol-Version`。
 - `tools/list` 结果转换为 canonical `MCPToolDescriptor` 并缓存；`tools/call` 发送结构化 `MCPJSONValue.Object` arguments，支持 `application/json` 和 `text/event-stream` response。
+- 生产默认 HTTP session 禁止自动跟随 redirect，避免 `Mcp-Session-Id` 与 JSON-RPC payload 被转发到新地址；带旧 session 的 404 会触发 session reset，后续请求重新 initialize。
 - `RoutingMCPClient` 现在把 `.streamableHTTP` 委托给注入的 HTTP client；deprecated `.sse` 与 `.websocket` 继续 fail-fast，不做 legacy fallback probe。
 - `AppContainer.makeMCPRuntime` 在生产路径构造并注入 `StreamableHTTPMCPClient`。
 - `MCPServerValidation` 已允许 HTTPS Streamable HTTP URL 和 localhost / 127.0.0.1 / ::1 明文 HTTP；缺 URL、缺 host、非本机明文 HTTP 继续 fail-closed。
@@ -69,11 +70,12 @@ open SliceAI.xcodeproj
 - `cd SliceAIKit && swift test --filter CapabilitiesTests.RoutingMCPClientTests`
 - `cd SliceAIKit && swift test --filter CapabilitiesTests.MCPServerStoreTests`
 - `cd SliceAIKit && swift test --filter CapabilitiesTests`
-- `cd SliceAIKit && swift test`（726 tests）
+- `cd SliceAIKit && swift test`（728 tests；review fix 后复跑通过）
 - `git diff --check`
 - touched Swift files targeted `swiftlint lint --strict`
 - `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`
 - 全仓 `swiftlint lint --strict` 仍被 13 个既有历史违规阻塞，Task 14 未扩大到无关 lint 重构。
+- Claude review loop Round 1 接受并修复 2 条 finding：redirect 泄露风险和 404 session 过期后未重建。
 
 ### 2026-05-08 · Phase 1 M3 Task 13 · Built-In web-search-summarize Agent Tool
 

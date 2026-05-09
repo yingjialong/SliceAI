@@ -98,6 +98,70 @@ final class StreamableHTTPMCPClientTests: XCTestCase {
         XCTAssertEqual(result, MCPCallResult(content: [.text("sse ok")], structuredContent: nil, isError: false, meta: nil))
     }
 
+    /// Streamable HTTP 默认 session 必须拒绝 redirect，避免 session id 与 tool payload 被转发到新 host。
+    func test_streamableHTTP_blocksRedirectsBeforeForwardingSessionHeaders() async throws {
+        let descriptor = streamableDescriptor(id: "http-redirect")
+        let recorder = HTTPMCPRequestRecorder(responses: [
+            redirectResponse(
+                for: descriptor.url!,
+                location: URL(string: "https://evil.example.com/mcp")!
+            )
+        ])
+        HTTPMCPURLProtocol.install(recorder: recorder)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [HTTPMCPURLProtocol.self]
+        let client = StreamableHTTPMCPClient(
+            descriptors: { [descriptor] },
+            session: StreamableHTTPMCPClient.makeRedirectBlockingSession(configuration: configuration)
+        )
+
+        do {
+            _ = try await client.tools(for: descriptor)
+            XCTFail("expected transportFailed for redirect")
+        } catch MCPClientError.transportFailed {
+            // 预期错误：redirect 被作为非 2xx response 处理，不能继续跟随到新 host。
+        } catch {
+            XCTFail("expected MCPClientError.transportFailed, got \(error)")
+        }
+        XCTAssertEqual(recorder.requests.count, 1)
+        XCTAssertEqual(recorder.requests.first?.url, descriptor.url)
+    }
+
+    /// 带 Mcp-Session-Id 的 404 表示 session 过期；下一次请求必须不带旧 session id 重新 initialize。
+    func test_streamableHTTP_reinitializesAfterSessionExpired404() async throws {
+        let descriptor = streamableDescriptor(id: "http-expired")
+        let ref = MCPToolRef(server: descriptor.id, tool: "search")
+        let recorder = HTTPMCPRequestRecorder(responses: [
+            jsonResponse(for: descriptor.url!, body: initializeBody(), headers: ["Mcp-Session-Id": "stale"]),
+            acceptedResponse(for: descriptor.url!),
+            jsonResponse(for: descriptor.url!, body: toolsListBody(id: 2)),
+            notFoundResponse(for: descriptor.url!),
+            jsonResponse(for: descriptor.url!, body: initializeBody(), headers: ["Mcp-Session-Id": "fresh"]),
+            acceptedResponse(for: descriptor.url!),
+            jsonResponse(for: descriptor.url!, body: toolsListBody(id: 2))
+        ])
+        HTTPMCPURLProtocol.install(recorder: recorder)
+        let client = StreamableHTTPMCPClient(descriptors: { [descriptor] }, session: URLSession.mcpMocked())
+
+        _ = try await client.tools(for: descriptor)
+        do {
+            let args: MCPJSONValue.Object = ["query": .string("SliceAI")]
+            _ = try await client.call(ref: ref, args: args)
+            XCTFail("expected first call to fail with expired session")
+        } catch MCPClientError.transportFailed {
+            // 预期错误：第一次带旧 session 的 tools/call 收到 404。
+        } catch {
+            XCTFail("expected MCPClientError.transportFailed, got \(error)")
+        }
+        _ = try await client.tools(for: descriptor)
+
+        XCTAssertGreaterThanOrEqual(recorder.requests.count, 7)
+        XCTAssertEqual(recorder.requests[3].value(forHTTPHeaderField: "Mcp-Session-Id"), "stale")
+        XCTAssertEqual(try requestBodyObject(recorder.requests[4])["method"] as? String, "initialize")
+        XCTAssertNil(recorder.requests[4].value(forHTTPHeaderField: "Mcp-Session-Id"))
+        XCTAssertEqual(recorder.requests[6].value(forHTTPHeaderField: "Mcp-Session-Id"), "fresh")
+    }
+
     /// Streamable HTTP descriptor 必须显式配置 URL。
     func test_streamableHTTP_rejectsMissingURL() async throws {
         let descriptor = MCPDescriptor(
@@ -210,6 +274,27 @@ final class StreamableHTTPMCPClientTests: XCTestCase {
                 headerFields: ["Content-Type": "text/event-stream"]
             )!,
             data: Data(event.utf8)
+        )
+    }
+
+    /// 构造 HTTP redirect response fixture。
+    private func redirectResponse(for url: URL, location: URL) -> HTTPMCPStubResponse {
+        HTTPMCPStubResponse(
+            response: HTTPURLResponse(
+                url: url,
+                statusCode: 302,
+                httpVersion: nil,
+                headerFields: ["Location": location.absoluteString]
+            )!,
+            data: Data()
+        )
+    }
+
+    /// 构造 404 HTTP response fixture。
+    private func notFoundResponse(for url: URL) -> HTTPMCPStubResponse {
+        HTTPMCPStubResponse(
+            response: HTTPURLResponse(url: url, statusCode: 404, httpVersion: nil, headerFields: [:])!,
+            data: Data()
         )
     }
 

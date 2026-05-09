@@ -24,10 +24,12 @@ Phase plan 的方向适合继续：新增 `StreamableHTTPMCPClient`，更新 `Ro
 3. 运行 focused tests 确认红灯，预期失败原因为 `StreamableHTTPMCPClient` 缺失和 routing 仍拒绝 `.streamableHTTP`。
 4. 实现 `StreamableHTTPMCPClient`：
    - lazy initialize per server；
-   - `tools(for:)` 走 initialize 后 `tools/list`，并缓存 tool descriptors；
-   - `call(ref:args:)` 走 initialize、确保 tool list 后发送 `tools/call`；
-   - 支持 `application/json` 和 `text/event-stream` 两种响应；
-   - 将 HTTP 状态错误、URL 缺失、JSON-RPC error、decode 失败映射到既有 `MCPClientError`。
+  - `tools(for:)` 走 initialize 后 `tools/list`，并缓存 tool descriptors；
+  - `call(ref:args:)` 走 initialize、确保 tool list 后发送 `tools/call`；
+  - 支持 `application/json` 和 `text/event-stream` 两种响应；
+   - 默认拒绝 HTTP redirect，避免 session header / payload 被转发到新地址；
+   - 遇到带 `Mcp-Session-Id` 的 404 时丢弃 session，后续调用重新 initialize；
+  - 将 HTTP 状态错误、URL 缺失、JSON-RPC error、decode 失败映射到既有 `MCPClientError`。
 5. 更新 `RoutingMCPClient`，`.streamableHTTP` 仅在注入 transport client 后转发；`.sse` 继续 unsupported。
 6. 更新 `AppContainer.makeMCPRuntime`，生产环境构造并注入 `StreamableHTTPMCPClient`。
 7. 跑 focused tests、Capabilities 回归、全量 SwiftPM、targeted lint、`git diff --check`、App Debug build。
@@ -44,7 +46,7 @@ Phase plan 的方向适合继续：新增 `StreamableHTTPMCPClient`，更新 `Ro
 - [x] 补充 `MCPServerValidation` 配置入口测试与实现。
 - [x] 运行 focused tests、回归测试、targeted lint、App Debug build。
 - [x] 更新 README、Task 详情和 Task_history。
-- [ ] 提交 commit。
+- [x] 提交 commit。
 - [ ] 运行 `claude-review-loop` 并记录结果。
 
 ## 变动文件（计划）
@@ -73,11 +75,11 @@ Phase plan 的方向适合继续：新增 `StreamableHTTPMCPClient`，更新 `Ro
 
 ## 测试结果
 
-- `cd SliceAIKit && swift test --filter CapabilitiesTests.StreamableHTTPMCPClientTests`：通过，6 tests。
+- `cd SliceAIKit && swift test --filter CapabilitiesTests.StreamableHTTPMCPClientTests`：通过，8 tests。
 - `cd SliceAIKit && swift test --filter CapabilitiesTests.RoutingMCPClientTests`：通过，4 tests。
 - `cd SliceAIKit && swift test --filter CapabilitiesTests.MCPServerStoreTests`：通过，16 tests。
-- `cd SliceAIKit && swift test --filter CapabilitiesTests`：通过，90 tests。
-- `cd SliceAIKit && swift test`：通过，726 tests。
+- `cd SliceAIKit && swift test --filter CapabilitiesTests`：通过，92 tests。
+- `cd SliceAIKit && swift test`：通过，728 tests；review fix 后第一次全量出现一次 `ExecutionEngineTests.test_execute_cancellationDuringPermissionGate_skipsAuditAndLLM` 间歇失败，单测复跑通过，第二次全量通过。
 - `git diff --check`：通过。
 - touched Swift files targeted `swiftlint lint --strict`：通过，0 violations。
 - `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`：通过。
@@ -89,6 +91,8 @@ Phase plan 的方向适合继续：新增 `StreamableHTTPMCPClient`，更新 `Ro
 
 `tools/list` 只在每个 session 内执行一次并缓存 canonical `MCPToolDescriptor`，避免重复拉取；`tools/call` 先确保工具已出现在缓存列表中，再发送 `name` 与结构化 `arguments`。HTTP response 按 `Content-Type` 分支：`application/json` 直接解 `MCPJSONRPCResponse`，`text/event-stream` 则从 SSE `data:` payload 中找到匹配 request id 的 JSON-RPC response。
 
+review fix 后，生产默认 `URLSession` 改为 redirect-blocking session，所有 3xx redirect 会作为非 2xx response 失败，不会把 `Mcp-Session-Id` 或 JSON-RPC body 发送到新地址。若带旧 session id 的请求收到 404，client 会清理该 server 的 session state；下一次 operation 会重新 initialize，避免 server 重启后永久失败。
+
 `RoutingMCPClient` 只负责 transport 分发：`.stdio` 仍委托 stdio client，`.streamableHTTP` 委托新 HTTP client，`.sse` / `.websocket` 继续 fail-fast。`AppContainer` 只在 composition root 新增 HTTP client 实例并注入 routing client，不改变 AgentExecutor 或 ExecutionEngine 的调用契约。
 
 `MCPServerValidation` 从“远程 transport 全拒绝”收敛为更精确的 URL 策略：`.streamableHTTP` 允许 HTTPS 和本机明文 HTTP，拒绝缺 URL、缺 host、非本机明文 HTTP；deprecated `.sse` 仍不作为兼容入口，避免把旧 SSE 当作 Streamable HTTP fallback。
@@ -97,5 +101,5 @@ Phase plan 的方向适合继续：新增 `StreamableHTTPMCPClient`，更新 `Ro
 
 - 实现范围保持在 Task 14：没有引入 Legacy SSE client，也没有实现 draft `Mcp-Method` / `Mcp-Name` header，避免协议版本错位。
 - 新 client 的日志只记录 server id 且使用 private privacy，不写入 URL、payload 或 response body。
-- URLSession 默认 redirect 策略暂未额外收紧；当前安全边界覆盖 descriptor/store 入口，后续若要禁止 HTTPS -> HTTP redirect downgrade，应独立建任务增加 delegate / redirect policy。
+- Claude review Round 1 的两条 finding 均接受并修复：redirect 泄露风险通过默认禁用 redirect 解决；404 session 过期通过 reset + retry 解决。
 - 全仓 SwiftLint 仍有历史债务；Task 14 touched source 已通过 targeted lint。

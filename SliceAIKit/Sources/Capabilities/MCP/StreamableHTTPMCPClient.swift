@@ -13,10 +13,22 @@ public final actor StreamableHTTPMCPClient: MCPClientProtocol {
     private var sessions: [String: StreamableHTTPSession] = [:]
     private var sessionStartTasks: [String: Task<Void, any Error>] = [:]
 
-    /// 构造 Streamable HTTP MCP client；HTTP session 会在首次调用对应 server 时 lazy initialize。
+    /// 构造生产 Streamable HTTP MCP client；默认 URLSession 会拒绝 HTTP redirect。
     public init(
         descriptors: @escaping @Sendable () async throws -> [MCPDescriptor],
-        session: URLSession = .shared,
+        requestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
+    ) {
+        self.init(
+            descriptors: descriptors,
+            session: Self.makeRedirectBlockingSession(),
+            requestTimeoutNanoseconds: requestTimeoutNanoseconds
+        )
+    }
+
+    /// 构造可注入 URLSession 的 Streamable HTTP MCP client，供测试使用。
+    init(
+        descriptors: @escaping @Sendable () async throws -> [MCPDescriptor],
+        session: URLSession,
         requestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
     ) {
         self.descriptors = descriptors
@@ -27,35 +39,74 @@ public final actor StreamableHTTPMCPClient: MCPClientProtocol {
         self.encoder = encoder
     }
 
+    /// 构造禁用 redirect 的 URLSession，避免 session header 和 JSON-RPC payload 被转发到新地址。
+    static func makeRedirectBlockingSession(configuration: URLSessionConfiguration = .ephemeral) -> URLSession {
+        URLSession(
+            configuration: configuration,
+            delegate: StreamableHTTPRedirectBlocker(),
+            delegateQueue: nil
+        )
+    }
+
     /// 查询 Streamable HTTP MCP server 暴露的工具列表。
     public func tools(for descriptor: MCPDescriptor) async throws -> [MCPToolDescriptor] {
-        let state = try await sessionState(for: descriptor)
-        return try await listToolsIfNeeded(state: state)
+        try await retryingExpiredSession(serverID: descriptor.id) {
+            let state = try await sessionState(for: descriptor)
+            return try await listToolsIfNeeded(state: state)
+        }
     }
 
     /// 调用 MCP tool；`isError == true` 的工具执行错误作为正常结果返回。
     public func call(ref: MCPToolRef, args: MCPJSONValue.Object) async throws -> MCPCallResult {
-        let descriptor = try await descriptor(forServerID: ref.server)
-        let state = try await sessionState(for: descriptor)
-        let tools = try await listToolsIfNeeded(state: state)
-        guard tools.contains(where: { $0.ref == ref }) else {
-            throw MCPClientError.toolNotFound(ref: ref)
+        try await retryingExpiredSession(serverID: ref.server) {
+            let descriptor = try await descriptor(forServerID: ref.server)
+            let state = try await sessionState(for: descriptor)
+            let tools = try await listToolsIfNeeded(state: state)
+            guard tools.contains(where: { $0.ref == ref }) else {
+                throw MCPClientError.toolNotFound(ref: ref)
+            }
+            let params: MCPJSONValue = .object([
+                "name": .string(ref.tool),
+                "arguments": .object(args)
+            ])
+            let result: MCPCallResult = try await sendRequest(
+                method: "tools/call",
+                params: params,
+                state: state
+            )
+            logger.debug("MCP streamable HTTP tools/call completed server=\(descriptor.id, privacy: .private)")
+            return result
         }
-        let params: MCPJSONValue = .object([
-            "name": .string(ref.tool),
-            "arguments": .object(args)
-        ])
-        let result: MCPCallResult = try await sendRequest(
-            method: "tools/call",
-            params: params,
-            state: state
-        )
-        logger.debug("MCP streamable HTTP tools/call completed server=\(descriptor.id, privacy: .private)")
-        return result
     }
 }
 
 private extension StreamableHTTPMCPClient {
+    /// 带一次 session-expired retry 执行 operation，404 过期后清理缓存并重建 session。
+    func retryingExpiredSession<Result>(
+        serverID: String,
+        operation: () async throws -> Result
+    ) async throws -> Result {
+        do {
+            return try await operation()
+        } catch StreamableHTTPInternalError.sessionExpired {
+            resetSession(serverID: serverID)
+            do {
+                return try await operation()
+            } catch StreamableHTTPInternalError.sessionExpired {
+                resetSession(serverID: serverID)
+                throw MCPClientError.transportFailed(reason: "streamable HTTP session expired after retry")
+            }
+        }
+    }
+
+    /// 丢弃指定 server 的 session 状态，让后续调用重新 initialize。
+    func resetSession(serverID: String) {
+        sessions[serverID] = nil
+        sessionStartTasks[serverID]?.cancel()
+        sessionStartTasks[serverID] = nil
+        logger.debug("MCP streamable HTTP session reset server=\(serverID, privacy: .private)")
+    }
+
     /// 按 server id 从 descriptors provider 解析 descriptor。
     func descriptor(forServerID serverID: String) async throws -> MCPDescriptor {
         let availableDescriptors = try await descriptors()
@@ -193,7 +244,11 @@ private extension StreamableHTTPMCPClient {
         let request = MCPJSONRPCRequest(id: nil, method: method, params: params)
         let urlRequest = try makeURLRequest(for: request, state: state)
         let (_, response) = try await perform(urlRequest)
-        try validateNotificationResponse(response)
+        let httpResponse = try httpResponse(from: response)
+        if httpResponse.statusCode == 404, state.sessionID != nil {
+            throw StreamableHTTPInternalError.sessionExpired
+        }
+        try validateNotificationResponse(httpResponse)
     }
 
     /// 发送 HTTP request 并按 response content-type 解出 JSON-RPC envelope。
@@ -204,7 +259,11 @@ private extension StreamableHTTPMCPClient {
     ) async throws -> MCPJSONRPCResponse<Response> {
         let urlRequest = try makeURLRequest(for: request, state: state)
         let (data, response) = try await perform(urlRequest)
-        let httpResponse = try validateMessageResponse(response)
+        let httpResponse = try httpResponse(from: response)
+        if httpResponse.statusCode == 404, state.sessionID != nil {
+            throw StreamableHTTPInternalError.sessionExpired
+        }
+        try validateMessageResponse(httpResponse)
         captureSessionID(from: httpResponse, state: state)
         let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type")?.lowercased() ?? ""
         if contentType.contains("application/json") {
@@ -246,20 +305,24 @@ private extension StreamableHTTPMCPClient {
         }
     }
 
-    /// 校验 JSON-RPC message response 的 HTTP 状态。
-    func validateMessageResponse(_ response: URLResponse) throws -> HTTPURLResponse {
+    /// 将 URLResponse 收敛为 HTTPURLResponse。
+    func httpResponse(from response: URLResponse) throws -> HTTPURLResponse {
         guard let httpResponse = response as? HTTPURLResponse else {
             throw MCPClientError.transportFailed(reason: "streamable HTTP response is not HTTP")
-        }
-        guard (200...299).contains(httpResponse.statusCode) else {
-            throw MCPClientError.transportFailed(reason: "streamable HTTP status code is not 2xx")
         }
         return httpResponse
     }
 
+    /// 校验 JSON-RPC message response 的 HTTP 状态。
+    func validateMessageResponse(_ httpResponse: HTTPURLResponse) throws {
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw MCPClientError.transportFailed(reason: "streamable HTTP status code is not 2xx")
+        }
+    }
+
     /// 校验 notification response 的 HTTP 状态，并按规范接受 202/204。
-    func validateNotificationResponse(_ response: URLResponse) throws {
-        let httpResponse = try validateMessageResponse(response)
+    func validateNotificationResponse(_ httpResponse: HTTPURLResponse) throws {
+        try validateMessageResponse(httpResponse)
         guard httpResponse.statusCode == 202 || httpResponse.statusCode == 204 || httpResponse.statusCode == 200 else {
             throw MCPClientError.transportFailed(reason: "streamable HTTP notification was not accepted")
         }
@@ -349,6 +412,25 @@ private final class StreamableHTTPSession {
         self.descriptor = descriptor
         self.endpoint = endpoint
     }
+}
+
+/// 禁止 URLSession 自动跟随 redirect，避免 MCP session header 被带到新地址。
+private final class StreamableHTTPRedirectBlocker: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    /// 拒绝所有 HTTP redirect，让上层按非 2xx response 处理。
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    ) {
+        completionHandler(nil)
+    }
+}
+
+/// Streamable HTTP client 内部控制流错误，不直接暴露给调用方。
+private enum StreamableHTTPInternalError: Error {
+    case sessionExpired
 }
 
 /// 只解 JSON-RPC response id 的轻量 envelope。
