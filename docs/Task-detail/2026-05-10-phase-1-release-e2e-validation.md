@@ -54,7 +54,7 @@ Task 16 已完成 Phase 1 M4 release readiness 收口：代码主干、自动化
 - [x] 修复 Agent 最终回合把 DSML 工具调用标记当普通文本输出的问题。
 - [x] 修复 Web Search Summarize 单次运行中过量顺序 Brave 搜索触发限流的问题。
 - [x] 如有代码修复，运行 focused tests、full release gate。
-- [ ] release prep 前运行最终 `claude-review-loop` / code review。
+- [x] release prep 前运行最终 `claude-review-loop` / code review。
 - [x] 更新 README、master todolist、Phase 1 plan 和任务文档总结。
 
 ## 环境前置条件
@@ -183,4 +183,4 @@ bash scripts/phase1-mcp-e2e.sh
 - 已修复 Web Search Summarize 过量 Brave 搜索触发限流：MCP 调用链是顺序执行，问题不在并发控制；当前默认提示词和本机配置要求最多 2 次 Brave 搜索，且通过独立 `AgentToolCallPolicy` 控制总调用数、单轮调用数、重复参数和 rate limit 停止；`maxSteps` 不再兼任 MCP 总预算。
 - 已补齐基础自定义 Agent Tool 配置：Tools 设置页可新增 Agent，编辑 prompt / provider / LLM 轮数 / MCP allowlist / 调用策略；allowlist 使用一行一个 `server.tool` 并同步 MCP 权限声明。
 - 验证通过：focused tests（72 tests）、全量 SwiftPM（756 tests）、SwiftLint strict、`git diff --check`、Xcode Debug build、`build/e2e` Debug build。
-- 用户已基本复测 Safari / Notes / Slack `web-search-summarize`、permission approval / denial、ResultPanel lifecycle、per-tool hotkey 和 command palette hotkey，未反馈阻塞问题；当前本机 `config-v2.json` 已同步新 `toolCallPolicy`，Debug App 已重启并重新读取配置，进程 `13394`。下一步是在 `main` 上运行最终 release gate / review loop，并准备 `v0.3` release notes 与 tag。
+- 用户已基本复测 Safari / Notes / Slack `web-search-summarize`、permission approval / denial、ResultPanel lifecycle、per-tool hotkey 和 command palette hotkey，未反馈阻塞问题；当前本机 `config-v2.json` 已同步新 `toolCallPolicy`，Debug App 已重启并重新读取配置，进程 `13394`。最终 `v0.3` release prep 已在 `main` 上完成：Claude review loop Round 2 approve，修复了长 MCP tool result 回填 LLM 被 `<truncated:N>` 替换、stdio MCP Settings 修改后旧 session 复用两项发布阻塞；最终 gate 和本地 unsigned DMG 预检均已通过。下一步等待用户确认远端 push / `v0.3.0` tag / GitHub Release。

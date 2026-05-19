@@ -4,6 +4,15 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 
 ---
 
+## Task 57 · v0.3 Release Prep
+
+- **时间**：2026-05-19
+- **描述**：Phase 1 MCP + Context 主干合并到 `main` 后，执行 `v0.3` 发布前最终 gate、Claude review loop、release notes 与 tag checklist 准备。
+- **详情**：[docs/Task-detail/2026-05-19-v0.3-release-prep.md](Task-detail/2026-05-19-v0.3-release-prep.md)
+- **结果**：完成。`main` 当前领先 `origin/main`，Phase 1 相关 feature/docs worktree 已合并或清理，保留 `archive/pre-phase1-local-appcontainer-snapshot` 作为不参与发布的旧 AppContainer 本机快照。Claude review loop Round 1 找到并修复 2 个发布阻塞：长 MCP tool result 不再以 `<truncated:N>` 回填给 LLM，stdio MCP server 在 command / args / env 变化后会重启旧 session；Round 2 approve，`findings: []`。验证通过 focused tests、全量 SwiftPM 758 tests、SwiftLint strict、whitespace check、App Debug build、本地 unsigned DMG 构建和 DMG 挂载结构校验；本地 `SliceAI-0.3.0.dmg` SHA256 为 `e2c111a0c6cbfe8f460a63ff92079be0abdb5ed629f2db2ca048c2fbe1a8b5ca`。下一步等待用户确认后 push `main`、推 `v0.3.0` tag 并检查 GitHub Actions draft release。
+
+---
+
 ## Task 56 · Phase 1 Agent Tool Config And MCP Policy
 
 - **时间**：2026-05-19

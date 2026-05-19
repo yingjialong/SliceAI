@@ -75,4 +75,4 @@
 
 ## 当前状态
 
-代码侧的基础 Agent Tool 配置与通用 MCP tool-call policy 已实现并通过完整本地 gate；用户已基本复测 Task 17 App 场景且未反馈阻塞问题。下一步是在合并到 `main` 后执行最终 release gate / review loop，并准备 `v0.3` release notes 与 tag。
+代码侧的基础 Agent Tool 配置与通用 MCP tool-call policy 已实现并通过完整本地 gate；用户已基本复测 Task 17 App 场景且未反馈阻塞问题。后续 Task 57 已在 `main` 上完成最终 release gate / Claude review loop / 本地 DMG 预检；下一步只剩用户确认后的远端 push、`v0.3.0` tag 和 GitHub Release 发布流程。

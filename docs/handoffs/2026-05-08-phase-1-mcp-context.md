@@ -1,10 +1,10 @@
 ---
 topic: phase-1-mcp-context
 title: Phase 1 MCP + Context 主干
-branch: feature/phase-1-mcp-context
-status: release-prep-pending
+branch: main
+status: release-prep-complete
 created: 2026-05-08 21:01
-last_updated: 2026-05-19 17:05
+last_updated: 2026-05-19 23:10
 ---
 
 # Phase 1 MCP + Context 主干
@@ -13,12 +13,13 @@ last_updated: 2026-05-19 17:05
 
 Phase 1 的目标是把 Phase 0 已落地的 `ContextProvider` / `MCPClient` / `PermissionBroker` / `ExecutionEngine` 主干填实到 v0.3 可用状态：用户可以配置 MCP server，真实采集核心上下文，通过权限 gate 调用工具，并交付 `web-search-summarize`、基础自定义 Agent Tool、Per-Tool Hotkey、Streamable HTTP 和 5-server E2E。
 
-当前代码主干和自动化 gate 已完成；filesystem / postgres / brave-search / git / sqlite 五个 MCP server 已完成直接 JSON-RPC E2E。基础 Agent Tool 编辑器、MCP allowlist 文本配置和独立 MCP tool-call policy 已完成代码实现。用户已基本复测真实 App 场景且未反馈阻塞问题；剩余缺口是合并到 `main` 后执行最终 release gate / review loop，并准备 `v0.3` release notes 与 tag。
+当前代码主干和自动化 gate 已完成；filesystem / postgres / brave-search / git / sqlite 五个 MCP server 已完成直接 JSON-RPC E2E。基础 Agent Tool 编辑器、MCP allowlist 文本配置和独立 MCP tool-call policy 已完成代码实现。用户已基本复测真实 App 场景且未反馈阻塞问题。Phase 1 已合并到 `main`，`v0.3` release prep 已完成：Claude review loop Round 2 approve，最终 gate 通过，并已完成本地 unsigned DMG 预检。剩余动作是用户确认后 push `main`、推 `v0.3.0` tag，并等待 GitHub Actions 生成 draft release。
 
 ## Session history
 
+- **2026-05-19 Task 57 v0.3 Release Prep**: Phase 1 和归档文档分支已合并到 `main`；Claude review loop Round 1 找到 2 个 release blocker 并全部修复：长 MCP tool result 不再以 `<truncated:N>` 回填给 LLM，stdio MCP server 在 command / args / env 变化后会重启旧 session。Round 2 approve，`findings: []`。验证通过 focused tests、全量 SwiftPM 758 tests（第一次出现一次未复现取消竞态，单测和全量复跑通过）、SwiftLint strict、`git diff --check`、App Debug build、本地 `scripts/build-dmg.sh 0.3.0` 和 DMG 挂载结构校验。DMG SHA256：`e2c111a0c6cbfe8f460a63ff92079be0abdb5ed629f2db2ca048c2fbe1a8b5ca`。
 - **2026-05-19 Task 56 Agent Tool Config And MCP Policy**: 纠正 Task 17 中把 MCP 总预算临时绑到 `maxSteps` 的方案。新增 `AgentToolCallPolicy`，`maxSteps` 只表示 LLM ReAct 轮数；执行器按 policy 控制总调用数、单轮调用数、单工具调用数、重复参数和 rate limit 停止。Tools 设置页支持新增 Agent、编辑 prompt / provider / LLM 轮数 / MCP allowlist / 调用策略。本机 `config-v2.json` 已同步 `web-search-summarize` policy。验证通过 focused tests 72、全量 SwiftPM 756、SwiftLint strict、`git diff --check`、Xcode Debug build 和 `build/e2e` Debug build；Debug App 已重启，进程 `13394`。
-- **2026-05-19 用户基本复测通过**: 用户反馈当前版本已基本测试无问题；文档已将 Task 17 状态从 App E2E pending 调整为 release prep pending。该反馈未附逐项截图 / 日志证据，发布前仍建议在 `main` 上跑最终 gate 和 review loop。
+- **2026-05-19 用户基本复测通过**: 用户反馈当前版本已基本测试无问题；文档已记录 Task 17 App 场景基本复测通过，并由 Task 57 承接发布前收口。该反馈未附逐项截图 / 日志证据；后续 Task 57 已补跑最终 gate、Claude review loop 和本地 DMG 预检。
 - **2026-05-19 Task 17 App 实测缺陷修复**: 已搭建五项本地 MCP server 并完成直接 `tools/list` / 安全 tool call；已补丁本机 `config-v2.json` 使 `web-search-summarize` 可见。修复五项 App 实测缺陷：DeepSeek V4 thinking-mode follow-up 丢失 `reasoning_content`、Brave 搜索 MCP 权限弹窗缺 session/persistent 授权、Agent 达到 `maxSteps` 后无最终回答、最终回合 DSML 工具调用标记误作为正文输出、过量顺序 Brave 搜索触发限流。上轮验证通过 full SwiftPM 749 tests、full SwiftLint strict、`git diff --check`、App Debug build。
 - **2026-05-10 10:04 session handoff**: Task 16 已完成并提交 3 个 commit：`873aa1d` release readiness 文档和脚本、`ab05c8f` 修复 E2E 脚本配置摘要泄漏风险、`a1a1763` 记录 Claude review approve。当前分支除本 handoff 外无未提交代码。下一步应开 Task 17 做真实 release E2E。
 - **2026-05-09 M4 Task 16**: 完成 release-readiness 收口。修复全仓 strict SwiftLint 历史 blocker，`swiftlint lint --strict` 当前 170 files / 0 violations；`swift build`、735 tests with coverage、App Debug build 通过；新增 `scripts/phase1-mcp-e2e.sh`、`docs/Module/MCPClient.md`、`docs/Module/ContextProviders.md`；真实 5-server / App E2E 因本机缺 `mcp.json`、API key 和测试数据源而记录为 blocker。Claude review Round 1 接受并修复脚本泄漏 `args/url` 原值风险；Round 2 approve。
@@ -30,10 +31,11 @@ Phase 1 的目标是把 Phase 0 已落地的 `ContextProvider` / `MCPClient` / `
 
 ## Current code state
 
-- Branch: `feature/phase-1-mcp-context`
-- Worktree: `/Users/majiajun/workspace/SliceAI/.worktrees/phase-1-mcp-context`
-- Code status before latest Task 17 fix: worktree already had Task 17 docs/config-validation changes from this E2E session.
-- Current status: uncommitted code + docs for DeepSeek reasoning-content, Brave MCP grant UX, Agent maxSteps finalization, DSML finalization guard, Brave search rate-limit mitigation, basic Agent Tool editor, MCP allowlist text config, and independent Agent tool-call policy. Do not revert unrelated user changes.
+- Branch: `main`
+- Worktree: `/Users/majiajun/workspace/SliceAI`
+- Current status: `main` is ahead of `origin/main`; release prep code review and gate are complete. Build artifacts live under ignored `build/`.
+- Remaining local branch not merged by design: `archive/pre-phase1-local-appcontainer-snapshot`, which only preserves an old local AppContainer snapshot and must not be silently merged.
+- Current release state: code review and gate are complete; remote push / tag / GitHub Release are intentionally not executed until user confirms.
 - Recent relevant commits:
   - `a1a1763` docs: record task 16 review approval
   - `ab05c8f` fix(scripts): redact mcp e2e config summary
@@ -48,6 +50,8 @@ Phase 1 的目标是把 Phase 0 已落地的 `ContextProvider` / `MCPClient` / `
 
 Key files next session must read:
 
+- `docs/Task-detail/2026-05-19-v0.3-release-prep.md`: current release prep status, gate results, release notes draft, and tag checklist.
+- `docs/Task-detail/claude-loop-v0.3-release-prep.md`: final release Claude review ledger; includes two accepted findings and Round 2 approve.
 - `docs/Task-detail/2026-05-10-phase-1-release-e2e-validation.md`: current Task 17 state, direct MCP E2E evidence, App bug fixes, and remaining manual App regression checklist.
 - `docs/Task-detail/2026-05-19-phase-1-agent-tool-config-policy.md`: Task 56 implementation record for basic Agent editor and `AgentToolCallPolicy`.
 - `docs/Task-detail/2026-05-09-phase-1-m4-task-16-five-server-e2e-release-readiness.md`: exact Task 16 evidence, blockers, tests, and review result.
@@ -70,10 +74,9 @@ Key files next session must read:
 
 ## Next steps (ordered by priority)
 
-1. 将 `feature/phase-1-mcp-context` 合并到 `main`，同时保留根工作树已有的 Phase 1 planning review 文档变更。Done when: `main` 包含 Task 17 / Task 56 代码与文档，且无冲突残留。
-2. 在 `main` 上运行最终 release gate：SwiftPM full test、SwiftLint strict、`git diff --check`、App Debug build；必要时补一轮 `claude-review-loop` / code review。Done when: gate 结果写入 Task 17 / release prep 文档。
-3. 准备 `v0.3` release notes 和 tag checklist，记录 Brave Search npm 包 deprecated 风险、MCP secret 脱敏边界、用户基本复测但未沉淀逐项证据的事实。Done when: release prep 文档明确 go / no-go。
-4. 若最终 gate 或 review 发现代码 bug，只做最小修复并复跑相关 focused tests + full gate。Done when: accepted findings 修复完，Claude approve 或低风险项有稳定理由。
+1. 用户确认发布后推送 `main`：`git push origin main`。Done when: origin/main 包含 release prep commit。
+2. 用户确认发布后创建并推送 `v0.3.0` tag。Done when: `.github/workflows/release.yml` 自动创建 draft GitHub Release。
+3. 等 GitHub Actions release workflow 完成，检查 draft release 的 artifact 文件名和 SHA256；CI 产物 SHA 可能不同于本地预检 DMG，因为 `scripts/build-dmg.sh` 不是可复现构建。Done when: release draft 经人工确认后发布。
 
 ## Known traps / do not touch
 
@@ -82,20 +85,21 @@ Key files next session must read:
 - `@modelcontextprotocol/server-brave-search` 当前 npm 可解析但 deprecated；release 前需要确认继续使用该包是否可接受，或记录替代方案。
 - `@modelcontextprotocol/server-git` 在 npm registry 返回 404；当前可用入口是 `uvx --from mcp-server-git mcp-server-git`。
 - 本机没有 `psql`，如果需要独立校验 Postgres 连接，先安装或用 server 自身只读 query 作为证据。
-- `docs/handoffs/2026-05-08-phase-1-mcp-context.md` 是 developer scratch，当前未跟踪。之前明确不要提交 handoff，除非用户改变要求。
 - 如果修改 `.env`，必须同步 `.env.example`；当前 Task 16/17 计划不需要改 `.env`。
 
 ## Required reading (in order)
 
 1. `CLAUDE.md`（项目约定）
 2. `README.md`（当前项目状态）
-3. `docs/Task-detail/2026-05-10-phase-1-release-e2e-validation.md`
-4. `docs/Task-detail/2026-05-09-phase-1-m4-task-16-five-server-e2e-release-readiness.md`
-5. `docs/Task-detail/claude-loop-phase-1-m4-task-16-five-server-e2e-release-readiness.md`
-6. `docs/Module/MCPClient.md`
-7. `docs/Module/ContextProviders.md`
-8. `docs/v2-refactor-master-todolist.md`
-9. `scripts/phase1-mcp-e2e.sh`
+3. `docs/Task-detail/2026-05-19-v0.3-release-prep.md`
+4. `docs/Task-detail/claude-loop-v0.3-release-prep.md`
+5. `docs/Task-detail/2026-05-10-phase-1-release-e2e-validation.md`
+6. `docs/Task-detail/2026-05-09-phase-1-m4-task-16-five-server-e2e-release-readiness.md`
+7. `docs/Task-detail/claude-loop-phase-1-m4-task-16-five-server-e2e-release-readiness.md`
+8. `docs/Module/MCPClient.md`
+9. `docs/Module/ContextProviders.md`
+10. `docs/v2-refactor-master-todolist.md`
+11. `scripts/phase1-mcp-e2e.sh`
 
 ## Minor changes (side work outside the main thread)
 

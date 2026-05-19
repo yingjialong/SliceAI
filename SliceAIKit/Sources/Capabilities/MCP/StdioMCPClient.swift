@@ -98,11 +98,18 @@ extension StdioMCPClient {
             guard let session = sessions[descriptor.id], session.process.isRunning else {
                 throw MCPClientError.transportFailed(reason: "stdio session unavailable after start")
             }
-            return session
+            if session.matchesLaunchConfiguration(of: descriptor) {
+                return session
+            }
+            await teardownSessionIfPresent(serverID: descriptor.id, reason: "descriptor_changed")
         }
         if let existing = sessions[descriptor.id], existing.process.isRunning {
             cancelIdleTimeout(serverID: descriptor.id)
-            return existing
+            if existing.matchesLaunchConfiguration(of: descriptor) {
+                return existing
+            }
+            logger.debug("MCP stdio descriptor changed server=\(descriptor.id, privacy: .private)")
+            await teardownSessionIfPresent(serverID: descriptor.id, reason: "descriptor_changed")
         }
         let startTask = Task { [weak self] in
             guard let self else {

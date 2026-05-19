@@ -764,8 +764,10 @@ final class AgentExecutorTests: XCTestCase {
 
     /// stopOnRateLimit 开启时，命中限流后同轮后续 MCP 调用应跳过，避免继续放大限流。
     func test_agentExecutor_policyStopsFurtherCallsAfterRateLimit() async throws {
+        let longRateLimitBody = String(repeating: "diagnostic payload ", count: 20)
+            + "Error: Rate limit exceeded"
         let rateLimited = MCPCallResult(
-            content: [.text("Error: Rate limit exceeded")],
+            content: [.text(longRateLimitBody)],
             structuredContent: nil,
             isError: true,
             meta: nil
@@ -904,6 +906,37 @@ final class AgentExecutorTests: XCTestCase {
         XCTAssertEqual(toolMessages.count, 1)
         XCTAssertFalse(toolMessages[0].content?.contains("sk-1234567890123456") == true)
         XCTAssertTrue(toolMessages[0].content?.contains("<redacted>") == true)
+    }
+
+    /// 长 MCP 结果进入下一轮模型消息时应保留实际内容，只做敏感信息脱敏，不能变成 `<truncated:N>`。
+    func test_agentExecutor_preservesLongMCPResultContentInModelToolMessage() async throws {
+        let longSearchResult = (1...35)
+            .map { index in "Search result \(index): SliceAI MCP context result body." }
+            .joined(separator: "\n")
+            + "\nsecret sk-1234567890123456"
+        let llm = MockToolCallingLLMProvider(turns: [
+            toolCallTurn(id: "call-1", name: "read", arguments: "{\"path\":\"/tmp/a.txt\"}"),
+            finalAnswerTurn()
+        ])
+        let executor = makeExecutor(
+            llm: llm,
+            mcpClient: makeMCPClient(responses: [readRef: mcpSuccess(longSearchResult)])
+        )
+        let agent = makeAgent()
+
+        _ = await collectEvents(from: await executor.run(
+            tool: makeTool(agent: agent),
+            agent: agent,
+            resolved: makeResolvedContext(),
+            provider: MockProvider.openAIStub()
+        ))
+
+        let toolMessages = llm.capturedToolRequests[1].messages.filter { $0.role == .tool }
+        let toolContent = try XCTUnwrap(toolMessages.first?.content)
+        XCTAssertFalse(toolContent.contains("<truncated:"))
+        XCTAssertTrue(toolContent.contains("Search result 35"))
+        XCTAssertFalse(toolContent.contains("sk-1234567890123456"))
+        XCTAssertTrue(toolContent.contains("<redacted>"))
     }
 
     /// MCP inputSchema 必须原样传给 LLM tools。

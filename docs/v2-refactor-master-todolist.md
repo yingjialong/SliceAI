@@ -17,9 +17,9 @@
 |---|---|
 | 最后更新 | 2026-05-19 |
 | 当前 Phase | **Phase 1 M4 收口期**（MCP + Context 主干） |
-| 当前 Milestone | **Task 17 release E2E validation 主体验证已完成** |
-| 下一个动作 | 合并到 `main` 后执行最终 release gate / review loop，并准备 `v0.3` release notes 与 tag |
-| 阻塞 | 无已知代码阻塞；filesystem / postgres / brave-search / git / sqlite 直接 MCP JSON-RPC E2E 已通过，用户已基本复测 App 场景且未反馈阻塞问题；进入发布前仍需最终 gate 和发布记录 |
+| 当前 Milestone | **Task 57 v0.3 release prep 已完成** |
+| 下一个动作 | 用户确认后 push `main`、推 `v0.3.0` tag，并检查 GitHub Actions draft release |
+| 阻塞 | 无已知代码阻塞；最终 Claude review loop Round 2 approve，SwiftPM 758 tests、SwiftLint strict、whitespace check、App Debug build、本地 unsigned DMG 构建和 DMG 挂载结构校验均通过。远端 push / tag / GitHub Release 前需用户确认 |
 
 **Milestone 状态**
 
@@ -33,7 +33,7 @@
 | 1 | M1 | ✅ 已完成：MCP 数据契约、store/importer、stdio client、Settings MCP Servers 页面 |
 | 1 | M2 | ✅ 已完成：Task 6 PermissionGraph case-aware coverage、Task 7 Core ContextProviders、Task 8 Permission Consent Grants、Task 9 AppContainer wiring |
 | 1 | M3 | ✅ 已完成：tool calling contract、AgentExecutor ReAct loop、ResultPanel tool-call lifecycle、`web-search-summarize` |
-| 1 | M4 | 🟩 Task 17 主体验证完成；直接 MCP E2E 已通过，DeepSeek/权限/finalization 缺陷、自定义 Agent Tool 编辑器、MCP allowlist 和通用 tool-call policy 已修复/补齐并通过完整 gate；用户已基本复测 App 场景 |
+| 1 | M4 | 🟩 Task 57 release prep 已完成；直接 MCP E2E 已通过，DeepSeek/权限/finalization 缺陷、自定义 Agent Tool 编辑器、MCP allowlist、通用 tool-call policy 和 review 发现的 release blocker 均已修复；最终 gate 与本地 DMG 预检通过 |
 | 2–5 | — | 🟦 Directional，进入前需重新 spec |
 
 ---
@@ -344,7 +344,7 @@ fi
 **Exit criteria（DoD）**：
 
 - [x] 可从 Claude Desktop 直接复制 `mcp.json` 并导入 SliceAI（真实工作仍取决于 server runner confirmation 和本机可用命令）
-- [x] 至少 5 个 MCP server 验证通过（filesystem / postgres / brave-search / git / sqlite）——Task 17 已完成直接 MCP JSON-RPC `tools/list` 与低风险 `tools/call`，App 场景仍待回归
+- [x] 至少 5 个 MCP server 验证通过（filesystem / postgres / brave-search / git / sqlite）——Task 17 已完成直接 MCP JSON-RPC `tools/list` 与低风险 `tools/call`；用户已基本复测 App 场景且未反馈阻塞问题
 - [x] Tool Permission 的批准 / 拒绝 / grant 下限有自动化测试；真实 UX 仍建议在 release 环境回归
 - [x] `web-search-summarize` Tool 在 Safari / Notes / Slack 等 App 场景完成用户基本复测（未沉淀逐项截图 / 日志证据）
 - [x] 用户可从 Settings 创建基础 Agent Tool，并用 `server.tool` 文本配置 MCP allowlist 和调用策略
@@ -459,6 +459,7 @@ fi
 | M4 Task 16 | Five MCP Server E2E And Release Documentation | ✅ 已完成 | 自动化 gate 和模块文档完成；真实 5-server/App E2E 缺本机配置，已记录 blocker；Claude Round 2 approve |
 | Task 17 | Release E2E Validation | ✅ 主体验证完成 | filesystem / postgres / brave-search / git / sqlite 直接 MCP E2E 已通过；已修复 DeepSeek / Brave permission / maxSteps / DSML finalization 缺陷；用户已基本复测 App 场景 |
 | Task 56 | Agent Tool Config And MCP Policy | ✅ 已完成 | 基础 Agent Tool 编辑器、MCP allowlist 文本配置、policy UI、独立 `AgentToolCallPolicy` 已实现；完整 gate 通过 |
+| Task 57 | v0.3 Release Prep | ✅ 已完成 | Claude Round 2 approve；修复长 MCP result 回填 LLM 截断、stdio descriptor 变更不重启两项发布阻塞；最终 gate、本地 DMG 构建和挂载结构校验通过 |
 
 **Task 16 gate 结果**：
 
@@ -477,7 +478,7 @@ fi
 - [x] filesystem 安全测试目录
 - [x] Safari / Notes / Slack 等真实 App 场景基本复测（用户反馈无阻塞；未沉淀逐项截图 / 日志证据）
 
-**下一步**：合并到 `main` 后运行最终 release gate / review loop；若无新问题，更新 release notes 并进入 `v0.3` tag 准备。
+**下一步**：用户确认后 push `main`、推 `v0.3.0` tag；等待 GitHub Actions 生成 draft release，校验 artifact / SHA 后人工发布。
 
 ---
 
@@ -934,7 +935,7 @@ fi
 - 后续 App 实测继续发现 Brave MCP 授权按钮不可用、Agent maxSteps 后无最终回答，以及最终回合 DSML 标记误作为正文输出；已在下一节修复并把最终验证更新为 748 tests。
 - 后续更新：用户已基本复测 Safari / Notes / Slack `web-search-summarize`、permission approval / denial、ResultPanel lifecycle、per-tool hotkey 和 command palette hotkey，未反馈阻塞问题；未沉淀逐项截图 / 日志证据。
 
-**下一步**：合并到 `main` 后运行最终 release gate / review loop，并准备 `v0.3` release notes 与 tag。
+**下一步**：该项已在后续 Task 57 完成；等待用户确认远端 push / tag / release。
 
 ### 2026-05-19 — Phase 1 Task 17 App 实测缺陷修复
 
@@ -948,4 +949,16 @@ fi
 - Debug App 已重启，进程 `13394`，进程路径仍为 `build/e2e/Build/Products/Debug/SliceAI.app`。
 - 用户已基本复测 App 场景且未反馈阻塞问题；该反馈未附逐项截图 / 日志证据，发布前仍建议以最终 gate / review loop 补齐 release 可信度。
 
-**下一步**：合并到 `main` 后运行最终 release gate / review loop，并准备 `v0.3` release notes 与 tag。
+**下一步**：该项已在后续 Task 57 完成；等待用户确认远端 push / tag / release。
+
+### 2026-05-19 — Phase 1 Task 57 v0.3 Release Prep 完成
+
+- Phase 1 MCP + Context 主干和历史归档文档已合并到 `main`；无继续保留的 feature worktree。
+- Claude review loop Round 1 找到 2 个发布阻塞，均接受并修复：
+  - 长 MCP tool result 不再以 `<truncated:N>` 形式回填给 LLM；UI / 日志短摘要和模型可见 tool payload 已拆成两条路径。
+  - stdio MCP server 在 Settings 修改 command / args / env / url / transport 后会 teardown 并重启旧 session。
+- Claude review loop Round 2 approve，`findings: []`。
+- 验证通过：focused tests（55 tests）、全量 SwiftPM 758 tests、SwiftLint strict、`git diff --check`、App Debug build、本地 `scripts/build-dmg.sh 0.3.0`、DMG SHA256 和只读挂载结构校验。
+- 本地 unsigned DMG：`build/SliceAI-0.3.0.dmg`，SHA256 `e2c111a0c6cbfe8f460a63ff92079be0abdb5ed629f2db2ca048c2fbe1a8b5ca`。该产物只作为本地预检；tag push 后 CI 会重新构建 draft release artifact，SHA 可能不同。
+
+**下一步**：用户确认后 push `main`、推 `v0.3.0` tag；等待 GitHub Actions 生成 draft release，校验 artifact / SHA 后人工发布。

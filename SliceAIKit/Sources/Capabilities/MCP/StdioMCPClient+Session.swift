@@ -37,6 +37,20 @@ final class StdioMCPProcessSession {
         self.stdoutReaderTask = stdoutReaderTask
         self.stderrReaderTask = stderrReaderTask
     }
+
+    /// 判断当前运行进程是否仍匹配新的 stdio 启动配置。
+    ///
+    /// `MCPDescriptor ==` 只比较稳定 id，不能用于这里；运行中进程必须按真实启动输入
+    /// 比较，否则 Settings 修改 command / args / env 后会继续复用旧子进程。
+    /// - Parameter incoming: 最新 descriptor。
+    /// - Returns: 启动配置一致时返回 true。
+    func matchesLaunchConfiguration(of incoming: MCPDescriptor) -> Bool {
+        descriptor.transport == incoming.transport
+            && descriptor.command == incoming.command
+            && (descriptor.args ?? []) == (incoming.args ?? [])
+            && (descriptor.env ?? [:]) == (incoming.env ?? [:])
+            && descriptor.url == incoming.url
+    }
 }
 
 /// stdout JSON-RPC response router；按 id 分发 NDJSON response，避免阻塞 client actor。

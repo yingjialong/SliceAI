@@ -70,9 +70,25 @@ public enum Redaction {
         // 空字符串 short-circuit：避免无谓的 NSRegularExpression 调用
         guard !input.isEmpty else { return input }
 
-        var result = input
+        let result = scrubSecrets(input)
 
-        // 顺序应用所有已编译 pattern；任何一条命中都直接替换
+        // 长度截断：用原长度做 N，便于审计回看时知道"原本多长"
+        if result.count > maxLength {
+            return "<truncated:\(result.count)>"
+        }
+        return result
+    }
+
+    /// 只替换敏感模式，不做长度截断。
+    ///
+    /// Agent tool result 需要回填给 LLM；这里不能把真实工具结果压成 `<truncated:N>`，
+    /// 否则模型只能看到占位符。调用方如需限制体积，应在保留前缀内容的前提下自行截断。
+    /// - Parameter input: 原始字符串。
+    /// - Returns: 仅完成 secret-like pattern 替换后的字符串。
+    public static func scrubSecrets(_ input: String) -> String {
+        guard !input.isEmpty else { return input }
+
+        var result = input
         for (regex, replacement) in patterns {
             let range = NSRange(result.startIndex..., in: result)
             result = regex.stringByReplacingMatches(
@@ -81,11 +97,6 @@ public enum Redaction {
                 range: range,
                 withTemplate: replacement
             )
-        }
-
-        // 长度截断：用原长度做 N，便于审计回看时知道"原本多长"
-        if result.count > maxLength {
-            return "<truncated:\(result.count)>"
         }
         return result
     }

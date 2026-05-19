@@ -170,6 +170,7 @@ private extension AgentToolCallPolicy {
 }
 
 extension AgentExecutor {
+    private static let modelToolMessageMaxCharacters = 16 * 1024
 
     /// 生成执行器实际使用的工具调用策略。
     ///
@@ -354,15 +355,16 @@ extension AgentExecutor {
         context: AgentToolCallContext
     ) -> ChatMessage {
         let summary = summarize(result: result)
+        let toolContent = toolMessageContent(result: result)
         if result.isError {
             return failToolCall(
                 context,
                 summary: summary,
-                content: "Tool execution error: \(summary)"
+                content: "Tool execution error: \(toolContent)"
             )
         }
         context.continuation.yield(.toolCallResult(id: context.uiId, summary: summary))
-        return toolMessage(call: context.call, content: summary)
+        return toolMessage(call: context.call, content: toolContent)
     }
 
     /// 统一 tool-call 错误事件与 tool message。
@@ -372,7 +374,7 @@ extension AgentExecutor {
         content: String
     ) -> ChatMessage {
         context.continuation.yield(.toolCallError(id: context.uiId, summary: Redaction.scrub(summary)))
-        return toolMessage(call: context.call, content: Redaction.scrub(content))
+        return toolMessage(call: context.call, content: sanitizeToolMessageContent(content))
     }
 
     /// 构造 role=.tool 消息。
@@ -447,5 +449,37 @@ extension AgentExecutor {
             return mcpError.developerContext
         }
         return "tool call failed"
+    }
+
+    /// 将 MCP result 转成回填给模型的工具内容。
+    ///
+    /// 该路径只做敏感信息脱敏，并保留足够长的前缀内容供模型推理；UI / 日志使用
+    /// `summarize(result:)` 的短摘要，避免 ResultPanel 和 audit payload 过大。
+    /// - Parameter result: MCP tool call 返回值。
+    /// - Returns: 可安全回填给 LLM 的 tool role content。
+    func toolMessageContent(result: MCPCallResult) -> String {
+        if let structured = result.structuredContent {
+            let summary = structured.redactedSummary(
+                maxCharacters: Self.modelToolMessageMaxCharacters
+            )
+            return sanitizeToolMessageContent(summary)
+        }
+        let text = result.content.map(summarize(content:)).joined(separator: "\n")
+        return text.isEmpty ? "Tool completed" : sanitizeToolMessageContent(text)
+    }
+
+    /// 清洗回填给模型的工具内容。
+    ///
+    /// 与 `Redaction.scrub` 不同，本方法不会把长内容整体替换为 `<truncated:N>`；
+    /// 它会保留前缀上下文并追加长度提示，使搜索结果、数据库查询等 MCP 输出仍可被模型使用。
+    /// - Parameter content: 原始工具内容。
+    /// - Returns: 脱敏并按模型消息预算裁剪后的内容。
+    func sanitizeToolMessageContent(_ content: String) -> String {
+        let redacted = Redaction.scrubSecrets(content)
+        guard redacted.count > Self.modelToolMessageMaxCharacters else {
+            return redacted
+        }
+        let prefix = String(redacted.prefix(Self.modelToolMessageMaxCharacters))
+        return "\(prefix)\n<truncated:\(redacted.count)>"
     }
 }

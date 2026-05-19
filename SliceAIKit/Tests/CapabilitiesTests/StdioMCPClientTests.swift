@@ -137,6 +137,22 @@ final class StdioMCPClientTests: XCTestCase {
         XCTAssertEqual(initializeCount, "1")
     }
 
+    /// 同一 server id 的启动参数变化后必须重启 stdio 进程，避免 Settings 保存后仍使用旧 runner。
+    func test_stdioClient_restartsSessionWhenDescriptorLaunchConfigChanges() async throws {
+        let stateURL = temporaryStateFileURL()
+        let firstDescriptor = fixtureDescriptor(extraArgs: ["count-initialize", stateURL.path, "v1"])
+        let secondDescriptor = fixtureDescriptor(extraArgs: ["count-initialize", stateURL.path, "v2"])
+        let client = StdioMCPClient(descriptors: { [secondDescriptor] })
+
+        _ = try await client.tools(for: firstDescriptor)
+        let firstInitializeCount = try String(contentsOf: stateURL, encoding: .utf8)
+        XCTAssertEqual(firstInitializeCount, "1")
+
+        _ = try await client.tools(for: secondDescriptor)
+        let secondInitializeCount = try String(contentsOf: stateURL, encoding: .utf8)
+        XCTAssertEqual(secondInitializeCount, "2")
+    }
+
     /// 响应超时必须中断当前请求并 teardown session，不能被无换行/慢响应永久占住 actor。
     func test_stdioClient_requestTimeoutTearsDownSessionAndAllowsActorToContinue() async throws {
         let descriptor = fixtureDescriptor(extraArgs: ["delayed-list"])
