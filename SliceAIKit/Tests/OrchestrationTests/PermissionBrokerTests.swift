@@ -1,3 +1,4 @@
+import Capabilities
 import Foundation
 import SliceCore
 import XCTest
@@ -53,9 +54,10 @@ final class PermissionBrokerTests: XCTestCase {
     /// 构造测试用 broker；默认 presenter 用于矩阵测试，把 consent 下限推进为 approved
     private static func makeBroker(
         store: PermissionGrantStore = .init(),
+        persistentStore: PersistentPermissionGrantStore? = nil,
         presenter: any PermissionConsentPresenting = StaticConsentPresenter(decision: .approve(scope: .oneTime))
     ) -> PermissionBroker {
-        PermissionBroker(store: store, consentPresenter: presenter)
+        PermissionBroker(store: store, persistentStore: persistentStore, consentPresenter: presenter)
     }
 
     // MARK: - readonly-local × 4 provenance（4 cell）
@@ -629,6 +631,92 @@ final class PermissionBrokerTests: XCTestCase {
         let maybeRequest = await presenter.lastRequest
         let request = try XCTUnwrap(maybeRequest)
         XCTAssertEqual(request.allowedScopes, [.oneTime])
+    }
+
+    /// Brave web search MCP 是内置只读搜索工具，允许用户选择会话授权和持久授权。
+    func test_permissionBroker_braveSearchAllowsSessionAndPersistentScopes() async throws {
+        let fileURL = try Self.makeTemporaryGrantFileURL()
+        let persistentStore = PersistentPermissionGrantStore(fileURL: fileURL)
+        let permission = Permission.mcp(server: "brave-search", tools: ["brave_web_search"])
+        let presenter = RecordingConsentPresenter(decision: .approve(scope: .oneTime))
+        let broker = Self.makeBroker(persistentStore: persistentStore, presenter: presenter)
+
+        let outcome = await broker.gate(
+            effective: [permission],
+            provenance: Self.firstParty,
+            scope: .session,
+            isDryRun: false
+        )
+
+        XCTAssertEqual(outcome, .approved)
+        let maybeRequest = await presenter.lastRequest
+        let request = try XCTUnwrap(maybeRequest)
+        XCTAssertEqual(request.allowedScopes, [.oneTime, .session, .persistent])
+    }
+
+    /// Brave web search MCP 的 session 授权应在当前 App 会话内复用，避免每次搜索都弹窗。
+    func test_permissionBroker_braveSearchSessionGrantIsCached() async throws {
+        let permission = Permission.mcp(server: "brave-search", tools: ["brave_web_search"])
+        let presenter = RecordingConsentPresenter(decision: .approve(scope: .session))
+        let broker = Self.makeBroker(presenter: presenter)
+
+        let firstOutcome = await broker.gate(
+            effective: [permission],
+            provenance: Self.firstParty,
+            scope: .session,
+            isDryRun: false
+        )
+        let secondOutcome = await broker.gate(
+            effective: [permission],
+            provenance: Self.firstParty,
+            scope: .session,
+            isDryRun: false
+        )
+
+        XCTAssertEqual(firstOutcome, .approved)
+        XCTAssertEqual(secondOutcome, .approved)
+        let requestCount = await presenter.requestCount
+        XCTAssertEqual(requestCount, 1, "Brave 搜索会话授权命中后不应重复弹窗")
+    }
+
+    /// Brave web search MCP 的持久授权应写入 persistent store，并被新的 broker 实例命中。
+    func test_permissionBroker_braveSearchPersistentGrantIsCachedAcrossBrokers() async throws {
+        let fileURL = try Self.makeTemporaryGrantFileURL()
+        let permission = Permission.mcp(server: "brave-search", tools: ["brave_web_search"])
+        let firstPersistentStore = PersistentPermissionGrantStore(fileURL: fileURL)
+        let presenter = RecordingConsentPresenter(decision: .approve(scope: .persistent))
+        let firstBroker = Self.makeBroker(persistentStore: firstPersistentStore, presenter: presenter)
+
+        let firstOutcome = await firstBroker.gate(
+            effective: [permission],
+            provenance: Self.firstParty,
+            scope: .persistent,
+            isDryRun: false
+        )
+        let secondPersistentStore = PersistentPermissionGrantStore(fileURL: fileURL)
+        let secondPresenter = RecordingConsentPresenter(decision: .deny(reason: "should not ask"))
+        let secondBroker = Self.makeBroker(persistentStore: secondPersistentStore, presenter: secondPresenter)
+        let secondOutcome = await secondBroker.gate(
+            effective: [permission],
+            provenance: Self.firstParty,
+            scope: .session,
+            isDryRun: false
+        )
+
+        XCTAssertEqual(firstOutcome, .approved)
+        XCTAssertEqual(secondOutcome, .approved)
+        let firstRequestCount = await presenter.requestCount
+        let secondRequestCount = await secondPresenter.requestCount
+        XCTAssertEqual(firstRequestCount, 1)
+        XCTAssertEqual(secondRequestCount, 0, "持久授权命中后不应再次请求 presenter")
+    }
+
+    /// 创建临时 grant 文件路径。
+    private static func makeTemporaryGrantFileURL() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory.appendingPathComponent("permission-grants.json")
     }
 }
 

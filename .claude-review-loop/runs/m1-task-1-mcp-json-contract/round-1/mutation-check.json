@@ -1,9 +1,0 @@
-{
-  "before": [
-    "?? docs/Task-detail/claude-loop-m1-task-1-mcp-json-contract.md"
-  ],
-  "after": [
-    "?? docs/Task-detail/claude-loop-m1-task-1-mcp-json-contract.md"
-  ],
-  "mutation_detected": false
-}

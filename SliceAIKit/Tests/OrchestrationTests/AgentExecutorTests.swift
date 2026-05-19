@@ -53,7 +53,8 @@ final class AgentExecutorTests: XCTestCase {
     private func makeAgent(
         allowlist: [MCPToolRef]? = nil,
         maxSteps: Int = 4,
-        stopCondition: StopCondition = .finalAnswerProvided
+        stopCondition: StopCondition = .finalAnswerProvided,
+        toolCallPolicy: AgentToolCallPolicy? = nil
     ) -> AgentTool {
         AgentTool(
             systemPrompt: "You are an agent.",
@@ -64,7 +65,8 @@ final class AgentExecutorTests: XCTestCase {
             mcpAllowlist: allowlist ?? [readRef],
             builtinCapabilities: [],
             maxSteps: maxSteps,
-            stopCondition: stopCondition
+            stopCondition: stopCondition,
+            toolCallPolicy: toolCallPolicy
         )
     }
 
@@ -177,11 +179,56 @@ final class AgentExecutorTests: XCTestCase {
         ]
     }
 
+    /// 构造多个同名 tool call 的 turn，用于验证总 tool call 预算。
+    /// - Parameter count: 本轮模型请求的工具调用数量。
+    /// - Returns: LLM stream events。
+    private func repeatedReadToolCallTurn(count: Int) -> [ChatStreamEvent] {
+        let deltas = (0..<count).map { index in
+            ChatStreamEvent.toolCallDelta(ChatToolCallDelta(
+                index: index,
+                id: "call-\(index)",
+                name: "read",
+                argumentsDelta: "{\"path\":\"/tmp/a-\(index).txt\"}"
+            ))
+        }
+        return deltas + [.finished(.toolCalls)]
+    }
+
+    /// 构造多个参数完全相同的同名 tool call，用于验证去重策略。
+    /// - Parameter count: 本轮模型请求的重复工具调用数量。
+    /// - Returns: LLM stream events。
+    private func duplicateReadToolCallTurn(count: Int) -> [ChatStreamEvent] {
+        let deltas = (0..<count).map { index in
+            ChatStreamEvent.toolCallDelta(ChatToolCallDelta(
+                index: index,
+                id: "dup-\(index)",
+                name: "read",
+                argumentsDelta: "{\"path\":\"/tmp/same.txt\"}"
+            ))
+        }
+        return deltas + [.finished(.toolCalls)]
+    }
+
     /// 构造最终答案 turn。
     /// - Parameter text: 模型输出文本。
     /// - Returns: LLM stream events。
     private func finalAnswerTurn(_ text: String = "Done") -> [ChatStreamEvent] {
         [.textDelta(text), .finished(.stop)]
+    }
+
+    /// 构造 DeepSeek thinking mode 风格的 tool call turn。
+    /// - Returns: 带 reasoning delta、空 content 与 tool call 的 LLM stream events。
+    private func reasoningToolCallTurn() -> [ChatStreamEvent] {
+        [
+            .reasoningDelta("Need search first."),
+            .toolCallDelta(ChatToolCallDelta(
+                index: 0,
+                id: "call-1",
+                name: "read",
+                argumentsDelta: "{\"path\":\"/tmp/a.txt\"}"
+            )),
+            .finished(.toolCalls)
+        ]
     }
 
     /// 默认 MCP 成功结果。
@@ -511,7 +558,251 @@ final class AgentExecutorTests: XCTestCase {
         })
     }
 
-    /// 达到 maxSteps 后不应再发起下一轮 LLM。
+    /// 达到 maxSteps 后应禁用工具并请求一次最终答案，避免工具调用完成后静默无结果。
+    func test_agentExecutor_finalizesWithToolsDisabledAfterMaxSteps() async throws {
+        let llm = MockToolCallingLLMProvider(turns: [
+            toolCallTurn(id: "call-1", name: "read", arguments: "{\"path\":\"/tmp/a.txt\"}"),
+            finalAnswerTurn("Final summary")
+        ])
+        let executor = makeExecutor(llm: llm, mcpClient: makeMCPClient())
+        let agent = makeAgent(maxSteps: 1)
+
+        let events = await collectEvents(from: await executor.run(
+            tool: makeTool(agent: agent),
+            agent: agent,
+            resolved: makeResolvedContext(),
+            provider: MockProvider.openAIStub()
+        ))
+
+        XCTAssertEqual(llm.toolStreamCallCount, 2)
+        guard llm.capturedToolRequests.indices.contains(1) else {
+            XCTFail("expected final answer request after maxSteps")
+            return
+        }
+        XCTAssertTrue(llm.capturedToolRequests[1].tools.isEmpty)
+        XCTAssertNil(llm.capturedToolRequests[1].toolChoice)
+        XCTAssertTrue(events.contains { event in
+            if case .llmChunk(let delta) = event, delta == "Final summary" { return true }
+            return false
+        })
+    }
+
+    /// 达到 maxSteps 后的最终回合不应再向 provider 暴露 tools schema。
+    func test_agentExecutor_finalizationRequestOmitsToolsAfterMaxSteps() async throws {
+        let llm = MockToolCallingLLMProvider(turns: [
+            toolCallTurn(id: "call-1", name: "read", arguments: "{\"path\":\"/tmp/a.txt\"}"),
+            finalAnswerTurn("Final summary")
+        ])
+        let executor = makeExecutor(llm: llm, mcpClient: makeMCPClient())
+        let agent = makeAgent(maxSteps: 1)
+
+        _ = await collectEvents(from: await executor.run(
+            tool: makeTool(agent: agent),
+            agent: agent,
+            resolved: makeResolvedContext(),
+            provider: MockProvider.openAIStub()
+        ))
+
+        guard llm.capturedToolRequests.indices.contains(1) else {
+            XCTFail("expected final answer request after maxSteps")
+            return
+        }
+        let finalRequest = llm.capturedToolRequests[1]
+        XCTAssertTrue(finalRequest.tools.isEmpty)
+        XCTAssertNil(finalRequest.toolChoice)
+        XCTAssertEqual(finalRequest.messages.last?.role, .user)
+        XCTAssertTrue(finalRequest.messages.last?.content?.contains("No more tool calls are available") == true)
+    }
+
+    /// 最终回合若返回 DSML 工具调用文本，不应把内部协议标记写入 UI。
+    func test_agentExecutor_rejectsFinalizationToolMarkupWithoutStreamingIt() async throws {
+        let dsml = """
+        <|DSML|tool_calls>
+        <|DSML|invoke name="brave_web_search">
+        <|DSML|parameter name="query" string="true">Claude Code</|DSML|parameter>
+        </|DSML|invoke>
+        </|DSML|tool_calls>
+        """
+        let llm = MockToolCallingLLMProvider(turns: [
+            toolCallTurn(id: "call-1", name: "read", arguments: "{\"path\":\"/tmp/a.txt\"}"),
+            finalAnswerTurn(dsml)
+        ])
+        let executor = makeExecutor(llm: llm, mcpClient: makeMCPClient())
+        let agent = makeAgent(maxSteps: 1)
+
+        let events = await collectEvents(from: await executor.run(
+            tool: makeTool(agent: agent),
+            agent: agent,
+            resolved: makeResolvedContext(),
+            provider: MockProvider.openAIStub()
+        ))
+
+        XCTAssertFalse(events.contains { event in
+            if case .llmChunk(let delta) = event {
+                return delta.contains("DSML") || delta.contains("tool_calls")
+            }
+            return false
+        })
+        XCTAssertTrue(events.contains { event in
+            if case .failed(.provider(.invalidResponse(let reason))) = event {
+                return reason.contains("tool-call markup")
+            }
+            return false
+        })
+    }
+
+    /// maxSteps 只限制 ReAct 轮数；单轮 tool call 数量由独立 policy 控制。
+    func test_agentExecutor_maxStepsDoesNotCapToolCallsWhenPolicyAllows() async throws {
+        let llm = MockToolCallingLLMProvider(turns: [
+            repeatedReadToolCallTurn(count: 3),
+            finalAnswerTurn("Enough context")
+        ])
+        let mcp = makeMCPClient()
+        let executor = makeExecutor(llm: llm, mcpClient: mcp)
+        let policy = AgentToolCallPolicy(
+            maxTotalCalls: 3,
+            maxCallsPerTurn: 3,
+            perToolLimits: [],
+            duplicateArgumentStrategy: .allow,
+            stopOnRateLimit: true
+        )
+        let agent = makeAgent(maxSteps: 1, toolCallPolicy: policy)
+
+        _ = await collectEvents(from: await executor.run(
+            tool: makeTool(agent: agent),
+            agent: agent,
+            resolved: makeResolvedContext(),
+            provider: MockProvider.openAIStub()
+        ))
+
+        let mcpCallCount = await mcp.callCount
+        XCTAssertEqual(mcpCallCount, 3)
+        XCTAssertEqual(llm.toolStreamCallCount, 2)
+
+        let finalMessages = llm.capturedToolRequests[1].messages
+        let toolMessages = finalMessages.filter { $0.role == .tool }
+        XCTAssertEqual(toolMessages.count, 3)
+    }
+
+    /// 单次运行的 MCP tool call 总数由 AgentToolCallPolicy 约束，避免一轮多工具调用打爆外部限流。
+    func test_agentExecutor_policyCapsTotalToolCallsPerRun() async throws {
+        let llm = MockToolCallingLLMProvider(turns: [
+            repeatedReadToolCallTurn(count: 3),
+            finalAnswerTurn("Enough context")
+        ])
+        let mcp = makeMCPClient()
+        let executor = makeExecutor(llm: llm, mcpClient: mcp)
+        let policy = AgentToolCallPolicy(
+            maxTotalCalls: 2,
+            maxCallsPerTurn: 3,
+            perToolLimits: [],
+            duplicateArgumentStrategy: .allow,
+            stopOnRateLimit: true
+        )
+        let agent = makeAgent(maxSteps: 4, toolCallPolicy: policy)
+
+        let events = await collectEvents(from: await executor.run(
+            tool: makeTool(agent: agent),
+            agent: agent,
+            resolved: makeResolvedContext(),
+            provider: MockProvider.openAIStub()
+        ))
+
+        let mcpCallCount = await mcp.callCount
+        XCTAssertEqual(mcpCallCount, 2)
+        XCTAssertEqual(llm.toolStreamCallCount, 2)
+
+        let finalMessages = llm.capturedToolRequests[1].messages
+        let toolMessages = finalMessages.filter { $0.role == .tool }
+        XCTAssertEqual(toolMessages.count, 3)
+        XCTAssertTrue(toolMessages.contains { message in
+            message.content?.contains("per-run tool call limit reached") == true
+        })
+        XCTAssertTrue(events.contains { event in
+            if case .toolCallError(_, let summary) = event {
+                return summary.contains("tool call budget exhausted")
+            }
+            return false
+        })
+    }
+
+    /// 去重策略为 skipExactArguments 时，同一轮完全相同的 MCP 调用只执行一次。
+    func test_agentExecutor_policySkipsDuplicateExactArguments() async throws {
+        let llm = MockToolCallingLLMProvider(turns: [
+            duplicateReadToolCallTurn(count: 2),
+            finalAnswerTurn("Deduped")
+        ])
+        let mcp = makeMCPClient()
+        let executor = makeExecutor(llm: llm, mcpClient: mcp)
+        let policy = AgentToolCallPolicy(
+            maxTotalCalls: 2,
+            maxCallsPerTurn: 2,
+            perToolLimits: [],
+            duplicateArgumentStrategy: .skipExactArguments,
+            stopOnRateLimit: true
+        )
+        let agent = makeAgent(toolCallPolicy: policy)
+
+        let events = await collectEvents(from: await executor.run(
+            tool: makeTool(agent: agent),
+            agent: agent,
+            resolved: makeResolvedContext(),
+            provider: MockProvider.openAIStub()
+        ))
+
+        let mcpCallCount = await mcp.callCount
+        XCTAssertEqual(mcpCallCount, 1)
+        let toolMessages = llm.capturedToolRequests[1].messages.filter { $0.role == .tool }
+        XCTAssertEqual(toolMessages.count, 2)
+        XCTAssertTrue(events.contains { event in
+            if case .toolCallError(_, let summary) = event {
+                return summary.contains("duplicate tool call skipped")
+            }
+            return false
+        })
+    }
+
+    /// stopOnRateLimit 开启时，命中限流后同轮后续 MCP 调用应跳过，避免继续放大限流。
+    func test_agentExecutor_policyStopsFurtherCallsAfterRateLimit() async throws {
+        let rateLimited = MCPCallResult(
+            content: [.text("Error: Rate limit exceeded")],
+            structuredContent: nil,
+            isError: true,
+            meta: nil
+        )
+        let llm = MockToolCallingLLMProvider(turns: [
+            repeatedReadToolCallTurn(count: 2),
+            finalAnswerTurn("Rate limit handled")
+        ])
+        let mcp = makeMCPClient(responses: [readRef: rateLimited])
+        let executor = makeExecutor(llm: llm, mcpClient: mcp)
+        let policy = AgentToolCallPolicy(
+            maxTotalCalls: 2,
+            maxCallsPerTurn: 2,
+            perToolLimits: [],
+            duplicateArgumentStrategy: .allow,
+            stopOnRateLimit: true
+        )
+        let agent = makeAgent(toolCallPolicy: policy)
+
+        let events = await collectEvents(from: await executor.run(
+            tool: makeTool(agent: agent),
+            agent: agent,
+            resolved: makeResolvedContext(),
+            provider: MockProvider.openAIStub()
+        ))
+
+        let mcpCallCount = await mcp.callCount
+        XCTAssertEqual(mcpCallCount, 1)
+        XCTAssertTrue(events.contains { event in
+            if case .toolCallError(_, let summary) = event {
+                return summary.contains("rate limit")
+            }
+            return false
+        })
+    }
+
+    /// 达到 maxSteps 后不应继续允许模型再次调用工具。
     func test_agentExecutor_stopsAtMaxSteps() async throws {
         let llm = MockToolCallingLLMProvider(turns: [
             toolCallTurn(id: "call-1", name: "read", arguments: "{\"path\":\"/tmp/a.txt\"}"),
@@ -527,7 +818,13 @@ final class AgentExecutorTests: XCTestCase {
             provider: MockProvider.openAIStub()
         ))
 
-        XCTAssertEqual(llm.toolStreamCallCount, 1)
+        XCTAssertEqual(llm.toolStreamCallCount, 2)
+        guard llm.capturedToolRequests.indices.contains(1) else {
+            XCTFail("expected final answer request after maxSteps")
+            return
+        }
+        XCTAssertTrue(llm.capturedToolRequests[1].tools.isEmpty)
+        XCTAssertNil(llm.capturedToolRequests[1].toolChoice)
     }
 
     /// 当前执行器不支持“必须跑满 maxSteps”的 stopCondition，必须 fail-closed，避免配置静默失效。
@@ -715,6 +1012,28 @@ final class AgentExecutorTests: XCTestCase {
         }
         XCTAssertLessThan(assistantIndex, toolIndex)
         XCTAssertEqual(messages[toolIndex].toolCallID, "call-1")
+    }
+
+    /// DeepSeek V4 thinking mode 要求后续请求回传 assistant.reasoning_content。
+    func test_agentExecutor_preservesReasoningContentForToolCallFollowUp() async throws {
+        let llm = MockToolCallingLLMProvider(turns: [
+            reasoningToolCallTurn(),
+            finalAnswerTurn()
+        ])
+        let executor = makeExecutor(llm: llm, mcpClient: makeMCPClient())
+        let agent = makeAgent()
+
+        _ = await collectEvents(from: await executor.run(
+            tool: makeTool(agent: agent),
+            agent: agent,
+            resolved: makeResolvedContext(),
+            provider: MockProvider.openAIStub()
+        ))
+
+        let messages = llm.capturedToolRequests[1].messages
+        let assistant = try XCTUnwrap(messages.first { $0.role == .assistant && $0.toolCalls != nil })
+        XCTAssertEqual(assistant.reasoningContent, "Need search first.")
+        XCTAssertEqual(assistant.content, "")
     }
 
     /// 模型文本 delta 必须作为 `.llmChunk` 透出。

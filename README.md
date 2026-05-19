@@ -8,7 +8,7 @@ SliceAI 让你在任何 Mac 应用里选中文字后，通过快捷工具栏或 
 
 v0.2.0 Phase 0 底层重构已正式发布：v2 数据模型、Orchestration 执行引擎、Capabilities 能力边界已接入真实 App 触发链。Release: <https://github.com/yingjialong/SliceAI/releases/tag/v0.2.0>。
 
-Phase 1 MCP + Context 主干已完成本地 M4 release-readiness gate：stdio / Streamable HTTP MCP client、MCP Servers 设置页、五个核心 ContextProvider、PermissionBroker UI gate、AgentExecutor tool calling、ResultPanel tool-call lifecycle、`web-search-summarize` 和 per-tool hotkey 均已落地。真实 5-server E2E 仍需本机 `mcp.json`、Brave API key、Postgres 只读连接串、SQLite 测试 DB 和 filesystem 测试目录，当前记录为 release 前置条件。参见 [docs/v2-refactor-master-todolist.md](docs/v2-refactor-master-todolist.md) 跟踪后续 Phase。
+Phase 1 MCP + Context 主干已完成本地 M4 release-readiness gate：stdio / Streamable HTTP MCP client、MCP Servers 设置页、五个核心 ContextProvider、PermissionBroker UI gate、AgentExecutor tool calling、ResultPanel tool-call lifecycle、`web-search-summarize`、per-tool hotkey 和基础自定义 Agent Tool 配置均已落地。Task 17 已完成真实 release E2E 主体验证；filesystem / postgres / brave-search / git / sqlite 五项本地 MCP server 已完成直接 JSON-RPC `tools/list` 与安全只读 / 低风险 `tools/call`，用户已基本复测 App 场景且未反馈阻塞问题。已修复 DeepSeek thinking-mode tool-call follow-up、Brave 搜索 MCP 的会话/持久授权 UX、Agent 达到工具轮数上限后无最终回答、最终回合 DSML 工具标记误作为正文输出，以及 Web Search Summarize 单次运行中过量顺序 Brave 搜索触发限流的问题。当前 `maxSteps` 只表示 LLM ReAct 轮数，MCP 调用总量、单轮量、单工具量、重复参数和 rate limit 停止由 `AgentToolCallPolicy` 控制。进入 `v0.3` 发布前仍建议补一次最终 release gate / review loop，并把用户复测结果沉淀为发布记录。参见 [docs/v2-refactor-master-todolist.md](docs/v2-refactor-master-todolist.md) 跟踪后续 Phase。
 
 ## Features (MVP v0.2)
 
@@ -18,7 +18,7 @@ Phase 1 MCP + Context 主干已完成本地 M4 release-readiness gate：stdio / 
 - 支持 OpenAI 兼容协议（OpenAI、DeepSeek、Moonshot、OpenRouter、自建中转…）
 - 4 个内置 Prompt 工具：Translate / Polish / Summarize / Explain
 - 1 个内置 Agent 工具：Web Search Summarize（需要配置 Brave Search MCP）
-- 自定义 prompt、供应商、模型
+- 自定义 Prompt / Agent 工具、供应商、模型和 Agent MCP allowlist / 调用策略
 - API Key 存 macOS Keychain
 
 ## Build from source
@@ -52,6 +52,25 @@ open SliceAI.xcodeproj
 | `DesignSystem` / `Permissions` | 设计 token、主题管理、共享控件与 Accessibility onboarding / monitor。 |
 
 ## 项目修改变动记录
+
+### 2026-05-10 · Phase 1 Task 17 · Release E2E Validation
+
+**范围**：worktree `.worktrees/phase-1-mcp-context`，真实 release E2E 验证
+
+**主要变更**：
+- 新增 `docs/Task-detail/2026-05-10-phase-1-release-e2e-validation.md`，记录真实 5-server MCP E2E 和 Safari / Notes / Slack App 回归的前置条件、测试计划、证据模板和 secret 脱敏边界。
+- 更新 `docs/Task_history.md`，登记 Task 55，明确 Task 17 已启动并记录真实 release E2E 边界。
+- 运行 `bash scripts/phase1-mcp-e2e.sh` 做只读环境检查；脚本只输出命令存在性、env key 名称和配置状态，不输出 secret 原值。
+
+**当前状态**：
+- 已具备：`node`、`npm`、`npx`、`uvx`、`git`、`sqlite3`、`jq`；SliceAI `mcp.json` 当前包含 filesystem / postgres / brave-search / git / sqlite 五项本地 stdio server。
+- 已通过：filesystem / postgres / brave-search / git / sqlite 的直接 MCP JSON-RPC `tools/list` 和一次安全只读 / 低风险 `tools/call`。
+- 已修复：DeepSeek V4 thinking mode 下 `web-search-summarize` 完成 Brave MCP 调用后，因未回传 `reasoning_content` 导致 provider finalize 阶段 `invalidResponse` 的问题。
+- 已修复：Brave Web Search MCP 权限弹窗允许“本次会话允许 / 以后一直允许”，且其它 MCP 仍默认逐次确认；Agent 达到 `maxSteps` 后会用不含 `tools/tool_choice` 的最终请求生成答案，不再静默结束，也不再把 DSML 工具调用标记写入正文。
+- 已修复：Web Search Summarize 的限流复测问题。执行器按顺序处理 MCP tool call，不是并发 fan-out；根因是模型可在一轮/多轮里连续发起过多 Brave 搜索。当前默认提示词要求最多 2 次 Brave 搜索，`web-search-summarize` 显式配置 `AgentToolCallPolicy(maxTotalCalls: 2, maxCallsPerTurn: 2)`，重复参数会跳过，命中 rate limit 后会停止继续调用 MCP；`maxSteps` 保持为 LLM ReAct 轮数，不再兼任 MCP 总预算。
+- 已完成：Phase 1 基础自定义 Agent Tool 配置。Tools 设置页现在可以新增 Agent Tool，编辑 system / initial prompt、Provider、LLM 轮数，并用一行一个 `server.tool` 的文本格式配置 MCP allowlist；同时可配置总 MCP 上限、单轮 MCP 上限、重复参数跳过和限流后停止，保存时同步对应 MCP 权限声明。
+- 当前结论：本机仍无 `psql`，但 Postgres MCP 已通过 Docker 测试库完成直接 E2E；用户已基本复测 App 场景且未反馈阻塞问题，下一步进入 `v0.3` release prep。
+- 下一步：在 `main` 上跑最终 gate / review loop，更新 release notes，并准备 `v0.3` tag。
 
 ### 2026-05-09 · Phase 1 M4 Task 16 · Five MCP Server E2E And Release Documentation
 

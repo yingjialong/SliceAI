@@ -105,8 +105,8 @@ public protocol PermissionBrokerProtocol: Sendable {
     /// - Parameters:
     ///   - effective: 当前 invocation 的 `EffectivePermissions.union`（context / sideEffect / mcp / builtin / declared 合集）
     ///   - provenance: 工具来源；只能调节 UX hint 文案，**严禁** 影响 lowerBound 决策
-    ///   - scope: 调用方建议的 grant 时长；生产 broker 仅接受 one-time/session runtime grant，
-    ///     persistent grant 由 Settings-only 存储写入。
+    ///   - scope: 调用方建议的 grant 时长；生产 broker 根据权限风险和 store 可用性决定是否接受
+    ///     one-time / session / persistent runtime grant。
     ///   - isDryRun: 是否 dry-run；true 时不会调用 presenter，需要 consent 的权限返回 `.wouldRequireConsent`
     /// - Returns: `GateOutcome` 4 态决策结果；non-throwing
     func gate(

@@ -71,6 +71,18 @@ public struct ToolEditorView: View {
 
                 // 自定义变量分组（始终显示——空态也要提供"添加变量"入口）
                 variablesCard
+            } else if isAgentTool {
+                // Agent 提示词分组：System / Initial User
+                agentPromptCard
+
+                // Agent Provider 与 ReAct 轮数分组
+                agentProviderCard
+
+                // MCP allowlist 文本编辑分组
+                agentMCPAllowlistCard
+
+                // MCP 调用策略分组：总量、单轮、重复参数和限流停止
+                agentToolCallPolicyCard
             } else {
                 unsupportedKindCard
             }

@@ -88,6 +88,21 @@ final class ChatTypesTests: XCTestCase {
         XCTAssertEqual(tools.first?["type"] as? String, "function")
     }
 
+    func test_chatToolRequest_omitsEmptyToolsAndToolChoice() throws {
+        let request = ChatToolRequest(
+            model: "gpt-5",
+            messages: [ChatMessage(role: .user, content: "finalize")],
+            tools: [],
+            toolChoice: .auto
+        )
+
+        let object = try encodeJSONObject(request)
+
+        XCTAssertEqual(object["model"] as? String, "gpt-5")
+        XCTAssertNil(object["tools"])
+        XCTAssertNil(object["tool_choice"])
+    }
+
     func test_chatMessage_toolResultEncodesOpenAIToolCallID() throws {
         let message = ChatMessage(
             role: .tool,
@@ -101,6 +116,30 @@ final class ChatTypesTests: XCTestCase {
         XCTAssertEqual(object["content"] as? String, "Search result summary")
         XCTAssertEqual(object["tool_call_id"] as? String, "call_1")
         XCTAssertNil(object["tool_calls"])
+    }
+
+    func test_chatMessage_assistantToolCallEncodesReasoningContent() throws {
+        let message = ChatMessage(
+            role: .assistant,
+            content: "",
+            toolCallID: nil,
+            toolCalls: [
+                ChatToolCall(
+                    id: "call_1",
+                    name: "brave_web_search",
+                    argumentsRaw: "{\"query\":\"SliceAI\"}"
+                ),
+            ],
+            reasoningContent: "Need search first."
+        )
+
+        let object = try encodeJSONObject(message)
+
+        XCTAssertEqual(object["role"] as? String, "assistant")
+        XCTAssertEqual(object["content"] as? String, "")
+        XCTAssertEqual(object["reasoning_content"] as? String, "Need search first.")
+        XCTAssertNotNil(object["tool_calls"])
+        XCTAssertNil(object["tool_call_id"])
     }
 
     func test_chatStreamEvent_supportsTextToolCallAndFinishEvents() {

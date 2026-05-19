@@ -257,6 +257,17 @@ final class PermissionGrantStoreTests: XCTestCase {
         XCTAssertFalse(hit)
     }
 
+    /// Brave web search MCP 是当前内置只读搜索工具，允许记录 session grant。
+    func test_braveSearchMCPPermission_canBeCachedForSession() async throws {
+        let store = PermissionGrantStore()
+        let permission = Permission.mcp(server: "brave-search", tools: ["brave_web_search"])
+
+        try await store.record(permission: permission, provenance: .firstParty, scope: .session)
+
+        let hit = await store.has(permission: permission, provenance: .firstParty)
+        XCTAssertTrue(hit)
+    }
+
     /// network write 权限必须逐次确认，不允许写入 session grant
     func test_networkWrite_isNeverCached() async throws {
         let store = PermissionGrantStore()

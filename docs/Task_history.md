@@ -4,6 +4,24 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 
 ---
 
+## Task 56 · Phase 1 Agent Tool Config And MCP Policy
+
+- **时间**：2026-05-19
+- **描述**：修正 Phase 1 文档口径，并补齐 v0.3 产品闭环中缺失的基础自定义 Agent Tool 配置、MCP allowlist 编辑和通用 MCP tool-call policy。
+- **详情**：[docs/Task-detail/2026-05-19-phase-1-agent-tool-config-policy.md](Task-detail/2026-05-19-phase-1-agent-tool-config-policy.md)
+- **结果**：完成。已确认 Skill 属于 Phase 2，不作为当前 v0.3 blocker；新增基础 Agent Tool 编辑入口、`server.tool` 文本 MCP allowlist、policy UI、`AgentToolCallPolicy` 和执行器通用 MCP 调用策略。`maxSteps` 现在只表示 LLM ReAct 轮数；MCP 调用总量、单轮量、单工具量、重复参数和 rate limit 停止由 policy 控制。验证通过 focused tests、全量 SwiftPM 756 tests、SwiftLint strict、`git diff --check` 和 App Debug build；Debug App 已重启，进程 `13394`。
+
+---
+
+## Task 55 · Phase 1 Task 17 · Release E2E Validation
+
+- **时间**：2026-05-10
+- **描述**：启动 Phase 1 真实 release E2E 验证任务，补齐 filesystem / postgres / brave-search / git / sqlite 五类 MCP server 的 `tools/list` 与安全只读 tool call 证据，并回归 Safari / Notes / Slack 的 `web-search-summarize`、权限确认、ResultPanel lifecycle 和热键路径。
+- **详情**：[docs/Task-detail/2026-05-10-phase-1-release-e2e-validation.md](Task-detail/2026-05-10-phase-1-release-e2e-validation.md)
+- **结果**：主体验证完成。已创建任务文档并明确环境前置条件、测试计划、证据记录模板和 secret 脱敏边界；已完成只读 worktree 核对和 `bash scripts/phase1-mcp-e2e.sh` 检查；README、master todolist 和 Phase 1 plan 已同步到 Task 17 当前状态。2026-05-19 已搭建 filesystem / postgres / brave-search / git / sqlite 五项本地 MCP 环境，写入 SliceAI `mcp.json`，并通过直接 MCP JSON-RPC 完成五项 `tools/list` 与安全只读 / 低风险 `tools/call`。已补丁本机 `config-v2.json` 使 `web-search-summarize` 可见，并修复 DeepSeek V4 thinking mode tool-call follow-up 丢失 `reasoning_content`、Brave 搜索 MCP 授权按钮不可用、Agent 连续工具调用后无最终回答、最终回合 DSML 工具调用标记误作为正文输出，以及单次运行中过量顺序 Brave 搜索触发限流等 App 实测缺陷；验证通过 focused tests、全量 SwiftPM 749 tests、全量 SwiftLint strict、`git diff --check` 和 App Debug build。用户已基本复测 Safari / Notes / Slack `web-search-summarize`、权限、ResultPanel 和热键 App 回归且未反馈阻塞问题；进入 `v0.3` 发布前仍需最终 release gate / review loop。
+
+---
+
 ## Task 54 · Phase 1 M4 Task 16 · Five MCP Server E2E And Release Documentation
 
 - **时间**：2026-05-09

@@ -107,8 +107,16 @@ public enum DefaultConfiguration {
         icon: "magnifyingglass",
         description: "用 Brave Search MCP 搜索并总结选中内容",
         kind: .agent(AgentTool(
-            systemPrompt: "You search the web only when needed and summarize with citations.",
-            initialUserPrompt: "Search and summarize information related to:\n\n{{selection}}",
+            systemPrompt: """
+            You use Brave web search sparingly and summarize with citations. Prefer one search. Use at most 2 \
+            Brave web searches total. If a search is rate limited or fails, stop searching and summarize from \
+            the successful results already available, clearly noting any limitations.
+            """,
+            initialUserPrompt: """
+            Use at most 2 Brave web searches to summarize reliable information related to:
+
+            {{selection}}
+            """,
             contexts: [
                 ContextRequest(
                     key: .init(rawValue: "selection"),
@@ -122,8 +130,20 @@ public enum DefaultConfiguration {
             skill: nil,
             mcpAllowlist: [MCPToolRef(server: "brave-search", tool: "brave_web_search")],
             builtinCapabilities: [],
-            maxSteps: 6,
-            stopCondition: .finalAnswerProvided
+            maxSteps: 4,
+            stopCondition: .finalAnswerProvided,
+            toolCallPolicy: AgentToolCallPolicy(
+                maxTotalCalls: 2,
+                maxCallsPerTurn: 2,
+                perToolLimits: [
+                    AgentToolCallLimit(
+                        ref: MCPToolRef(server: "brave-search", tool: "brave_web_search"),
+                        maxCalls: 2
+                    )
+                ],
+                duplicateArgumentStrategy: .skipExactArguments,
+                stopOnRateLimit: true
+            )
         )),
         visibleWhen: nil,
         displayMode: .window,

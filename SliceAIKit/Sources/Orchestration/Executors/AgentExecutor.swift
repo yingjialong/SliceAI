@@ -14,7 +14,7 @@ import SliceCore
 public actor AgentExecutor {
 
     /// 调试日志；只写固定字段，敏感内容进入事件前已脱敏。
-    private let logger = Logger(subsystem: "com.sliceai.orchestration", category: "AgentExecutor")
+    let logger = Logger(subsystem: "com.sliceai.orchestration", category: "AgentExecutor")
     /// ProviderSelection 解析器；保留在执行器边界，便于后续 capability/cascade agent routing。
     let providerResolver: any ProviderResolverProtocol
     /// MCP client，执行真实 tools/list 与 tools/call。
@@ -131,31 +131,67 @@ public actor AgentExecutor {
         var messages = AgentPromptBuilder.buildInitialMessages(agent: agent, resolved: resolved)
         let model = resolveModel(selection: agent.provider, fallback: provider.defaultModel)
         let maxSteps = max(1, agent.maxSteps)
+        var toolCallState = AgentToolCallRunState(
+            policy: effectiveToolCallPolicy(agent: agent, catalog: catalog, maxSteps: maxSteps)
+        )
 
         for step in 0..<maxSteps {
             logger.debug("agent step \(step, privacy: .public) started")
             let turn = try await runLLMTurn(
                 llm: llm,
-                model: model,
-                messages: messages,
-                catalog: catalog,
+                request: makeChatToolRequest(model: model, messages: messages, catalog: catalog, toolChoice: .auto),
                 continuation: continuation
             )
             guard !turn.toolCalls.isEmpty else { return }
-            messages.append(ChatMessage(
-                role: .assistant,
-                content: turn.assistantText.isEmpty ? nil : turn.assistantText,
-                toolCallID: nil,
-                toolCalls: turn.toolCalls
-            ))
-            let toolMessages = await processToolCalls(
-                turn.toolCalls,
-                catalog: catalog,
-                tool: tool,
-                continuation: continuation
+            let isBudgetExhausted = await appendToolTurnResult(
+                turn,
+                messages: &messages,
+                context: AgentToolTurnProcessingContext(
+                    catalog: catalog,
+                    tool: tool,
+                    continuation: continuation
+                ),
+                toolCallState: &toolCallState,
             )
-            messages.append(contentsOf: toolMessages)
+            if isBudgetExhausted {
+                logger.debug("agent tool call policy stopped further tool use")
+                break
+            }
         }
+
+        try await requestFinalAnswer(
+            llm: llm,
+            model: model,
+            messages: messages,
+            continuation: continuation
+        )
+    }
+
+    /// 达到工具调用轮数上限后，禁用工具并要求模型基于已有 tool result 产出最终回答。
+    private func requestFinalAnswer(
+        llm: any LLMProvider,
+        model: String,
+        messages: [ChatMessage],
+        continuation: AsyncThrowingStream<ExecutionEvent, any Error>.Continuation
+    ) async throws {
+        logger.debug("agent max tool steps reached; requesting final answer with tools disabled")
+        let finalTurn = try await runLLMTurn(
+            llm: llm,
+            request: makeFinalAnswerRequest(model: model, messages: messages),
+            continuation: continuation,
+            emitTextDeltas: false
+        )
+        if !finalTurn.toolCalls.isEmpty {
+            throw SliceError.provider(.invalidResponse("Agent finalization returned tool calls"))
+        }
+        if finalTurn.assistantText.isEmpty {
+            throw SliceError.provider(.invalidResponse("Agent finalization returned empty response"))
+        }
+        if containsToolCallMarkup(finalTurn.assistantText) {
+            logger.warning("agent finalization returned text tool-call markup")
+            throw SliceError.provider(.invalidResponse("Agent finalization returned tool-call markup"))
+        }
+        continuation.yield(.llmChunk(delta: finalTurn.assistantText))
     }
 
     /// 校验当前 AgentExecutor 支持的 stop condition。
@@ -189,36 +225,87 @@ public actor AgentExecutor {
         return try llmProviderFactory.make(for: provider, apiKey: apiKey)
     }
 
-    /// 跑一轮 LLM tool chat stream。
-    private func runLLMTurn(
-        llm: any LLMProvider,
+    /// 构造一轮 tool-chat 请求。
+    private nonisolated func makeChatToolRequest(
         model: String,
         messages: [ChatMessage],
         catalog: AgentToolCatalog,
-        continuation: AsyncThrowingStream<ExecutionEvent, any Error>.Continuation
-    ) async throws -> AgentTurn {
-        let request = ChatToolRequest(
+        toolChoice: ChatToolChoice
+    ) -> ChatToolRequest {
+        ChatToolRequest(
             model: model,
             messages: messages,
             tools: catalog.chatTools,
-            toolChoice: .auto
+            toolChoice: toolChoice
         )
+    }
+
+    /// 构造禁用工具后的最终答案请求。
+    ///
+    /// 这里刻意不传 tools schema，也不传 `tool_choice`。部分 OpenAI-compatible provider 在
+    /// `tool_choice=none` 但仍收到 tools schema 时，会把内部工具调用标记当普通文本输出。
+    private nonisolated func makeFinalAnswerRequest(model: String, messages: [ChatMessage]) -> ChatToolRequest {
+        ChatToolRequest(
+            model: model,
+            messages: messages + [finalAnswerInstructionMessage()],
+            tools: [],
+            toolChoice: nil
+        )
+    }
+
+    /// 构造最终答案指令消息。
+    private nonisolated func finalAnswerInstructionMessage() -> ChatMessage {
+        ChatMessage(
+            role: .user,
+            content: """
+            No more tool calls are available. Based only on the tool results already provided, write the final \
+            answer for the user. Do not output tool-call markup, XML, JSON, or internal protocol tokens.
+            """
+        )
+    }
+
+    /// 判断 provider 是否把内部工具调用协议误作为普通文本返回。
+    private nonisolated func containsToolCallMarkup(_ text: String) -> Bool {
+        let normalized = text.lowercased()
+        let hasToolCalls = normalized.contains("tool_calls")
+        let hasMarkupToken = normalized.contains("dsml")
+            || normalized.contains("invoke name=")
+            || normalized.contains("parameter name=")
+        return hasToolCalls && hasMarkupToken
+    }
+
+    /// 跑一轮 LLM tool chat stream。
+    private func runLLMTurn(
+        llm: any LLMProvider,
+        request: ChatToolRequest,
+        continuation: AsyncThrowingStream<ExecutionEvent, any Error>.Continuation,
+        emitTextDeltas: Bool = true
+    ) async throws -> AgentTurn {
         let stream = try await llm.streamToolChat(request: request)
         var assembler = AgentToolCallAssembler()
         var assistantText = ""
+        var reasoningContent = ""
         for try await event in stream {
             try Task.checkCancellation()
             switch event {
+            case .reasoningDelta(let delta):
+                reasoningContent += delta
             case .textDelta(let delta):
                 assistantText += delta
-                continuation.yield(.llmChunk(delta: delta))
+                if emitTextDeltas {
+                    continuation.yield(.llmChunk(delta: delta))
+                }
             case .toolCallDelta(let delta):
                 assembler.apply(delta)
             case .finished:
                 break
             }
         }
-        return AgentTurn(assistantText: assistantText, toolCalls: try assembler.assemble())
+        return AgentTurn(
+            assistantText: assistantText,
+            reasoningContent: reasoningContent,
+            toolCalls: try assembler.assemble()
+        )
     }
 
     /// 解析工具级 model override。

@@ -9,6 +9,7 @@ public enum Role: String, Sendable, Codable {
 public struct ChatMessage: Sendable, Codable, Equatable {
     public let role: Role
     public let content: String?
+    public let reasoningContent: String?
     public let toolCallID: String?
     public let toolCalls: [ChatToolCall]?
 
@@ -19,6 +20,7 @@ public struct ChatMessage: Sendable, Codable, Equatable {
     public init(role: Role, content: String) {
         self.role = role
         self.content = content
+        self.reasoningContent = nil
         self.toolCallID = nil
         self.toolCalls = nil
     }
@@ -33,16 +35,19 @@ public struct ChatMessage: Sendable, Codable, Equatable {
         role: Role,
         content: String?,
         toolCallID: String?,
-        toolCalls: [ChatToolCall]?
+        toolCalls: [ChatToolCall]?,
+        reasoningContent: String? = nil
     ) {
         self.role = role
         self.content = content
+        self.reasoningContent = reasoningContent
         self.toolCallID = toolCallID
         self.toolCalls = toolCalls
     }
 
     private enum CodingKeys: String, CodingKey {
         case role, content
+        case reasoningContent = "reasoning_content"
         case toolCallID = "tool_call_id"
         case toolCalls = "tool_calls"
     }
@@ -142,6 +147,33 @@ public struct ChatToolRequest: Sendable, Codable, Equatable {
         self.maxTokens = maxTokens
     }
 
+    /// 编码为 OpenAI-compatible chat/completions 请求。
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(model, forKey: .model)
+        try container.encode(messages, forKey: .messages)
+        if !tools.isEmpty {
+            try container.encode(tools, forKey: .tools)
+            try container.encodeIfPresent(toolChoice, forKey: .toolChoice)
+        }
+        try container.encodeIfPresent(temperature, forKey: .temperature)
+        try container.encodeIfPresent(maxTokens, forKey: .maxTokens)
+    }
+
+    /// 从 JSON 解码 tool chat 请求，缺省 tools 时按无工具请求处理。
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedTools = try container.decodeIfPresent([ChatTool].self, forKey: .tools) ?? []
+        self.model = try container.decode(String.self, forKey: .model)
+        self.messages = try container.decode([ChatMessage].self, forKey: .messages)
+        self.tools = decodedTools
+        self.toolChoice = decodedTools.isEmpty
+            ? nil
+            : try container.decodeIfPresent(ChatToolChoice.self, forKey: .toolChoice)
+        self.temperature = try container.decodeIfPresent(Double.self, forKey: .temperature)
+        self.maxTokens = try container.decodeIfPresent(Int.self, forKey: .maxTokens)
+    }
+
     private enum CodingKeys: String, CodingKey {
         case model, messages, tools, temperature
         case toolChoice = "tool_choice"
@@ -237,6 +269,7 @@ public struct ChatToolCallDelta: Sendable, Equatable {
 
 /// Tool calling 流式事件。
 public enum ChatStreamEvent: Sendable, Equatable {
+    case reasoningDelta(String)
     case textDelta(String)
     case toolCallDelta(ChatToolCallDelta)
     case finished(FinishReason)

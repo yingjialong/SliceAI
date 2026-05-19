@@ -4,6 +4,7 @@ import SliceCore
 /// 单轮 LLM 输出结果。
 struct AgentTurn: Sendable {
     let assistantText: String
+    let reasoningContent: String
     let toolCalls: [ChatToolCall]
 }
 

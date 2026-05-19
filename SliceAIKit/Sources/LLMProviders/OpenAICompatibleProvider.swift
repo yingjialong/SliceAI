@@ -336,6 +336,9 @@ private extension OpenAICompatibleProvider {
 
         guard let choice = parsed.choices.first else { return [] }
         var events: [ChatStreamEvent] = []
+        if let reasoning = choice.delta.reasoningContent, !reasoning.isEmpty {
+            events.append(.reasoningDelta(reasoning))
+        }
         if let content = choice.delta.content, !content.isEmpty {
             events.append(.textDelta(content))
         }

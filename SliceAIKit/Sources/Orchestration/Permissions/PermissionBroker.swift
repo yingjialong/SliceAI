@@ -43,7 +43,7 @@ public actor PermissionBroker: PermissionBrokerProtocol {
 
     /// In-memory grant 缓存（actor 隔离）
     private let store: PermissionGrantStore
-    /// Persistent grant 缓存；仅由 Settings-only grant 写入，runtime broker 只读取
+    /// Persistent grant 缓存；可缓存权限允许由运行期确认写入
     private let persistentStore: PersistentPermissionGrantStore?
     /// UI-free consent presenter；broker 不直接依赖 AppKit
     private let consentPresenter: any PermissionConsentPresenting
@@ -53,7 +53,7 @@ public actor PermissionBroker: PermissionBrokerProtocol {
     /// 构造默认 broker
     /// - Parameters:
     ///   - store: in-memory session grant store。
-    ///   - persistentStore: persistent grant store；runtime 只读取，Settings 才写入。
+    ///   - persistentStore: persistent grant store；nil 时运行期不提供持久授权选项。
     ///   - consentPresenter: UI-free consent presenter。
     public init(
         store: PermissionGrantStore = .init(),
@@ -141,7 +141,7 @@ public actor PermissionBroker: PermissionBrokerProtocol {
     ///   - provenance: 工具来源。
     /// - Returns: 命中 session 或 persistent grant 时返回 true。
     private func hasCachedGrant(permission: Permission, tier: PermissionTier, provenance: Provenance) async -> Bool {
-        guard Self.cacheable(tier: tier) else {
+        guard Self.cacheable(permission: permission, tier: tier) else {
             return false
         }
 
@@ -209,29 +209,37 @@ public actor PermissionBroker: PermissionBrokerProtocol {
             return .wouldRequireConsent(permission: permission, uxHint: hint)
         }
 
-        let cacheable = Self.cacheable(tier: tier)
+        let cacheable = Self.cacheable(permission: permission, tier: tier)
         let request = PermissionConsentRequest(
             permission: permission,
             provenance: provenance,
             uxHint: hint,
-            allowedScopes: cacheable ? [.oneTime, .session] : [.oneTime]
+            allowedScopes: Self.allowedScopes(cacheable: cacheable, persistentStore: persistentStore)
         )
         let decision = await consentPresenter.requestConsent(request)
-        return await apply(decision: decision, permission: permission, provenance: provenance, cacheable: cacheable)
+        return await apply(
+            decision: decision,
+            permission: permission,
+            provenance: provenance,
+            cacheable: cacheable,
+            persistentStore: persistentStore
+        )
     }
 
-    /// 应用 presenter 决策，并按需记录 session grant
+    /// 应用 presenter 决策，并按需记录 session / persistent grant
     /// - Parameters:
     ///   - decision: presenter 返回决策。
     ///   - permission: 当前权限。
     ///   - provenance: 工具来源。
-    ///   - cacheable: 该权限 tier 是否可缓存。
+    ///   - cacheable: 该权限是否可缓存。
+    ///   - persistentStore: persistent grant store；nil 时不能写入持久授权。
     /// - Returns: 最终 gate outcome。
     private func apply(
         decision: PermissionConsentDecision,
         permission: Permission,
         provenance: Provenance,
-        cacheable: Bool
+        cacheable: Bool,
+        persistentStore: PersistentPermissionGrantStore?
     ) async -> GateOutcome {
         switch decision {
         case .deny(let reason):
@@ -257,8 +265,18 @@ public actor PermissionBroker: PermissionBrokerProtocol {
             }
 
         case .approve(.persistent):
-            permissionBrokerLog.debug("runtime persistent approval rejected")
-            return .denied(permission: permission, reason: "persistent permission grants are settings-only")
+            guard cacheable, let persistentStore else {
+                permissionBrokerLog.debug("persistent approval rejected for non-cacheable permission")
+                return .denied(permission: permission, reason: "persistent permission grant is not allowed")
+            }
+            do {
+                try await persistentStore.record(permission: permission, provenance: provenance, scope: .persistent)
+                permissionBrokerLog.debug("persistent permission grant recorded")
+                return .approved
+            } catch {
+                permissionBrokerLog.error("failed to record persistent grant")
+                return .denied(permission: permission, reason: "failed to record persistent permission grant")
+            }
         }
     }
 
@@ -342,6 +360,37 @@ public actor PermissionBroker: PermissionBrokerProtocol {
         case .networkWrite, .exec:
             return false
         }
+    }
+
+    /// 判断具体权限是否可缓存。
+    ///
+    /// `.mcp` 仍整体归为 network-write，但内置 Brave Web Search 是精确只读白名单，需要支持
+    /// “本次会话允许 / 以后一直允许”的 UX；其他高风险权限仍保持逐次确认。
+    /// - Parameters:
+    ///   - permission: 当前权限。
+    ///   - tier: 权限风险分层。
+    /// - Returns: true 表示可记录 session / persistent grant。
+    private static func cacheable(permission: Permission, tier: PermissionTier) -> Bool {
+        cacheable(tier: tier) || permission.supportsRuntimeGrantCache
+    }
+
+    /// 生成当前运行期可展示的授权范围。
+    /// - Parameters:
+    ///   - cacheable: 当前权限是否可缓存。
+    ///   - persistentStore: 是否配置了 persistent grant store。
+    /// - Returns: 按 UI 按钮顺序排列的授权范围。
+    private static func allowedScopes(
+        cacheable: Bool,
+        persistentStore: PersistentPermissionGrantStore?
+    ) -> [GrantScope] {
+        guard cacheable else {
+            return [.oneTime]
+        }
+        var scopes: [GrantScope] = [.oneTime, .session]
+        if persistentStore != nil {
+            scopes.append(.persistent)
+        }
+        return scopes
     }
 
     /// 按 §3.9.1 表生成 ConsentUXHint 文案

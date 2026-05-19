@@ -10,8 +10,8 @@ public enum SessionPermissionGrantStoreError: Error, Sendable, Equatable {
 /// In-memory `PermissionGrant` 存储（actor 隔离）
 ///
 /// **Task 8 范围**：仅 in-memory session-scoped 实现；persistent grant 写入
-/// `PersistentPermissionGrantStore`，且由 Settings-only 流程管理。当前 store 只记录 `.session`，
-/// `.oneTime` / `.persistent` 不进入内存缓存；network-write / exec / MCP / AppIntents 在存储层直接拒绝。
+/// `PersistentPermissionGrantStore`。当前 store 只记录 `.session`，`.oneTime` / `.persistent`
+/// 不进入内存缓存；高风险 network / exec / 默认 MCP / AppIntents 在存储层直接拒绝。
 ///
 /// **Key 设计：`(Permission, Provenance)` 复合 key**——同一 permission 在不同 provenance
 /// 来源下不应共享 grant（如 firstParty 给过 `.fileWrite` 不能让 unknown 来源的 `.fileWrite`
@@ -127,11 +127,6 @@ public actor PermissionGrantStore {
     /// - Parameter permission: 待判断权限。
     /// - Returns: true 表示可缓存；false 表示必须逐次确认。
     internal static func isCacheable(_ permission: Permission) -> Bool {
-        switch permission {
-        case .mcp, .network, .shellExec, .appIntents:
-            return false
-        case .fileRead, .fileWrite, .clipboard, .clipboardHistory, .screen, .systemAudio, .memoryAccess:
-            return true
-        }
+        permission.supportsRuntimeGrantCache
     }
 }

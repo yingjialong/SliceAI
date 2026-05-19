@@ -29,11 +29,14 @@ struct OpenAIStreamChoice: Decodable {
 struct OpenAIStreamDelta: Decodable {
     /// 新增文本片段；首帧通常只带 role 而无 content；finish 帧 delta 为 {}，故允许 nil
     let content: String?
+    /// DeepSeek thinking mode 的推理内容增量；后续 tool-call 请求必须原样回传
+    let reasoningContent: String?
     /// 工具调用增量；function arguments 会以字符串片段形式分批到达
     let toolCalls: [OpenAIToolCallDelta]?
 
     private enum CodingKeys: String, CodingKey {
         case content
+        case reasoningContent = "reasoning_content"
         case toolCalls = "tool_calls"
     }
 }

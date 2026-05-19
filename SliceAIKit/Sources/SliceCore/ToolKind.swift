@@ -90,6 +90,7 @@ public struct AgentTool: Sendable, Codable, Equatable {
     public var builtinCapabilities: [BuiltinCapability]
     public var maxSteps: Int
     public var stopCondition: StopCondition
+    public var toolCallPolicy: AgentToolCallPolicy?
 
     /// 构造 AgentTool
     public init(
@@ -101,7 +102,8 @@ public struct AgentTool: Sendable, Codable, Equatable {
         mcpAllowlist: [MCPToolRef],
         builtinCapabilities: [BuiltinCapability],
         maxSteps: Int,
-        stopCondition: StopCondition
+        stopCondition: StopCondition,
+        toolCallPolicy: AgentToolCallPolicy? = nil
     ) {
         self.systemPrompt = systemPrompt
         self.initialUserPrompt = initialUserPrompt
@@ -112,6 +114,7 @@ public struct AgentTool: Sendable, Codable, Equatable {
         self.builtinCapabilities = builtinCapabilities
         self.maxSteps = maxSteps
         self.stopCondition = stopCondition
+        self.toolCallPolicy = toolCallPolicy
     }
 }
 

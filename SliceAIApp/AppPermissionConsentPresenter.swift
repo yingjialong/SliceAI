@@ -13,7 +13,7 @@ private let appPermissionConsentLog = Logger(
 /// AppKit 运行期权限确认弹窗。
 ///
 /// Orchestration 只依赖 `PermissionConsentPresenting`，因此 App 层在这里完成 NSAlert 展示。
-/// presenter 不提供 persistent approval；跨启动授权只能由 Settings 写入。
+/// presenter 仅展示 broker 明确允许的授权范围，避免 UI 自行放大权限。
 @MainActor
 final class AppPermissionConsentPresenter: PermissionConsentPresenting {
 
@@ -23,6 +23,10 @@ final class AppPermissionConsentPresenter: PermissionConsentPresenting {
     private static let denyResponse = NSApplication.ModalResponse.alertSecondButtonReturn
     /// NSAlert 第三个按钮：批准本次 App 会话。
     private static let approveSessionResponse = NSApplication.ModalResponse.alertThirdButtonReturn
+    /// NSAlert 第四个按钮：跨启动持久批准。
+    private static let approvePersistentResponse = NSApplication.ModalResponse(
+        rawValue: NSApplication.ModalResponse.alertThirdButtonReturn.rawValue + 1
+    )
 
     /// 构造 App 权限确认 presenter。
     init() {}
@@ -30,7 +34,7 @@ final class AppPermissionConsentPresenter: PermissionConsentPresenting {
     /// 请求用户确认某条权限。
     ///
     /// - Parameter request: Orchestration 生成的权限确认请求。
-    /// - Returns: 用户选择的授权决策；不会返回 `.persistent`。
+    /// - Returns: 用户选择的授权决策。
     nonisolated func requestConsent(_ request: PermissionConsentRequest) async -> PermissionConsentDecision {
         await MainActor.run {
             Self.presentConsentAlert(for: request)
@@ -60,6 +64,14 @@ final class AppPermissionConsentPresenter: PermissionConsentPresenting {
             appPermissionConsentLog.debug("permission consent approved for session")
             return .approve(scope: .session)
 
+        case Self.approvePersistentResponse:
+            guard request.allowedScopes.contains(.persistent) else {
+                appPermissionConsentLog.debug("disabled persistent approval response treated as deny")
+                return .deny(reason: "runtime permission persistent approval is not allowed")
+            }
+            appPermissionConsentLog.debug("permission consent approved persistently")
+            return .approve(scope: .persistent)
+
         case Self.denyResponse:
             appPermissionConsentLog.debug("permission consent denied by user")
             return .deny(reason: "user denied runtime permission")
@@ -88,11 +100,15 @@ final class AppPermissionConsentPresenter: PermissionConsentPresenting {
         alert.addButton(withTitle: "本次允许")
         alert.addButton(withTitle: "拒绝")
         alert.addButton(withTitle: "本次会话允许")
+        alert.addButton(withTitle: "以后一直允许")
         configureConsentButtonShortcuts(alert)
 
-        // Orchestration 对高风险 each-time 权限只允许 one-time；保留按钮但禁用，避免误导用户。
+        // Orchestration 对高风险 each-time 权限只允许 one-time；缓存按钮由 broker 决定是否可用。
         if !request.allowedScopes.contains(.session), alert.buttons.indices.contains(2) {
             alert.buttons[2].isEnabled = false
+        }
+        if !request.allowedScopes.contains(.persistent), alert.buttons.indices.contains(3) {
+            alert.buttons[3].isEnabled = false
         }
         return alert
     }
@@ -101,18 +117,20 @@ final class AppPermissionConsentPresenter: PermissionConsentPresenting {
     ///
     /// - Parameter alert: 已添加三个按钮的权限确认 alert。
     private static func configureConsentButtonShortcuts(_ alert: NSAlert) {
-        guard alert.buttons.count >= 3 else {
-            assertionFailure("Permission consent alert must have three buttons")
+        guard alert.buttons.count >= 4 else {
+            assertionFailure("Permission consent alert must have four buttons")
             return
         }
         alert.buttons[0].keyEquivalent = "\r"
         alert.buttons[1].keyEquivalent = "\u{1b}"
         alert.buttons[2].keyEquivalent = ""
+        alert.buttons[3].keyEquivalent = ""
 
-        // Debug 期锁住 fail-closed contract：Return 可批准一次，Escape 只能拒绝，session 无快捷键。
+        // Debug 期锁住 fail-closed contract：Return 可批准一次，Escape 只能拒绝，缓存按钮无快捷键。
         assert(alert.buttons[0].keyEquivalent == "\r")
         assert(alert.buttons[1].keyEquivalent == "\u{1b}")
         assert(alert.buttons[2].keyEquivalent.isEmpty)
+        assert(alert.buttons[3].keyEquivalent.isEmpty)
     }
 
     /// 返回权限 case 名称和关键关联值摘要。

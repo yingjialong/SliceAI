@@ -350,6 +350,51 @@ final class OpenAICompatibleProviderTests: XCTestCase {
         ])
     }
 
+    /// DeepSeek thinking mode 的 reasoning_content delta 必须透出给 AgentExecutor 续传。
+    func test_openAIProvider_streamsReasoningContentDelta() async throws {
+        let sse = Data("""
+        data: {"choices":[{"delta":{"reasoning_content":"Need search first."},"finish_reason":null}]}
+
+        data: {"choices":[{"delta":{"content":"Answer"},"finish_reason":"stop"}]}
+
+        data: [DONE]
+
+        """.utf8)
+
+        MockURLProtocol.requestHandler = { req in
+            let resp = HTTPURLResponse(
+                url: req.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "text/event-stream"]
+            )!
+            return (resp, sse)
+        }
+
+        let provider = OpenAICompatibleProvider(
+            baseURL: URL(string: "https://api.example.com/v1")!,
+            apiKey: "sk-test",
+            session: URLSession.mocked()
+        )
+        let request = ChatToolRequest(
+            model: "deepseek-v4-flash",
+            messages: [ChatMessage(role: .user, content: "search")],
+            tools: [],
+            toolChoice: .auto
+        )
+
+        var events: [ChatStreamEvent] = []
+        for try await event in try await provider.streamToolChat(request: request) {
+            events.append(event)
+        }
+
+        XCTAssertEqual(events, [
+            .reasoningDelta("Need search first."),
+            .textDelta("Answer"),
+            .finished(.stop),
+        ])
+    }
+
     /// 从 URLProtocol 捕获到的 request 中读取 body。
     ///
     /// URLSession 交给 URLProtocol 时可能把 `httpBody` 转为 `httpBodyStream`，

@@ -50,6 +50,19 @@ final class PersistentPermissionGrantStoreTests: XCTestCase {
         XCTAssertFalse(hit)
     }
 
+    /// Brave web search MCP 是当前内置只读搜索工具，允许写入 persistent grant。
+    func test_persistentStore_allowsBraveSearchMCPPermission() async throws {
+        let fileURL = try Self.makeTemporaryGrantFileURL()
+        let permission = Permission.mcp(server: "brave-search", tools: ["brave_web_search"])
+        let firstStore = PersistentPermissionGrantStore(fileURL: fileURL)
+
+        try await firstStore.record(permission: permission, provenance: .firstParty, scope: .persistent)
+
+        let secondStore = PersistentPermissionGrantStore(fileURL: fileURL)
+        let hit = await secondStore.has(permission: permission, provenance: .firstParty)
+        XCTAssertTrue(hit)
+    }
+
     /// 磁盘里伪造的 session grant 不应被当成 persistent grant 命中
     func test_persistentStore_rejectsStoredSessionGrant() async throws {
         let fileURL = try Self.makeTemporaryGrantFileURL()

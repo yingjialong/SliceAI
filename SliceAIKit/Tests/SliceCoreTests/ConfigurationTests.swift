@@ -41,7 +41,8 @@ final class ConfigurationTests: XCTestCase {
             XCTFail("web-search-summarize should be an agent tool")
             return
         }
-        XCTAssertEqual(agent.initialUserPrompt, "Search and summarize information related to:\n\n{{selection}}")
+        XCTAssertTrue(agent.initialUserPrompt.contains("Use at most 2 Brave web searches"))
+        XCTAssertTrue(agent.initialUserPrompt.contains("{{selection}}"))
         XCTAssertEqual(agent.contexts, [
             ContextRequest(
                 key: .init(rawValue: "selection"),
@@ -54,8 +55,15 @@ final class ConfigurationTests: XCTestCase {
         XCTAssertEqual(agent.mcpAllowlist, [
             MCPToolRef(server: "brave-search", tool: "brave_web_search")
         ])
-        XCTAssertEqual(agent.maxSteps, 6)
+        XCTAssertEqual(agent.maxSteps, 4)
         XCTAssertEqual(agent.stopCondition, .finalAnswerProvided)
+        XCTAssertEqual(agent.toolCallPolicy?.maxTotalCalls, 2)
+        XCTAssertEqual(agent.toolCallPolicy?.maxCallsPerTurn, 2)
+        XCTAssertEqual(agent.toolCallPolicy?.perToolLimits, [
+            AgentToolCallLimit(ref: MCPToolRef(server: "brave-search", tool: "brave_web_search"), maxCalls: 2)
+        ])
+        XCTAssertEqual(agent.toolCallPolicy?.duplicateArgumentStrategy, .skipExactArguments)
+        XCTAssertEqual(agent.toolCallPolicy?.stopOnRateLimit, true)
     }
 
     /// Web Search Summarize 必须声明 Brave Search MCP 权限，否则 PermissionGraph 会 fail-closed。

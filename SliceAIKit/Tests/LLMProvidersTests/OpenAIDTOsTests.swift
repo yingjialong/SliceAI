@@ -33,4 +33,14 @@ final class OpenAIDTOsTests: XCTestCase {
         XCTAssertEqual(toolCall.function.name, "brave_web_search")
         XCTAssertEqual(toolCall.function.arguments, "{\"q\"")
     }
+
+    func test_decodesReasoningContentDeltaChunk() throws {
+        let json = """
+        {"id":"c","choices":[{"delta":{"reasoning_content":"Need search first."},"finish_reason":null}]}
+        """.data(using: .utf8)!
+
+        let chunk = try JSONDecoder().decode(OpenAIStreamChunk.self, from: json)
+
+        XCTAssertEqual(chunk.choices.first?.delta.reasoningContent, "Need search first.")
+    }
 }

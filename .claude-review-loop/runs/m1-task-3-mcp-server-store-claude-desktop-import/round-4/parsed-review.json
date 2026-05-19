@@ -1,5 +1,0 @@
-{
-  "findings": [],
-  "summary": "Round 4 review of M1 Task 3 (MCP server store + Claude Desktop import). After three rounds of accepted high/medium findings (absolute-path runner detection, versioned/case runner normalization, wrapper command rejection), the fail-closed validation pipeline now covers schemaVersion, duplicate ids, unknown provenance, missing/empty command, relative paths, `..` components, allowlisted-runner typed confirmation (including absolute paths and versioned variants), env/shell wrapper rejection, and remote transport/websocket bans. Errors do not echo user paths beyond canonical runner names. The importer remains format-only and defers runner confirmation enforcement to store.save, which keeps the trust boundary at write time. No further material critical/high/medium issues were found in the in-scope diff. Approving.",
-  "verdict": "approve"
-}

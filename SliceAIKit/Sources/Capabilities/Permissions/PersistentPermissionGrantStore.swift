@@ -21,7 +21,7 @@ public enum PersistentPermissionGrantStoreError: Error, Sendable, Equatable {
 ///
 /// 默认路径：`~/Library/Application Support/SliceAI/permission-grants.json`。
 /// 该 store 只保存 `.persistent` grant；`.session` 由 Orchestration 的 in-memory store 负责，
-/// `.oneTime` 不进入任何缓存。
+/// `.oneTime` 不进入任何缓存；MCP 仅允许精确白名单内置只读工具持久化。
 public actor PersistentPermissionGrantStore {
 
     /// 当前文件 schema 版本。
@@ -145,12 +145,7 @@ public actor PersistentPermissionGrantStore {
     /// - Parameter permission: 待判断权限。
     /// - Returns: true 表示可缓存；false 表示必须逐次确认。
     private static func isCacheable(_ permission: Permission) -> Bool {
-        switch permission {
-        case .mcp, .network, .shellExec, .appIntents:
-            return false
-        case .fileRead, .fileWrite, .clipboard, .clipboardHistory, .screen, .systemAudio, .memoryAccess:
-            return true
-        }
+        permission.supportsRuntimeGrantCache
     }
 
     /// 校验磁盘 grant 文件是否满足当前持久授权约束。
