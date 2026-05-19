@@ -3,4 +3,3 @@ data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"funct
 data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":":\"SliceAI\"}"}}]},"finish_reason":"tool_calls"}]}
 
 data: [DONE]
-
