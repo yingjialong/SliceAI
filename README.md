@@ -6,7 +6,7 @@ SliceAI 让你在任何 Mac 应用里选中文字后，通过快捷工具栏或 
 
 ## Status
 
-v0.2.0 Phase 0 底层重构已正式发布：v2 数据模型、Orchestration 执行引擎、Capabilities 能力边界已接入真实 App 触发链。Release: <https://github.com/yingjialong/SliceAI/releases/tag/v0.2.0>。参见 [docs/v2-refactor-master-todolist.md](docs/v2-refactor-master-todolist.md) 跟踪后续 Phase。
+v0.2.0 Phase 0 底层重构已正式发布：v2 数据模型、Orchestration 执行引擎、Capabilities 能力边界已接入真实 App 触发链。Release: <https://github.com/yingjialong/SliceAI/releases/tag/v0.2.0>。当前进入 Phase 1 准备期，MCP + Context design spec 与 implementation plan 均已通过 Claude review，下一步可按 plan 进入实现。参见 [docs/v2-refactor-master-todolist.md](docs/v2-refactor-master-todolist.md) 跟踪后续 Phase。
 
 ## Features (MVP v0.2)
 
@@ -50,6 +50,15 @@ open SliceAI.xcodeproj
 
 ## 项目修改变动记录
 
+### 2026-05-06 · Phase 1 MCP + Context planning
+
+**范围**：design spec `docs/superpowers/specs/2026-05-06-phase-1-mcp-context-design.md`；implementation plan `docs/superpowers/plans/2026-05-06-phase-1-mcp-context.md`
+
+**主要变更**：
+- Phase 1 范围确认采用完整 v0.3 DoD，总 plan 拆为 M1-M4：MCP 配置与 stdio、Context 与 Permission、AgentExecutor 与工具调用 UI、HTTP transport / Per-Tool Hotkey / 五服务器 E2E / 发布准备。
+- MCP 远程传输口径修正为标准 `Streamable HTTP`，旧 `HTTP+SSE` 仅作为兼容 fallback；不再把旧 SSE 当作新远程传输主线。
+- Claude review loop 已把 design spec 修订到 Round 3 `approve`；implementation plan 已完成 Round 8 `approve`，19 条 finding 全部接受并修复。下一步可按 plan 选择 subagent-driven 或 inline execution 进入实现。
+
 ### 2026-05-04 · Phase 0 M3 · Switch to V2
 
 **范围**：plan `docs/superpowers/plans/2026-04-28-phase-0-m3-switch-to-v2.md`，分支 `feature/phase-0-m3-switch-to-v2`
@@ -74,7 +83,7 @@ open SliceAI.xcodeproj
 
 **主要变更**：
 - **Orchestration 模块完整落地**：`ExecutionEngine` actor 主流程串起 spec §3.4 Step 1-10（PermissionGraph 静态闭环 → PermissionBroker.gate → ContextCollector 平铺并发 → ProviderResolver → PromptExecutor → OutputDispatcher → CostAccounting → JSONLAuditLog → finishSuccess）；事件流 `ExecutionEvent` + 终态报告 `InvocationReport`（含 declared/effective 权限差异 + flags + outcome）
-- **Capabilities 模块 + SecurityKit**：`PathSandbox`（路径规范化 + 默认白名单 + 硬禁止表，含 macOS `/private/etc` symlink 展开后的兜底）+ `MCPClientProtocol` / `SkillRegistryProtocol` 完整接口 + production-side `MockMCPClient` / `MockSkillRegistry`（Phase 1 才实现真实 stdio/SSE）
+- **Capabilities 模块 + SecurityKit**：`PathSandbox`（路径规范化 + 默认白名单 + 硬禁止表，含 macOS `/private/etc` symlink 展开后的兜底）+ `MCPClientProtocol` / `SkillRegistryProtocol` 完整接口 + production-side `MockMCPClient` / `MockSkillRegistry`（Phase 1 才实现真实 stdio / Streamable HTTP / legacy HTTP+SSE）
 - **权限闭环（spec §3.9.6.5）**：`EffectivePermissions` 5 字段（context/sideEffect/mcp/builtin/declared）+ `PermissionGraph.compute` D-24 静态闭环 + `PermissionBroker` 4 态决策（approved / denied / requiresUserConsent / wouldRequireConsent）+ `ConsentUXHint` 5×4 矩阵（spec §3.9.2 下限 × provenance）
 - **遥测 + 安全下限**：`CostAccounting` actor + sqlite append（毫秒精度 `recorded_at` + `usd: TEXT` Decimal 精度）；`JSONLAuditLog` actor + `Redaction.scrub` 4 模式脱敏（Bearer / sk- / Authorization / Cookie）+ `AuditEntry` enum 3 case（含 `.logCleared`）；`SliceCore.SliceError` 加 `.context` / `.toolPermission` 顶层 case，全部 String payload 严格 `<redacted>`
 - **PromptExecutor 复制非替换**（§C-7）：从 `SliceCore/ToolExecutor.swift` 复制 prompt 渲染逻辑到 `Orchestration/Executors/PromptExecutor.swift`（升级到 V2 类型 + `PromptStreamElement` enum + `UsageStats` token 估算），**v1 ToolExecutor.swift 0 行 diff**——M3 才删旧文件
@@ -92,7 +101,7 @@ open SliceAI.xcodeproj
 **M2 不做（保留给后续 Phase）**：
 - AppContainer 接入 ExecutionEngine 与触发链（M3）
 - 删除 `SliceCore/ToolExecutor.swift` + rename pass（M3）
-- 真实 MCPClient（stdio/SSE，Phase 1）+ 真实 SkillRegistry（fs scan，Phase 2）
+- 真实 MCPClient（stdio / Streamable HTTP / legacy HTTP+SSE，Phase 1）+ 真实 SkillRegistry（fs scan，Phase 2）
 - OutputDispatcher 的 `.clipboard` / `.replaceSelection` / `.notification` / `.sideOnly` / `.window+notification` 5 种 mode（Phase 2，M2 仅 `.window` 真实分发，其余 `.notImplemented`）
 
 ### 2026-04-21 · UI 全面美化 + Task 22 收官

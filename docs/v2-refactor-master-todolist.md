@@ -15,11 +15,11 @@
 
 | 字段 | 值 |
 |---|---|
-| 最后更新 | 2026-05-06 |
-| 当前 Phase | **Phase 1 准备期**（MCP + Context 主干） |
-| 当前 Milestone | **Phase 1 design spec 已起草，等待用户 review** |
-| 下一个动作 | 用户 review `docs/superpowers/specs/2026-05-06-phase-1-mcp-context-design.md`；确认后用 `superpowers:writing-plans` 起草 `docs/superpowers/plans/2026-05-06-phase-1-mcp-context.md` |
-| 阻塞 | Phase 1 plan 尚未起草；进入实现前必须先完成 spec review、plan、plan review 到 APPROVED / COMMENT |
+| 最后更新 | 2026-05-07 |
+| 当前 Phase | **Phase 1 M1 实施中**（MCP 配置与 stdio 主干） |
+| 当前 Milestone | **M1 Task 1-4 已完成；Task 4 已通过 Claude review loop** |
+| 下一个动作 | 先对 **M1 Task 5 · MCP Servers Settings Page** 做 `claude-review-loop` 预审；通过后继续用 `superpowers:subagent-driven-development` 按 TDD 实施 |
+| 阻塞 | 无 Task 5 实现阻塞；legacy HTTP+SSE fallback 偏差已修正为“弃用，不实现” |
 
 **Milestone 状态**
 
@@ -30,7 +30,7 @@
 | 0 | M1 | ✅ 已 merge 入 main（merge commit `5cdf0f7`，2026-04-25） |
 | 0 | M2 | ✅ 已完成：Orchestration + Capabilities 骨架落地 |
 | 0 | M3 | ✅ 已完成并发布：PR #3 merged，`v0.2.0` tag + GitHub Release |
-| 1 | — | ⏳ design spec 已起草，待用户 review；plan 未写 |
+| 1 | M1 | ⏳ Task 1-4 已完成；下一步 Task 5（MCP Servers Settings Page） |
 | 2–5 | — | 🟦 Directional，进入前需重新 spec |
 
 ---
@@ -66,7 +66,7 @@
 | Phase | 主题 | 状态 | 时长（人天） | 对外可见新功能 | 关键产出 |
 |---|---|---|---|---|---|
 | **0** | 底层重构 | **Freeze，实施中**（M1 完成等 merge） | 15–21 (M1+M2+M3) | **无**（只重构） | Orchestration + Capabilities 骨架、Tool 三态、ExecutionSeed/ResolvedContext、Permission + Provenance + PermissionGraph + PathSandbox hook、v2 schema + 独立 config 路径 |
-| **1** | MCP + Context 主干 | **Freeze，未启动** | 20–30 | MCP 支持 / 5 个核心 ContextProvider / Per-Tool Hotkey | MCPClient（stdio + SSE）+ MCPServersPage + AgentExecutor + `web-search-summarize` 首个真 Agent Tool |
+| **1** | MCP + Context 主干 | **Freeze，M1 实施中** | 20–30 | MCP 支持 / 5 个核心 ContextProvider / Per-Tool Hotkey | MCPClient（stdio + Streamable HTTP；legacy HTTP+SSE 弃用不实现）+ MCPServersPage + AgentExecutor + `web-search-summarize` 首个真 Agent Tool |
 | **2** | Skill + 多 DisplayMode | Directional | — | Skill 接入 / replace / bubble / structured / TTS | 进入前重新 spec |
 | **3** | Prompt IDE + 本地模型 | Directional | — | Playground / A-B / Ollama & Anthropic 原生 / Memory | 进入前重新 spec |
 | **4** | 生态与分享 | Directional | — | Tool Pack / Marketplace / SliceAI as MCP server / Shortcuts / Services | 进入前重新 spec；Pack 签名体系在 §3.9.4 已埋 hook |
@@ -305,15 +305,26 @@ fi
 
 **目标**：把 Phase 0 的 `ContextProvider` / `MCPClient` / `AgentExecutor` 填实；用户可以在 Settings 加 MCP server，并在 Tool 勾选哪些 MCP tool 可用；Per-Tool Hotkey 生效。
 
-**状态**：**设计已 Freeze**，**brainstorming design spec 已起草**，**plan 未写**。
+**状态**：**设计已 Freeze**，**brainstorming design spec 与 implementation plan 均已通过 Claude review loop**；M1 Task 1-4 已在 `feature/phase-1-mcp-context` 完成，下一步进入 Task 5。
 
 **Entry criteria**（启动 plan 起草的前置条件）：
 
 - [x] Phase 0 全部 milestone merge（v0.2 已发布）
 - [x] 用 superpowers:brainstorming skill 走一遍 Phase 1 设计（spec 已 freeze 但细节需要再走一遍）
-- [ ] 用户 review `docs/superpowers/specs/2026-05-06-phase-1-mcp-context-design.md`
-- [ ] 产出 `docs/superpowers/plans/2026-05-06-phase-1-mcp-context.md`
-- [ ] plan 过一轮 Codex review，直到 APPROVED / COMMENT
+- [x] Claude review loop 审查 `docs/superpowers/specs/2026-05-06-phase-1-mcp-context-design.md` 到 Round 3 `approve`
+- [x] 用户 review `docs/superpowers/specs/2026-05-06-phase-1-mcp-context-design.md`
+- [x] 产出 `docs/superpowers/plans/2026-05-06-phase-1-mcp-context.md`
+- [x] plan 过一轮 Codex/Claude review，直到 APPROVED / COMMENT（Claude Round 8 `approve`）
+
+**M1 当前执行状态**：
+
+| Task | 范围 | 状态 |
+|---|---|---|
+| M1 Task 1 | SliceCore MCP JSON Contract | ✅ 已完成并提交 |
+| M1 Task 2 | MCP Client Protocol Uses Canonical Descriptor | ✅ 已完成并提交 |
+| M1 Task 3 | MCP Server Store And Claude Desktop Import | ✅ 已完成并提交 |
+| M1 Task 4 | Stdio MCP JSON-RPC Client | ✅ 已完成并通过 Claude review loop |
+| M1 Task 5 | MCP Servers Settings Page | ⏭ 下一步 |
 
 **Early validation（Phase 1 早期验收，不是启动门槛）**——按 spec §5.3 定位，在首个真实 Agent Tool `web-search-summarize` 开发阶段实测：
 
@@ -326,7 +337,7 @@ fi
 | # | 项目 | 说明 |
 |---|---|---|
 | 1.1 | `Capabilities/MCPClient`（stdio） | 子进程管理、JSON-RPC framing、懒启动、idle 超时 |
-| 1.2 | `Capabilities/MCPClient`（SSE） | 远程 MCP server |
+| 1.2 | `Capabilities/MCPClient`（Streamable HTTP） | 远程 MCP server；旧 HTTP+SSE 明确弃用，不作为 Phase 1 实现目标 |
 | 1.3 | `SettingsUI/Pages/MCPServersPage` | 增删改、测试连接、查看暴露的 tool 列表 |
 | 1.4 | 兼容 Claude Desktop 的 `mcp.json` 格式 | 用户导入一次搞定 |
 | 1.5 | `Orchestration/AgentExecutor` | ReAct loop + tool call 审批 UI |
@@ -711,6 +722,49 @@ fi
 - 按 `superpowers:brainstorming` 完成 Phase 1 设计复核，范围确认采用完整 v0.3 DoD，总 plan 内部拆 M1-M4。
 - 推荐并确认执行方案为"主干先行 + 里程碑验收"：M1 MCP 配置与 stdio、M2 Context 与 Permission、M3 AgentExecutor 与工具调用 UI、M4 HTTP transport / Per-Tool Hotkey / 5 server E2E / 发布准备。
 - 新增 design spec：`docs/superpowers/specs/2026-05-06-phase-1-mcp-context-design.md`。
-- MCP 远程传输口径修正：当前 MCP 官方最新规范以 `Streamable HTTP` 为标准远程传输，旧 `HTTP+SSE` 只作为兼容路径；Phase 1 不再把旧 SSE 当作新设计主线。
+- MCP 远程传输口径修正：当前 MCP 官方最新规范以 `Streamable HTTP` 为标准远程传输；旧 `HTTP+SSE` 已从 Phase 1 实现目标中移除，后续不做兼容 fallback。
 
-**下一步**：用户 review design spec；确认后用 `superpowers:writing-plans` 起草 `docs/superpowers/plans/2026-05-06-phase-1-mcp-context.md` 并做 plan review。
+**当时下一步（已完成）**：用户 review Claude review 修订后的 design spec，并用 `superpowers:writing-plans` 起草 `docs/superpowers/plans/2026-05-06-phase-1-mcp-context.md`。
+
+### 2026-05-06 — Phase 1 design spec Claude review loop 通过
+
+- 按 `claude-review-loop` 对 `docs/superpowers/specs/2026-05-06-phase-1-mcp-context-design.md` 跑 3 轮 Claude Opus review。
+- Round 1 接受并修复 1 high + 3 medium：MCP tool call grant 不缓存、`MCPTransport` 迁移、MCP JSON value / content item 落点、PermissionGraph 静态闭环。
+- Round 2 partial 修复 1 medium：D-24 的 `effectivePermissions ⊆ tool.permissions` 明确为 case-aware coverage，支持文件通配 / 前缀与 MCP tools 宽声明；shell 保持精确白名单。
+- Round 3 返回 `approve`，`findings: []`。
+
+**当时下一步（已完成）**：用户 review 后进入 `superpowers:writing-plans`。
+
+### 2026-05-06 — Phase 1 implementation plan 起草
+
+- 按 `superpowers:writing-plans` 起草 Phase 1 implementation plan：`docs/superpowers/plans/2026-05-06-phase-1-mcp-context.md`。
+- plan 保持完整 v0.3 DoD 范围，并拆为 M1-M4：MCP 配置与 stdio、Context 与 Permission、AgentExecutor 与工具调用 UI、HTTP transport / Per-Tool Hotkey / 五服务器 E2E / 发布准备。
+- plan 自审已覆盖 spec coverage、红旗词扫描与类型一致性；当前不进入实现。
+
+**下一步**：对 implementation plan 做完整 review，并按结果修订到 APPROVED / COMMENT。review 通过前不要进入实现。
+
+### 2026-05-06 — Phase 1 implementation plan Claude review loop 达到上限
+
+- 按 `claude-review-loop` 对 `docs/superpowers/plans/2026-05-06-phase-1-mcp-context.md` 跑 5 轮 Claude Opus review。
+- 5 轮共返回 14 条 material findings，全部 `accept` 并修复，覆盖 MCP JSON wire shape、PermissionBroker consent ownership、PathSandbox hard-deny coverage、tool-call lifecycle event、MCP input schema flow、SettingsUI dependency、AgentExecutor descriptor injection、LLM tool-calling API、RoutingMCPClient、多 transport、`MCPCallResult.isError`、assistant tool_calls history 等执行缺口。
+- Round 5 是默认 `max_iterations=5` 的上限轮；该轮最后 1 条 medium 已修复，但未再运行第 6 轮，因此当前没有 Claude `approve` 信号。
+
+**当时下一步（已完成）**：用户确认追加 1-3 次 follow-up review，目标是获取明确 `approve`。
+
+### 2026-05-06 — Phase 1 implementation plan Claude review approve
+
+- 按用户确认追加 Round 6-8 follow-up review。
+- Round 6 接受并修复 2 条 medium：missing descriptor 失败路径、AgentExecutor `.llmChunk` / OutputDispatcher 文本流路径。
+- Round 7 接受并修复 3 条 medium：out-of-allowlist tool call、多 tool_call 顺序处理、malformed arguments 失败路径。
+- Round 8 返回 `approve`，`findings: []`。至此 implementation plan 累计 19 条 material findings 全部修复。
+
+**下一步**：进入 Phase 1 实现。推荐按 plan 使用 `superpowers:subagent-driven-development`，从 M1 Task 1 开始；若不使用 subagent，则使用 `superpowers:executing-plans` inline 执行。
+
+### 2026-05-07 — Phase 1 M1 Task 1-4 完成，进入 Settings Page
+
+- `feature/phase-1-mcp-context` 已完成 M1 Task 1-4：SliceCore MCP JSON contract、canonical MCP client protocol、MCP server store / Claude Desktop stdio import、stdio MCP JSON-RPC client。
+- M1 Task 4 追加 `claude-review-loop` 复审，共 3 轮，最终 `verdict: "approve"` / `findings: []`；已修复 idle timeout generation、并发首次启动 single-flight、stdout/stderr FIFO 顺序等真实问题。
+- 当前自动化验证记录：`swift test --filter CapabilitiesTests` 通过，`swift test` 通过（622 tests），`git diff --check` 通过。
+- 远程 MCP 口径已按用户确认收敛：M4 只实现标准 `Streamable HTTP`；旧 HTTP+SSE 不再支持，相关 plan 段落进入 M4 前必须同步删改。
+
+**下一步**：先用 `claude-review-loop` 对 **M1 Task 5 · MCP Servers Settings Page** 做预审；通过后继续使用 `superpowers:subagent-driven-development` 和 TDD 实施 SettingsUI view model、页面入口、导入 / 测试连接 / tool list preview。
