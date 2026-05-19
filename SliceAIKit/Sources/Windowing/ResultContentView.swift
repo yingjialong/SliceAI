@@ -29,6 +29,10 @@ struct ResultContent: View {
                     .frame(height: 1.5)
             }
 
+            if !viewModel.toolCalls.isEmpty {
+                toolCallList
+            }
+
             // 正文区域：根据 streamingState 切换视图
             contentArea
         }
@@ -83,6 +87,26 @@ struct ResultContent: View {
         }
     }
 
+    /// Agent MCP 工具调用生命周期列表。
+    ///
+    /// 放在正文上方，避免嵌套 `StreamingMarkdownView` 内部 ScrollView；
+    /// 仅显示 compact rows，不改变 `.llmChunk` 的正文写入路径。
+    private var toolCallList: some View {
+        VStack(alignment: .leading, spacing: SliceSpacing.sm) {
+            ForEach(viewModel.toolCalls) { call in
+                ToolCallLifecycleRow(call: call)
+            }
+        }
+        .padding(.horizontal, SliceSpacing.xxl)
+        .padding(.top, SliceSpacing.md)
+        .padding(.bottom, SliceSpacing.base)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .bottom) {
+            Divider()
+                .background(SliceColor.divider)
+        }
+    }
+
     /// 顶栏：左侧 pin 圆点 + 工具名 + 模型 Chip / 右侧 4 个 IconButton
     ///
     /// header 空白区通过 DragAreaHost（NSView.performDrag）实现拖动，
@@ -129,6 +153,98 @@ struct ResultContent: View {
         .background(DragAreaHost())
     }
 
+}
+
+/// 工具调用生命周期行：展示状态图标、阶段文本、工具名和脱敏详情。
+private struct ToolCallLifecycleRow: View {
+    /// 当前行对应的工具调用状态。
+    let call: ResultToolCallState
+
+    /// 渲染紧凑生命周期行。
+    var body: some View {
+        HStack(alignment: .top, spacing: SliceSpacing.md) {
+            Image(systemName: iconName)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(statusColor)
+                .frame(width: 16, height: 16)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: SliceSpacing.xs) {
+                HStack(spacing: SliceSpacing.md) {
+                    Text(statusText)
+                        .font(SliceFont.captionEmphasis)
+                        .foregroundColor(statusColor)
+                        .lineLimit(1)
+
+                    Text(call.title)
+                        .font(SliceFont.captionEmphasis)
+                        .foregroundColor(SliceColor.textPrimary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+
+                if !call.detail.isEmpty {
+                    Text(call.detail)
+                        .font(SliceFont.caption)
+                        .foregroundColor(SliceColor.textSecondary)
+                        .lineLimit(2)
+                        .truncationMode(.tail)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, SliceSpacing.xs)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(statusText) \(call.title)")
+    }
+
+    /// 当前状态对应的 SF Symbol。
+    private var iconName: String {
+        switch call.status {
+        case .proposed:
+            return "hourglass"
+        case .approved:
+            return "checkmark.circle"
+        case .result:
+            return "checkmark.circle.fill"
+        case .denied:
+            return "hand.raised.fill"
+        case .error:
+            return "exclamationmark.triangle.fill"
+        }
+    }
+
+    /// 当前状态的中文短标签。
+    private var statusText: String {
+        switch call.status {
+        case .proposed:
+            return "准备调用"
+        case .approved:
+            return "已批准"
+        case .result:
+            return "已完成"
+        case .denied:
+            return "已拒绝"
+        case .error:
+            return "失败"
+        }
+    }
+
+    /// 当前状态对应的语义色。
+    private var statusColor: Color {
+        switch call.status {
+        case .proposed:
+            return SliceColor.textTertiary
+        case .approved:
+            return SliceColor.accent
+        case .result:
+            return SliceColor.success
+        case .denied:
+            return SliceColor.warning
+        case .error:
+            return SliceColor.error
+        }
+    }
 }
 
 /// 标题栏拖拽宿主：桥接 NSView.performDrag 使 SwiftUI header 空白区可拖动 NSPanel

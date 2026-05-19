@@ -52,6 +52,7 @@ final class ConfigMigratorV1ToV2Tests: XCTestCase {
         let v2 = try ConfigMigratorV1ToV2.migrate(v1)
 
         XCTAssertEqual(v2.hotkeys.toggleCommandPalette, "option+space")
+        XCTAssertEqual(v2.hotkeys.tools, [:])
         XCTAssertEqual(v2.triggers.floatingToolbarEnabled, true)
         XCTAssertEqual(v2.triggers.commandPaletteEnabled, true)
         XCTAssertEqual(v2.triggers.minimumSelectionLength, 1)
@@ -87,6 +88,7 @@ final class ConfigMigratorV1ToV2Tests: XCTestCase {
         XCTAssertTrue(v2.telemetry.enabled)
         XCTAssertEqual(v2.appBlocklist.count, 2)
         XCTAssertEqual(v2.hotkeys.toggleCommandPalette, "option+shift+space")
+        XCTAssertEqual(v2.hotkeys.tools, [:])
     }
 
     func test_migrate_full_preservesLabelStyle() throws {

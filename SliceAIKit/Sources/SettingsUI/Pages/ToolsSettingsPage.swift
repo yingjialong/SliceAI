@@ -16,6 +16,7 @@
 // 这套相较于"实时挤开"方案更贴近 macOS 原生拖拽体感（Finder / Reminders）：
 // 其他行不抖、被拖项由系统预览跟手、指示线清晰表达落位点。
 import DesignSystem
+import HotkeyManager
 import SliceCore
 import SwiftUI
 import UniformTypeIdentifiers
@@ -35,7 +36,7 @@ import UniformTypeIdentifiers
 public struct ToolsSettingsPage: View {
 
     /// 写盘前的静默等待时长：用户连续编辑时避免频繁写盘
-    private static let saveDebounceInterval: UInt64 = 600_000_000  // 600 ms
+    static let saveDebounceInterval: UInt64 = 600_000_000  // 600 ms
 
     /// 拖拽上/下半判定用的行高估算值（硬编码）
     ///
@@ -44,26 +45,26 @@ public struct ToolsSettingsPage: View {
     private static let estimatedRowHeight: CGFloat = 50
 
     /// 设置视图模型，用于读写 configuration.tools
-    @ObservedObject private var viewModel: SettingsViewModel
+    @ObservedObject var viewModel: SettingsViewModel
 
     /// 当前展开编辑的 Tool id；nil 表示无选中
-    @State private var expandedId: String?
+    @State var expandedId: String?
 
     /// 待确认删除的 Tool id；非 nil 时弹出删除确认 alert
-    @State private var pendingDeleteId: String?
+    @State var pendingDeleteId: String?
 
     /// 当前被拖动的 Tool.id；非 nil 表示正有一次拖拽进行中
-    @State private var draggedId: String?
+    @State var draggedId: String?
 
     /// 如果此刻松手，插入点（Array.move 的 toOffset 语义，0…count）
     ///
     /// - nil：不显示任何指示线
     /// - 0：插入到第一个工具之前
     /// - N：插入到 tools[N] 之前（等于最后位置时在列表尾部）
-    @State private var dropTargetIndex: Int?
+    @State var dropTargetIndex: Int?
 
     /// debounced save 的当前 Task；新变动进来就 cancel 重排
-    @State private var saveDebounceTask: Task<Void, Never>?
+    @State var saveDebounceTask: Task<Void, Never>?
 
     /// 构造 Tools 设置页
     /// - Parameter viewModel: 宿主注入的设置视图模型
@@ -72,7 +73,7 @@ public struct ToolsSettingsPage: View {
     }
 
     public var body: some View {
-        SettingsPageShell(title: "Tools", subtitle: "管理工具列表与提示词。") {
+        SettingsPageShell(title: "Tools", subtitle: "管理工具列表、Prompt 与 Agent 配置。") {
             actionRow
             if viewModel.configuration.tools.isEmpty {
                 emptyState
@@ -118,8 +119,11 @@ public struct ToolsSettingsPage: View {
     private var actionRow: some View {
         HStack {
             Spacer()
-            PillButton("添加工具", icon: "plus", style: .primary) {
-                addTool()
+            PillButton("添加 Prompt", icon: "plus", style: .secondary) {
+                addPromptTool()
+            }
+            PillButton("添加 Agent", icon: "plus", style: .primary) {
+                addAgentTool()
             }
         }
     }
@@ -258,103 +262,19 @@ public struct ToolsSettingsPage: View {
             Rectangle().fill(SliceColor.divider).frame(height: 0.5)
             ToolEditorView(
                 tool: binding,
-                providers: viewModel.configuration.providers
+                providers: viewModel.configuration.providers,
+                tools: viewModel.configuration.tools,
+                hotkeys: $viewModel.configuration.hotkeys,
+                onHotkeyCommit: {
+                    Task {
+                        await viewModel.saveHotkeys()
+                    }
+                }
             )
             .padding(SliceSpacing.xl)
         }
     }
 
-    // MARK: - 数据操作
-
-    /// 添加新工具并自动展开编辑区（save 由 onChange(tools) 兜底）
-    private func addTool() {
-        let newId = "tool-\(Int(Date().timeIntervalSince1970))"
-        let providerId = viewModel.configuration.providers.first?.id ?? ""
-        let prompt = PromptTool(
-            systemPrompt: nil,
-            userPrompt: "{{selection}}",
-            contexts: [],
-            provider: .fixed(providerId: providerId, modelId: nil),
-            temperature: 0.7,
-            maxTokens: nil,
-            variables: [:]
-        )
-        let newTool = Tool(
-            id: newId,
-            name: "新工具",
-            icon: "wand.and.stars",
-            description: nil,
-            kind: .prompt(prompt),
-            visibleWhen: nil,
-            displayMode: .window,
-            outputBinding: nil,
-            permissions: [],
-            provenance: .firstParty,
-            budget: nil,
-            hotkey: nil,
-            labelStyle: .icon,
-            tags: []
-        )
-        print("[ToolsSettingsPage] addTool: id=\(newId)")
-        viewModel.configuration.tools.append(newTool)
-        withAnimation(SliceAnimation.standard) {
-            expandedId = newId
-        }
-    }
-
-    /// 实际执行删除（alert 确认后才调用；save 由 onChange(tools) 兜底）
-    private func performDelete(id: String) {
-        print("[ToolsSettingsPage] performDelete: id=\(id)")
-        withAnimation(SliceAnimation.standard) {
-            viewModel.configuration.tools.removeAll { $0.id == id }
-            if expandedId == id { expandedId = nil }
-        }
-    }
-
-    /// 拖拽结束（行 / 外层兜底）时统一调用：执行 Array.move 并清理状态
-    ///
-    /// `dropTargetIndex` 在 `dropUpdated` 里实时更新；松手后落盘由
-    /// `.onChange(of: tools)` 的 debounced save 自动兜底。
-    /// 不清 draggedId / dropTargetIndex 就会污染下一次拖拽，必须 defer 清掉。
-    private func commitReorder() {
-        defer {
-            draggedId = nil
-            dropTargetIndex = nil
-        }
-        guard let sourceId = draggedId,
-              let from = viewModel.configuration.tools.firstIndex(where: { $0.id == sourceId }),
-              let target = dropTargetIndex else {
-            return
-        }
-        // target == from / target == from + 1 都等价于"不移动"，跳过避免无意义动画
-        guard target != from, target != from + 1 else { return }
-        print("[ToolsSettingsPage] commitReorder: \(from) → \(target)")
-        withAnimation(.easeInOut(duration: 0.25)) {
-            viewModel.configuration.tools.move(
-                fromOffsets: IndexSet(integer: from),
-                toOffset: target
-            )
-        }
-    }
-
-    /// 安排一次 debounced save（取消上一个挂起 Task 再启新）
-    ///
-    /// 这是**唯一的 save 入口**：addTool / performDelete / commitReorder /
-    /// ToolEditorView 的 @Binding 写入全都通过 `.onChange(of: tools)` 流到这里。
-    /// 好处：不用在各处显式 save、用户停手才写盘、ToolEditorView 的文字输入也会保存。
-    private func scheduleDebouncedSave() {
-        saveDebounceTask?.cancel()
-        saveDebounceTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: Self.saveDebounceInterval)
-            guard !Task.isCancelled else { return }
-            do {
-                try await viewModel.save()
-                print("[ToolsSettingsPage] debounced save OK")
-            } catch {
-                print("[ToolsSettingsPage] debounced save failed – \(error.localizedDescription)")
-            }
-        }
-    }
 }
 
 // MARK: - ToolReorderDropDelegate

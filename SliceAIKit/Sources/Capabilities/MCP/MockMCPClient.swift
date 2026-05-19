@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import SliceCore
 
 /// `MCPClientProtocol` 的内存 Mock 实现：构造期注入 tools 与 responses，运行期按字典查表回放。
@@ -17,10 +18,13 @@ import SliceCore
 ///   的行为一致（spec §3.4 Step 7 由 ExecutionEngine 在更高层决定空列表怎么处理）。
 public final actor MockMCPClient: MCPClientProtocol {
 
+    /// Mock 调试日志；字段使用 private privacy，避免真实 server/tool 名称进入系统日志明文。
+    private let logger = Logger(subsystem: "SliceAIKit", category: "MockMCPClient")
+
     // MARK: - 注入状态
 
     /// server → 工具列表 的字典；`tools(for:)` 直接查表，未命中返回空数组。
-    private let tools: [MCPDescriptor: [MCPToolRef]]
+    private let tools: [MCPDescriptor: [MCPToolDescriptor]]
 
     /// 工具引用 → 期望响应 的字典；`call(ref:args:)` 命中即返回，未命中 throw `.toolNotFound`。
     /// 设计上故意忽略 `args`——M2 Mock 不验证参数，只按 ref 路由；测试需要"按参数变响应"时
@@ -31,10 +35,13 @@ public final actor MockMCPClient: MCPClientProtocol {
 
     /// `call(ref:args:)` 累计调用次数（含 throw `.toolNotFound` 的失败次数，与"是否成功"无关）。
     /// 测试断言"我期望 caller 总共发起 N 次 MCP 调用"用。
-    private var _callCount: Int = 0
+    public private(set) var callCount = 0
 
-    /// 暴露当前 `_callCount` 给测试断言用。actor isolation 自动序列化读，不用额外锁。
-    public var callCount: Int { _callCount }
+    /// 最近一次 `call(ref:args:)` 收到的结构化 JSON 参数。
+    public private(set) var lastArguments: MCPJSONValue.Object?
+
+    /// 最近一次 `tools(for:)` 查询使用的 canonical descriptor。
+    public private(set) var lastToolsDescriptor: MCPDescriptor?
 
     // MARK: - 初始化
 
@@ -43,7 +50,7 @@ public final actor MockMCPClient: MCPClientProtocol {
     ///   - tools: server → 工具列表 字典；缺失的 server 走"空 tools"分支。默认空字典 = 没有任何 server。
     ///   - responses: 工具引用 → 期望响应 字典；缺失的 ref 让 `call` throw `.toolNotFound`。默认空。
     public init(
-        tools: [MCPDescriptor: [MCPToolRef]] = [:],
+        tools: [MCPDescriptor: [MCPToolDescriptor]] = [:],
         responses: [MCPToolRef: MCPCallResult] = [:]
     ) {
         self.tools = tools
@@ -53,18 +60,30 @@ public final actor MockMCPClient: MCPClientProtocol {
     // MARK: - MCPClientProtocol
 
     /// 直接查 `tools` 字典；未命中返回 `[]`（语义见类型注释）。
-    public func tools(for descriptor: MCPDescriptor) async throws -> [MCPToolRef] {
+    public func tools(for descriptor: MCPDescriptor) async throws -> [MCPToolDescriptor] {
+        lastToolsDescriptor = descriptor
         // 命中即返回拷贝；Swift Array 是 value type，调用方拿到的是独立副本，无并发风险
-        tools[descriptor] ?? []
+        let descriptors = tools[descriptor] ?? []
+        logger.debug(
+            "Mock MCP tools lookup id=\(descriptor.id, privacy: .private) count=\(descriptors.count, privacy: .public)"
+        )
+        return descriptors
     }
 
     /// 在 `responses` 字典查 `ref`；命中返回，未命中 throw `.toolNotFound`。
     /// 无论是否命中都先 +1 调用计数——计数语义是"caller 发起调用次数"，而不是"成功次数"。
-    public func call(ref: MCPToolRef, args: [String: String]) async throws -> MCPCallResult {
-        _callCount += 1
+    public func call(ref: MCPToolRef, args: MCPJSONValue.Object) async throws -> MCPCallResult {
+        callCount += 1
+        lastArguments = args
         guard let response = responses[ref] else {
+            logger.debug(
+                "Mock MCP call miss server=\(ref.server, privacy: .private) tool=\(ref.tool, privacy: .private)"
+            )
             throw MCPClientError.toolNotFound(ref: ref)
         }
+        logger.debug(
+            "Mock MCP call hit server=\(ref.server, privacy: .private) tool=\(ref.tool, privacy: .private)"
+        )
         return response
     }
 }

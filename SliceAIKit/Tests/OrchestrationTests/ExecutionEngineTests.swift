@@ -134,7 +134,8 @@ final class ExecutionEngineTests: XCTestCase {
         keychainStore: [String: String] = ["openai-stub": "fake-key"],
         audit: MockAuditLog? = nil,
         output: MockOutputDispatcher? = nil,
-        llmProviderOverride: (any LLMProvider)? = nil
+        llmProviderOverride: (any LLMProvider)? = nil,
+        agentExecutor: AgentExecutor? = nil
     ) throws -> (
         engine: ExecutionEngine,
         broker: MockPermissionBroker,
@@ -170,7 +171,8 @@ final class ExecutionEngineTests: XCTestCase {
             skillRegistry: MockSkillRegistry(),
             costAccounting: costAccounting,
             auditLog: actualAudit,
-            output: actualOutput
+            output: actualOutput,
+            agentExecutor: agentExecutor
         )
         return (engine, actualBroker, actualAudit, actualOutput, actualResolver)
     }
@@ -547,6 +549,66 @@ final class ExecutionEngineTests: XCTestCase {
         let resolverCalls = await bundle.resolver.resolveCalls
         XCTAssertEqual(resolverCalls, 0,
                        ".agent kind 不应触发 ProviderResolver；fix 前会浪费 1 次调用")
+    }
+
+    /// .agent ToolKind 在注入 AgentExecutor 后应走真实 agent route，而不是 M2 notImplemented stub。
+    func test_execute_agentKind_withAgentExecutor_routesThroughAgentAndFinishesSuccess() async throws {
+        let llm = MockToolCallingLLMProvider(turns: [
+            [.textDelta("agent answer"), .finished(.stop)]
+        ])
+        let agentExecutor = AgentExecutor(
+            providerResolver: MockProviderResolver(),
+            mcpClient: MockMCPClient(),
+            permissionBroker: MockPermissionBroker(),
+            keychain: MockKeychain(["openai-stub": "fake-key"]),
+            llmProviderFactory: MockLLMProviderFactory(provider: llm),
+            mcpDescriptors: { [] }
+        )
+        let bundle = try makeEngine(agentExecutor: agentExecutor)
+        let agent = AgentTool(
+            systemPrompt: "agent system",
+            initialUserPrompt: "user {{selection}}",
+            contexts: [],
+            provider: .fixed(providerId: "openai-stub", modelId: nil),
+            skill: nil,
+            mcpAllowlist: [],
+            builtinCapabilities: [],
+            maxSteps: 3,
+            stopCondition: .finalAnswerProvided
+        )
+        let agentTool = Tool(
+            id: "tool.agent.real",
+            name: "Agent",
+            icon: "A",
+            description: nil,
+            kind: .agent(agent),
+            visibleWhen: nil,
+            displayMode: .window,
+            outputBinding: nil,
+            permissions: [],
+            provenance: .firstParty,
+            budget: nil,
+            hotkey: nil,
+            labelStyle: .iconAndName,
+            tags: []
+        )
+
+        let events = await collectEvents(from: bundle.engine.execute(tool: agentTool, seed: makeStubSeed()))
+
+        XCTAssertFalse(events.contains { event in
+            if case .notImplemented = event { return true }
+            return false
+        })
+        XCTAssertTrue(events.contains { event in
+            if case .llmChunk(let delta) = event, delta == "agent answer" { return true }
+            return false
+        })
+        guard case .finished(let report) = events.last else {
+            XCTFail("last event expected .finished, got \(events)"); return
+        }
+        XCTAssertEqual(report.outcome, .success)
+        let resolverCalls = await bundle.resolver.resolveCalls
+        XCTAssertEqual(resolverCalls, 1)
     }
 
     /// .pipeline ToolKind 同样应直接 `finishNotImplementedKind`。

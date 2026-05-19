@@ -105,7 +105,7 @@ final class JSONLAuditLogTests: XCTestCase {
         XCTAssertEqual(read.first, original)
     }
 
-    /// sideEffectTriggered(.callMCP) round-trip——含 String 关联值（params dict）
+    /// sideEffectTriggered(.callMCP) round-trip——含 JSON params dict。
     /// `ref.server` / `ref.tool` 落盘后会被 scrubEntry 脱敏成 `<redacted>`（与
     /// `MCPClientError.toolNotFound` 同口径），所以 round-trip 期望值用 redacted 形态对比；
     /// 非敏感 params 原样保留。
@@ -115,7 +115,7 @@ final class JSONLAuditLogTests: XCTestCase {
             invocationId: UUID(),
             sideEffect: .callMCP(
                 ref: MCPToolRef(server: "postgres", tool: "query"),
-                params: ["sql": "SELECT 1", "timeout": "30"]
+                params: ["sql": .string("SELECT 1"), "timeout": .string("30")]
             ),
             executedAt: executedAt
         )
@@ -130,7 +130,7 @@ final class JSONLAuditLogTests: XCTestCase {
         }
         XCTAssertEqual(scrubbedRef.server, "<redacted>", "ref.server 必须被脱敏")
         XCTAssertEqual(scrubbedRef.tool, "<redacted>", "ref.tool 必须被脱敏")
-        XCTAssertEqual(scrubbedParams, ["sql": "SELECT 1", "timeout": "30"], "非敏感 params 应原样保留")
+        XCTAssertEqual(scrubbedParams, ["sql": .string("SELECT 1"), "timeout": .string("30")], "非敏感 params 应原样保留")
     }
 
     /// logCleared(at:) round-trip
@@ -179,7 +179,7 @@ final class JSONLAuditLogTests: XCTestCase {
             invocationId: UUID(),
             sideEffect: .callMCP(
                 ref: MCPToolRef(server: "github", tool: "createIssue"),
-                params: ["token": "Bearer secret.jwt.value", "repo": "foo/bar"]
+                params: ["token": .string("Bearer secret.jwt.value"), "repo": .string("foo/bar")]
             ),
             executedAt: Date()
         )
@@ -193,6 +193,46 @@ final class JSONLAuditLogTests: XCTestCase {
         // 因为 Phase 1 用户配置可能让其变成路径 / token-like
         XCTAssertFalse(content.contains("github"), "ref.server 必须脱敏")
         XCTAssertFalse(content.contains("createIssue"), "ref.tool 必须脱敏")
+        XCTAssertTrue(content.contains("<redacted>"), "应含 <redacted> 标记")
+    }
+
+    /// SideEffect.callMCP 的 params 必须按 object key 递归识别敏感字段并脱敏。
+    func test_append_sideEffectCallMCP_paramsKeyAwareRecursiveScrubbed() async throws {
+        let entry = AuditEntry.sideEffectTriggered(
+            invocationId: UUID(),
+            sideEffect: .callMCP(
+                ref: MCPToolRef(server: "vault", tool: "write"),
+                params: [
+                    "password": .string("hunter2"),
+                    "credentials": .object([
+                        "apiKey": .string("plain-secret"),
+                        "note": .string("Authorization: Bearer abc.def.ghi")
+                    ]),
+                    "items": .array([
+                        .object(["token": .string("array-token-value")]),
+                        .object(["label": .string("visible-label")])
+                    ]),
+                    "repo": .string("foo/bar"),
+                    "safe": .bool(true),
+                    "limit": .number(3),
+                    "nothing": .null
+                ]
+            ),
+            executedAt: Date()
+        )
+
+        try await sut.append(entry)
+        let content = try String(contentsOf: fileURL, encoding: .utf8)
+
+        XCTAssertFalse(content.contains("hunter2"), "top-level password key 的值不应落盘")
+        XCTAssertFalse(content.contains("plain-secret"), "nested apiKey key 的值不应落盘")
+        XCTAssertFalse(content.contains("array-token-value"), "array 内 token key 的值不应落盘")
+        XCTAssertFalse(content.contains("abc.def.ghi"), "非敏感 key 下的字符串仍应走 Redaction.scrub")
+        XCTAssertTrue(content.contains("foo/bar"), "非敏感字符串应保留")
+        XCTAssertTrue(content.contains("visible-label"), "array 内非敏感字符串应保留")
+        XCTAssertTrue(content.contains(#""safe":true"#), "bool 形状应保留")
+        XCTAssertTrue(content.contains(#""limit":3"#), "number 形状应保留")
+        XCTAssertTrue(content.contains(#""nothing":null"#), "null 形状应保留")
         XCTAssertTrue(content.contains("<redacted>"), "应含 <redacted> 标记")
     }
 

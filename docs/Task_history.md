@@ -4,6 +4,168 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 
 ---
 
+## Task 56 · Phase 1 Agent Tool Config And MCP Policy
+
+- **时间**：2026-05-19
+- **描述**：修正 Phase 1 文档口径，并补齐 v0.3 产品闭环中缺失的基础自定义 Agent Tool 配置、MCP allowlist 编辑和通用 MCP tool-call policy。
+- **详情**：[docs/Task-detail/2026-05-19-phase-1-agent-tool-config-policy.md](Task-detail/2026-05-19-phase-1-agent-tool-config-policy.md)
+- **结果**：完成。已确认 Skill 属于 Phase 2，不作为当前 v0.3 blocker；新增基础 Agent Tool 编辑入口、`server.tool` 文本 MCP allowlist、policy UI、`AgentToolCallPolicy` 和执行器通用 MCP 调用策略。`maxSteps` 现在只表示 LLM ReAct 轮数；MCP 调用总量、单轮量、单工具量、重复参数和 rate limit 停止由 policy 控制。验证通过 focused tests、全量 SwiftPM 756 tests、SwiftLint strict、`git diff --check` 和 App Debug build；Debug App 已重启，进程 `13394`。
+
+---
+
+## Task 55 · Phase 1 Task 17 · Release E2E Validation
+
+- **时间**：2026-05-10
+- **描述**：启动 Phase 1 真实 release E2E 验证任务，补齐 filesystem / postgres / brave-search / git / sqlite 五类 MCP server 的 `tools/list` 与安全只读 tool call 证据，并回归 Safari / Notes / Slack 的 `web-search-summarize`、权限确认、ResultPanel lifecycle 和热键路径。
+- **详情**：[docs/Task-detail/2026-05-10-phase-1-release-e2e-validation.md](Task-detail/2026-05-10-phase-1-release-e2e-validation.md)
+- **结果**：主体验证完成。已创建任务文档并明确环境前置条件、测试计划、证据记录模板和 secret 脱敏边界；已完成只读 worktree 核对和 `bash scripts/phase1-mcp-e2e.sh` 检查；README、master todolist 和 Phase 1 plan 已同步到 Task 17 当前状态。2026-05-19 已搭建 filesystem / postgres / brave-search / git / sqlite 五项本地 MCP 环境，写入 SliceAI `mcp.json`，并通过直接 MCP JSON-RPC 完成五项 `tools/list` 与安全只读 / 低风险 `tools/call`。已补丁本机 `config-v2.json` 使 `web-search-summarize` 可见，并修复 DeepSeek V4 thinking mode tool-call follow-up 丢失 `reasoning_content`、Brave 搜索 MCP 授权按钮不可用、Agent 连续工具调用后无最终回答、最终回合 DSML 工具调用标记误作为正文输出，以及单次运行中过量顺序 Brave 搜索触发限流等 App 实测缺陷；验证通过 focused tests、全量 SwiftPM 749 tests、全量 SwiftLint strict、`git diff --check` 和 App Debug build。用户已基本复测 Safari / Notes / Slack `web-search-summarize`、权限、ResultPanel 和热键 App 回归且未反馈阻塞问题；进入 `v0.3` 发布前仍需最终 release gate / review loop。
+
+---
+
+## Task 54 · Phase 1 M4 Task 16 · Five MCP Server E2E And Release Documentation
+
+- **时间**：2026-05-09
+- **描述**：启动 Phase 1 收口任务，运行 M4 release readiness gate，记录 5 个 MCP server E2E 和 App 场景回归证据，补齐 MCPClient / ContextProviders 模块文档，并更新项目状态文档。
+- **详情**：[docs/Task-detail/2026-05-09-phase-1-m4-task-16-five-server-e2e-release-readiness.md](Task-detail/2026-05-09-phase-1-m4-task-16-five-server-e2e-release-readiness.md)
+- **结果**：完成。已完成 release lint blocker 修复、自动化 gate、E2E checklist 脚本和模块文档；真实 5-server MCP E2E / Safari-Notes-Slack 回归缺本机配置和测试数据源，已记录为 release 环境 blocker。Claude review loop Round 1 接受并修复脚本配置摘要泄漏 `args/url` 原值风险；Round 2 approve，`findings: []`。验证通过：`swift build`、735 tests with coverage、App Debug build、full strict lint、E2E checklist 脚本和敏感 fixture redaction check。
+
+---
+
+## Task 53 · Phase 1 M4 Task 15 · Per-Tool Hotkeys
+
+- **时间**：2026-05-09
+- **描述**：启动 M4 第二项任务，为单个工具增加全局热键配置、冲突校验、Settings UI 保存路径和 AppDelegate 直接执行路由。
+- **详情**：[docs/Task-detail/2026-05-09-phase-1-m4-task-15-per-tool-hotkeys.md](Task-detail/2026-05-09-phase-1-m4-task-15-per-tool-hotkeys.md)
+- **结果**：完成。已按 TDD 新增 per-tool hotkey 配置兼容、冲突检测、旧 `Tool.hotkey` fallback 冲突过滤和 tool id 注册 helper 测试；实现 `HotkeyBindings.tools`、`HotkeyBindingValidator`、`ToolHotkeyRegistration`、工具编辑器热键录制、命令面板/工具冲突提示、删除带热键工具后立即重载注册，以及 `AppDelegate` 多热键注册和工具热键直达执行。Claude review loop Round 1 接受并修复删除工具热键未重载、UI/runtime fallback 校验不一致两条 finding；Round 2 approve，`findings: []`。验证通过：focused tests、SettingsUITests、全量 SwiftPM 735、targeted lint、`git diff --check`、App Debug build。全仓 strict lint 仍被 13 个既有历史违规阻塞。
+
+---
+
+## Task 52 · Phase 1 M4 Task 14 · Streamable HTTP Transport
+
+- **时间**：2026-05-09
+- **描述**：启动 M4 第一项任务，为 MCP client 补齐 Streamable HTTP transport，使 `.streamableHTTP` descriptor 可通过 `RoutingMCPClient` 路由到真实 HTTP transport，同时继续拒绝 deprecated `.sse`。
+- **详情**：[docs/Task-detail/2026-05-09-phase-1-m3-task-14-streamable-http-transport.md](Task-detail/2026-05-09-phase-1-m3-task-14-streamable-http-transport.md)
+- **结果**：完成。已按 TDD 新增 `StreamableHTTPMCPClient`，支持 initialize、session id、2025-06-18 protocol header、JSON 与 SSE response；`RoutingMCPClient` 和 `AppContainer` 已接入 `.streamableHTTP`，`.sse` / `.websocket` 继续 fail-fast；`MCPServerValidation` 已允许 HTTPS 远程和 localhost 明文 HTTP，拒绝缺 URL、缺 host 与非本机明文 HTTP。Claude review Round 1 接受并修复 redirect 泄露风险和 404 session 过期后未重建；Round 2 approve，`findings: []`。验证通过：focused tests、CapabilitiesTests 92、全量 SwiftPM 728、targeted lint、`git diff --check`、App Debug build。全仓 strict lint 仍被 13 个既有历史违规阻塞。
+
+---
+
+## Task 51 · Phase 1 M3 Task 13 · Built-In web-search-summarize Agent Tool
+
+- **时间**：2026-05-08
+- **描述**：启动 M3 第四项任务，在默认配置中新增首方 `web-search-summarize` Agent 工具，使用 Brave Search MCP 搜索并总结选中内容，同时声明 tool-calling provider 能力需求和 MCP 权限。
+- **详情**：[docs/Task-detail/2026-05-08-phase-1-m3-task-13-web-search-summarize-agent-tool.md](Task-detail/2026-05-08-phase-1-m3-task-13-web-search-summarize-agent-tool.md)
+- **结果**：完成。已新增 `web-search-summarize` 首方 Agent tool，声明 selection context、tool-calling provider capability、Brave Search MCP allowlist 和 MCP 权限；`DefaultProviderResolver` 已实现 `.capability` 路由；旧 4 个 prompt tools 保持不变。验证通过：ConfigurationTests、ConfigurationStoreTests、ToolTests、ProviderResolverTests、ExecutionEngineTests、全量 SwiftPM 712、targeted lint、`git diff --check`、App Debug build。全仓 strict lint 仍被 13 个既有历史违规阻塞。Claude review loop Round 1 approve，`findings: []`。
+
+---
+
+## Task 50 · Phase 1 M3 Task 12 · ResultPanel Tool Call Lifecycle
+
+- **时间**：2026-05-08
+- **描述**：启动 M3 第三项任务，把 Task 11 的 AgentExecutor tool-call lifecycle events 显示到 ResultPanel，让用户看到 MCP tool call 的 proposed、approved、result、denied 和 error 状态。
+- **详情**：[docs/Task-detail/2026-05-08-phase-1-m3-task-12-resultpanel-tool-call-lifecycle.md](Task-detail/2026-05-08-phase-1-m3-task-12-resultpanel-tool-call-lifecycle.md)
+- **结果**：完成。已新增 Windowing 纯状态模型和 ResultPanel lifecycle rows，`ExecutionEventConsumer` 已把 tool-call events 映射到 UI，同时保持 `.llmChunk` 仍由 OutputDispatcher 单一路径写入正文。验证通过：focused tests、WindowingTests、全量 SwiftPM 706、targeted lint、`git diff --check`、App Debug build。全仓 strict lint 仍被既有历史文件阻塞。Claude review loop Round 1 approve，`findings: []`，无需额外修复。
+
+---
+
+## Task 49 · Phase 1 M3 Task 11 · AgentExecutor ReAct Loop
+
+- **时间**：2026-05-08
+- **描述**：启动 M3 第二项任务，在 Task 10 的 LLM tool calling contract 基础上实现 AgentExecutor ReAct loop，把 `.agent` ToolKind 从 stub 路由到真实 MCP tool calling 执行链。
+- **详情**：[docs/Task-detail/2026-05-08-phase-1-m3-task-11-agentexecutor-react-loop.md](Task-detail/2026-05-08-phase-1-m3-task-11-agentexecutor-react-loop.md)
+- **结果**：完成。已实现 `AgentExecutor` ReAct loop、MCP allowlist catalog、PermissionBroker gate、MCP result 回填、ExecutionEngine `.agent` 路由和 AppContainer 生产接线。验证通过：AgentExecutorTests 19、OrchestrationTests 231、全量 SwiftPM 701、targeted lint、`git diff --check`、App Debug build。全仓库 strict lint 仍被既有历史文件阻塞。Claude review loop 两轮收敛：Round 1 修复 catalog 非 allowlist 同名冲突、重复 descriptor id trap、unsupported `.maxStepsReached` 静默生效；Round 2 approve，`findings: []`。
+
+---
+
+## Task 48 · Phase 1 M3 Task 10 · LLM Tool Calling Contract
+
+- **时间**：2026-05-08
+- **描述**：启动 M3 第一项任务，为 OpenAI-compatible tool calling 建立 SliceCore / LLMProviders 数据契约、流式解析和 provider API，给后续 AgentExecutor 提供稳定边界。
+- **详情**：[docs/Task-detail/2026-05-08-phase-1-m3-task-10-llm-tool-calling-contract.md](Task-detail/2026-05-08-phase-1-m3-task-10-llm-tool-calling-contract.md)
+- **结果**：完成。已同步 Phase 1 implementation plan 到当前 worktree；已按 TDD 完成 SliceCore tool calling contract、OpenAI-compatible DTO 解码、`streamToolChat(request:)` 和 SSE tool-call fixture；focused tests、LLMProviders 回归、PromptExecutor / ExecutionEngine 回归、全量 `swift test`、`git diff --check`、touched Swift files targeted lint 和 App Debug build 已通过。全仓库 `swiftlint lint --strict` 当前被 M1/M2 历史违规阻塞，Task 10 暂不扩大修复范围。Claude review Round 1 approve，`findings: []`。
+
+---
+
+## Task 47 · Phase 1 M2 Task 9 · AppContainer Context And Permission UI Wiring
+
+- **时间**：2026-05-08
+- **描述**：把 M2 Task 7/8 的真实 ContextProvider、MCP runtime client 和 UI-free permission consent boundary 接入 AppContainer，替换空 registry 与 fail-closed 临时 presenter。
+- **详情**：[docs/Task-detail/2026-05-08-phase-1-m2-task-9-appcontainer-context-permission-ui.md](Task-detail/2026-05-08-phase-1-m2-task-9-appcontainer-context-permission-ui.md)
+- **结果**：完成。未新增重复 Orchestration 行为测试，原因是现有 `ExecutionEngineTests` / `PermissionBrokerTests` / `ContextProviderTests` 已覆盖未声明权限、权限拒绝、批准继续执行和 provider 权限推导；本任务改用 focused tests 与 App Debug build 验证组合根 wiring。`AppContainer` 已注册真实 context providers，接入 AppKit permission presenter、persistent grant store 显式路径和 `mcp.json` 驱动的 routing MCP client。
+
+---
+
+## Task 46 · Phase 1 M2 Task 8 · Permission Consent Grants
+
+- **时间**：2026-05-08
+- **描述**：实现 UI-free 权限确认协议、PermissionBroker presenter 集成、session grant 缓存规则和 persistent permission grant 磁盘存储。
+- **详情**：[docs/Task-detail/2026-05-08-phase-1-m2-task-8-permission-consent-grants.md](Task-detail/2026-05-08-phase-1-m2-task-8-permission-consent-grants.md)
+- **结果**：完成。已按 TDD 补齐 broker / session store / persistent store 测试；`PermissionBroker` 通过 UI-free presenter 在生产路径内部解析确认决策；不可缓存权限在 session 与 persistent 存储层均 fail-closed；指定测试、全量 `swift test` 与 App Debug build 已通过。
+
+---
+
+## Task 45 · Phase 1 M2 Task 7 · Core Context Providers
+
+- **时间**：2026-05-08
+- **描述**：新增五个核心 ContextProvider：`selection`、`app.windowTitle`、`app.url`、`clipboard.current`、`file.read`，并接入 ContextCollector 与 PermissionGraph 的真实 provider 测试。
+- **详情**：[docs/Task-detail/2026-05-08-phase-1-m2-task-7-core-context-providers.md](Task-detail/2026-05-08-phase-1-m2-task-7-core-context-providers.md)
+- **结果**：完成。已按 TDD 先写失败测试并确认 provider 类型缺失红灯；实现剪贴板/文件 IO 取消检查和 `PathSandbox` 规范化读取；code review follow-up 已将 `file.read` 改为默认 1 MiB 上限的分块读取并补超限/取消回归；指定 ContextProvider、ContextCollector、PermissionGraph 测试与 `git diff --check` 已通过。
+
+---
+
+## Task 44 · Phase 1 M2 Task 6 · PermissionGraph Case-Aware Coverage
+
+- **时间**：2026-05-07
+- **描述**：将 `EffectivePermissions.undeclared` 从字面 `Set.subtracting` 升级为 case-aware coverage，支持文件路径 exact / directory prefix / glob 覆盖、PathSandbox hard-deny 拦截、MCP tools nil/superset 覆盖，以及 shellExec 精确命令列表。
+- **详情**：[docs/Task-detail/2026-05-07-phase-1-m2-task-6-permissiongraph-case-aware-coverage.md](Task-detail/2026-05-07-phase-1-m2-task-6-permissiongraph-case-aware-coverage.md)
+- **结果**：完成。已按 TDD 先写失败测试并确认红灯；实现 case-aware coverage 与 `PathSandbox.isHardDenied(_:)`；目标测试、ExecutionEngine 回归、PathSandbox 回归和 `git diff --check` 已通过。
+
+---
+
+## Task 43 · Phase 1 M1 Task 5 · MCP Servers Settings Page
+
+- **时间**：2026-05-07
+- **描述**：为 SettingsUI 增加 MCP Servers 设置页，提供本地 `mcp.json` 的 server 列表、Claude Desktop JSON 导入、stdio server 新增/编辑/删除，以及调用 MCP client 的 tools/list 测试连接预览。
+- **详情**：[docs/Task-detail/2026-05-07-phase-1-m1-task-5-mcp-servers-settings-page.md](Task-detail/2026-05-07-phase-1-m1-task-5-mcp-servers-settings-page.md)
+- **结果**：完成。已按 TDD 先写失败测试并确认红灯；两轮 code quality review 的状态一致性 / stale preview 问题均已修复并获 `APPROVED`；`claude-review-loop` 发现的新增重复 id 静默覆盖问题已修复；目标测试、相关 SliceCore / Capabilities 回归、`swift build`、全量 `swift test`（639 tests）与 `git diff --check` 均通过。
+
+---
+
+## Task 42 · Phase 1 M1 Task 4 · Stdio MCP JSON-RPC Client
+
+- **时间**：2026-05-07
+- **描述**：实现 M1 stdio MCP JSON-RPC client：JSON-RPC framing、lazy start、initialize、tools/list、tools/call、idle timeout、stderr diagnostic redaction，以及 RoutingMCPClient 的 stdio/远程 transport 路由边界。
+- **详情**：[docs/Task-detail/2026-05-07-phase-1-m1-task-4-stdio-mcp-json-rpc-client.md](Task-detail/2026-05-07-phase-1-m1-task-4-stdio-mcp-json-rpc-client.md)
+- **结果**：完成。Spec compliance review 与 code quality review 均已通过；目标测试、`CapabilitiesTests`、全量 `swift test` 与 `git diff --check` 已通过，已提交 commit。
+
+---
+
+## Task 41 · Phase 1 M1 Task 3 · MCP Server Store And Claude Desktop Import
+
+- **时间**：2026-05-07
+- **描述**：新增 MCP server 本地配置 store、fail-closed 校验和 Claude Desktop stdio 配置导入能力；M1 仅允许本地 stdio，远程 transport 留到 M4。
+- **详情**：[docs/Task-detail/2026-05-07-phase-1-m1-task-3-mcp-server-store-claude-desktop-import.md](Task-detail/2026-05-07-phase-1-m1-task-3-mcp-server-store-claude-desktop-import.md)
+- **结果**：完成。目标测试、`CapabilitiesTests`、全量 `swift test` 与 `git diff --check` 已通过，已提交 commit。
+
+---
+
+## Task 40 · Phase 1 M1 Task 2 · MCP Client Protocol Uses Canonical Descriptor
+
+- **时间**：2026-05-07
+- **描述**：将 Capabilities 的 `MCPClientProtocol` 收敛到 SliceCore canonical `MCPDescriptor` / `MCPToolDescriptor` / `MCPJSONValue.Object`，删除重复 descriptor，并增强 `MockMCPClient` 的结构化参数记录与错误脱敏测试。
+- **详情**：[docs/Task-detail/2026-05-07-phase-1-m1-task-2-mcp-client-protocol-canonical-descriptor.md](Task-detail/2026-05-07-phase-1-m1-task-2-mcp-client-protocol-canonical-descriptor.md)
+- **结果**：完成。目标测试、全量 `swift test` 与 `git diff --check` 已通过，已提交 commit。
+
+---
+
+## Task 39 · Phase 1 M1 Task 1 · SliceCore MCP JSON Contract
+
+- **时间**：2026-05-06
+- **描述**：为 Phase 1 MCP 上下文能力建立 SliceCore 的 JSON/value contract：任意 JSON 参数、MCP content/result、tool descriptor、transport enum，并把 `callMCP` / `PipelineStep.mcp` 参数从字符串字典升级为结构化 JSON 对象。
+- **详情**：[docs/Task-detail/2026-05-06-phase-1-m1-task-1-mcp-json-contract.md](Task-detail/2026-05-06-phase-1-m1-task-1-mcp-json-contract.md)
+- **结果**：完成。SliceCore MCP JSON/value contract 已落地，指定测试和 `SliceCoreTests` 均通过，已提交 commit。
+
+---
+
 ## Task 38 · Phase 1 MCP + Context 主干设计与计划准备
 
 - **时间**：2026-05-06

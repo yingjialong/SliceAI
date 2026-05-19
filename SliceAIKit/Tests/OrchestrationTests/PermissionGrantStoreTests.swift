@@ -11,7 +11,7 @@ import XCTest
 /// 3. 同 permission 但不同 provenance（firstParty vs unknown） → has 互不串扰
 /// 4. 重复 record 不重复计数（同 key 覆盖）
 /// 5. 并发 record 不丢失（actor 隔离验证）
-/// 6. 不同 permission 关联值（不同 host）→ has 互不串扰
+/// 6. 不同 permission 关联值（不同 path）→ has 互不串扰
 final class PermissionGrantStoreTests: XCTestCase {
 
     // MARK: - 1. 空 store
@@ -65,7 +65,7 @@ final class PermissionGrantStoreTests: XCTestCase {
     /// 同 (permission, provenance) 重复 record → 字典 key 唯一，count 仍 = 1
     func test_record_duplicate_overwritesAndKeepsCountOne() async throws {
         let store = PermissionGrantStore()
-        let permission = Permission.network(host: "api.openai.com")
+        let permission = Permission.fileWrite(path: "~/Library/Application Support/SliceAI/cache.json")
         let provenance = Provenance.firstParty
 
         try await store.record(permission: permission, provenance: provenance, scope: .session)
@@ -77,16 +77,16 @@ final class PermissionGrantStoreTests: XCTestCase {
 
     // MARK: - 5. 并发 record（actor 隔离验证）
 
-    /// 100 个并发 record 不同 host → 全部成功命中且 count = 100（actor 串行化保证）
+    /// 100 个并发 record 不同 fileRead path → 全部成功命中且 count = 100（actor 串行化保证）
     func test_actorIsolation_concurrentRecords() async throws {
         let store = PermissionGrantStore()
         let count = 100
 
-        // 并发任务组：每个任务 record 不同 host 的 .network permission
+        // 并发任务组：每个任务 record 不同 path 的 .fileRead permission
         await withTaskGroup(of: Void.self) { group in
             for i in 0..<count {
                 group.addTask {
-                    let permission = Permission.network(host: "host\(i).example.com")
+                    let permission = Permission.fileRead(path: "~/Documents/file-\(i).md")
                     try? await store.record(permission: permission, provenance: .firstParty, scope: .session)
                 }
             }
@@ -99,10 +99,10 @@ final class PermissionGrantStoreTests: XCTestCase {
         // 抽查几条
         for i in [0, 50, 99] {
             let hit = await store.has(
-                permission: .network(host: "host\(i).example.com"),
+                permission: .fileRead(path: "~/Documents/file-\(i).md"),
                 provenance: .firstParty
             )
-            XCTAssertTrue(hit, "host\(i) 应命中")
+            XCTAssertTrue(hit, "file-\(i) 应命中")
         }
     }
 
@@ -219,5 +219,68 @@ final class PermissionGrantStoreTests: XCTestCase {
 
         let hitB = await store.has(permission: permission, provenance: provenanceB)
         XCTAssertFalse(hitB, "不同 userAcknowledgedAt 视为独立 trust event，不应共享 grant")
+    }
+
+    // MARK: - Task 8：session-only 与不可缓存权限
+
+    /// session grant 只存在于当前 store 实例，不应跨实例持久化
+    func test_sessionGrant_doesNotPersistAcrossStoreInstances() async throws {
+        let permission = Permission.fileWrite(path: "~/Library/Application Support/SliceAI/session.txt")
+        let provenance = Provenance.firstParty
+        let firstStore = PermissionGrantStore()
+
+        try await firstStore.record(permission: permission, provenance: provenance, scope: .session)
+        let firstHit = await firstStore.has(permission: permission, provenance: provenance)
+        XCTAssertTrue(firstHit)
+
+        let secondStore = PermissionGrantStore()
+        let secondHit = await secondStore.has(permission: permission, provenance: provenance)
+        XCTAssertFalse(
+            secondHit,
+            "session grant 必须是内存态，不应被新 store 实例命中"
+        )
+    }
+
+    /// MCP 权限必须逐次确认，即使调用方错误尝试写入 session grant，store 也要拒绝
+    func test_mcpPermission_isNeverCached() async throws {
+        let store = PermissionGrantStore()
+        let permission = Permission.mcp(server: "filesystem", tools: ["write"])
+
+        do {
+            try await store.record(permission: permission, provenance: .firstParty, scope: .session)
+            XCTFail("MCP 权限不可缓存，record 应抛出 nonCacheablePermission")
+        } catch SessionPermissionGrantStoreError.nonCacheablePermission(let rejected) {
+            XCTAssertEqual(rejected, permission)
+        }
+
+        let hit = await store.has(permission: permission, provenance: .firstParty)
+        XCTAssertFalse(hit)
+    }
+
+    /// Brave web search MCP 是当前内置只读搜索工具，允许记录 session grant。
+    func test_braveSearchMCPPermission_canBeCachedForSession() async throws {
+        let store = PermissionGrantStore()
+        let permission = Permission.mcp(server: "brave-search", tools: ["brave_web_search"])
+
+        try await store.record(permission: permission, provenance: .firstParty, scope: .session)
+
+        let hit = await store.has(permission: permission, provenance: .firstParty)
+        XCTAssertTrue(hit)
+    }
+
+    /// network write 权限必须逐次确认，不允许写入 session grant
+    func test_networkWrite_isNeverCached() async throws {
+        let store = PermissionGrantStore()
+        let permission = Permission.network(host: "api.openai.com")
+
+        do {
+            try await store.record(permission: permission, provenance: .firstParty, scope: .session)
+            XCTFail("network write 权限不可缓存，record 应抛出 nonCacheablePermission")
+        } catch SessionPermissionGrantStoreError.nonCacheablePermission(let rejected) {
+            XCTAssertEqual(rejected, permission)
+        }
+
+        let hit = await store.has(permission: permission, provenance: .firstParty)
+        XCTAssertFalse(hit)
     }
 }

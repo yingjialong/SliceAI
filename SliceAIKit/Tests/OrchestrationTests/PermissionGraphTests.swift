@@ -1,3 +1,4 @@
+import Capabilities
 import SliceCore
 import XCTest
 @testable import Orchestration
@@ -488,5 +489,201 @@ final class PermissionGraphTests: XCTestCase {
         XCTAssertEqual(effective.declared.count, 1)
         XCTAssertTrue(effective.union.isEmpty)
         XCTAssertTrue(effective.undeclared.isEmpty)
+    }
+
+    // MARK: - Phase 1 M2 Task 6: case-aware coverage
+
+    /// Task 7：真实内置 ContextProvider 的静态权限推导应接入 PermissionGraph。
+    func test_compute_coreContextProviders_inferExpectedPermissions() async throws {
+        let graph = PermissionGraph(providerRegistry: ContextProviderRegistry(providers: [
+            "selection": SelectionContextProvider(),
+            "app.windowTitle": AppWindowTitleContextProvider(),
+            "app.url": AppURLContextProvider(),
+            "clipboard.current": ClipboardCurrentContextProvider(readString: { "ignored" }),
+            "file.read": FileReadContextProvider()
+        ]))
+        let filePath = "~/Docs/a.md"
+        let tool = makeTool(
+            kind: .prompt(makePromptTool(contexts: [
+                ContextRequest(
+                    key: ContextKey(rawValue: "selection"),
+                    provider: "selection",
+                    args: [:],
+                    cachePolicy: .none,
+                    requiredness: .required
+                ),
+                ContextRequest(
+                    key: ContextKey(rawValue: "title"),
+                    provider: "app.windowTitle",
+                    args: [:],
+                    cachePolicy: .none,
+                    requiredness: .required
+                ),
+                ContextRequest(
+                    key: ContextKey(rawValue: "url"),
+                    provider: "app.url",
+                    args: [:],
+                    cachePolicy: .none,
+                    requiredness: .required
+                ),
+                ContextRequest(
+                    key: ContextKey(rawValue: "clipboard"),
+                    provider: "clipboard.current",
+                    args: [:],
+                    cachePolicy: .none,
+                    requiredness: .required
+                ),
+                ContextRequest(
+                    key: ContextKey(rawValue: "file"),
+                    provider: "file.read",
+                    args: ["path": filePath],
+                    cachePolicy: .none,
+                    requiredness: .required
+                )
+            ])),
+            permissions: [.clipboard, .fileRead(path: filePath)]
+        )
+
+        let effective = try await graph.compute(tool: tool)
+
+        XCTAssertEqual(effective.fromContexts, [
+            .clipboard,
+            .fileRead(path: filePath)
+        ])
+        XCTAssertTrue(effective.undeclared.isEmpty)
+    }
+
+    /// 声明 glob fileRead 权限时，应覆盖同一目录树内的具体读取路径。
+    func test_fileRead_declaredGlobCoversConcretePath() async throws {
+        let graph = PermissionGraph(providerRegistry: makeDefaultRegistry())
+        let tool = makeTool(
+            kind: .prompt(makePromptTool(contexts: [
+                makeFileReadRequest(path: "~/Documents/sliceai-notes/task-6.md")
+            ])),
+            permissions: [
+                .fileRead(path: "~/Documents/**/*.md")
+            ]
+        )
+
+        let effective = try await graph.compute(tool: tool)
+
+        XCTAssertTrue(effective.undeclared.isEmpty, "glob 声明应覆盖具体读取路径，undeclared=\(effective.undeclared)")
+    }
+
+    /// 声明目录前缀 fileRead 权限时，应覆盖该目录下的具体读取路径。
+    func test_fileRead_declaredDirectoryPrefixCoversConcretePath() async throws {
+        let graph = PermissionGraph(providerRegistry: makeDefaultRegistry())
+        let tool = makeTool(
+            kind: .prompt(makePromptTool(contexts: [
+                makeFileReadRequest(path: "~/Documents/sliceai-notes/task-6.md")
+            ])),
+            permissions: [
+                .fileRead(path: "~/Documents/sliceai-notes/")
+            ]
+        )
+
+        let effective = try await graph.compute(tool: tool)
+
+        XCTAssertTrue(effective.undeclared.isEmpty, "目录声明应覆盖目录内具体路径，undeclared=\(effective.undeclared)")
+    }
+
+    /// glob 覆盖必须按路径分隔符判断，不能把同名前缀 sibling 当成子目录。
+    func test_fileRead_declaredGlobDoesNotCoverSiblingEscape() async throws {
+        let graph = PermissionGraph(providerRegistry: makeDefaultRegistry())
+        let effectivePath = "~/Documents/sliceai-notes-evil/task-6.md"
+        let tool = makeTool(
+            kind: .prompt(makePromptTool(contexts: [
+                makeFileReadRequest(path: effectivePath)
+            ])),
+            permissions: [
+                .fileRead(path: "~/Documents/sliceai-notes/**/*.md")
+            ]
+        )
+
+        let effective = try await graph.compute(tool: tool)
+
+        XCTAssertEqual(effective.undeclared, [.fileRead(path: effectivePath)])
+    }
+
+    /// PathSandbox 硬禁止路径即使字符串完全相同，也不能被声明覆盖，必须留在 undeclared 阻断执行。
+    func test_fileRead_pathSandboxHardDeniedDeclarationDoesNotCoverEffective() async throws {
+        let graph = PermissionGraph(providerRegistry: makeDefaultRegistry())
+        let hardDeniedPath = "/etc/passwd"
+        let tool = makeTool(
+            kind: .prompt(makePromptTool(contexts: [
+                makeFileReadRequest(path: hardDeniedPath)
+            ])),
+            permissions: [
+                .fileRead(path: hardDeniedPath)
+            ]
+        )
+
+        let effective = try await graph.compute(tool: tool)
+
+        XCTAssertEqual(effective.undeclared, [.fileRead(path: hardDeniedPath)])
+    }
+
+    /// MCP 声明 `tools=nil` 表示同 server 全部 tool，应覆盖具体 tool 调用。
+    func test_mcp_declaredNilToolsCoversConcreteTool() async throws {
+        let graph = PermissionGraph(providerRegistry: makeDefaultRegistry())
+        let tool = makeTool(
+            kind: .agent(makeAgentTool(
+                mcpAllowlist: [MCPToolRef(server: "fs", tool: "read")]
+            )),
+            permissions: [
+                .mcp(server: "fs", tools: nil)
+            ]
+        )
+
+        let effective = try await graph.compute(tool: tool)
+
+        XCTAssertTrue(effective.undeclared.isEmpty, "MCP nil tools 应覆盖同 server 具体 tool")
+    }
+
+    /// MCP 声明 tool 集合为 effective tool 集合的超集时，应覆盖具体 tool 调用。
+    func test_mcp_declaredToolSupersetCoversConcreteTool() async throws {
+        let graph = PermissionGraph(providerRegistry: makeDefaultRegistry())
+        let tool = makeTool(
+            kind: .agent(makeAgentTool(
+                mcpAllowlist: [MCPToolRef(server: "fs", tool: "read")]
+            )),
+            permissions: [
+                .mcp(server: "fs", tools: ["read", "write"])
+            ]
+        )
+
+        let effective = try await graph.compute(tool: tool)
+
+        XCTAssertTrue(effective.undeclared.isEmpty, "MCP tool 超集声明应覆盖具体 tool")
+    }
+
+    /// MCP 声明 tool 集合缺少 effective tool 时，应报告 undeclared。
+    func test_mcp_missingToolIsUndeclared() async throws {
+        let graph = PermissionGraph(providerRegistry: makeDefaultRegistry())
+        let tool = makeTool(
+            kind: .agent(makeAgentTool(
+                mcpAllowlist: [MCPToolRef(server: "fs", tool: "read")]
+            )),
+            permissions: [
+                .mcp(server: "fs", tools: ["write"])
+            ]
+        )
+
+        let effective = try await graph.compute(tool: tool)
+
+        XCTAssertEqual(effective.undeclared, [.mcp(server: "fs", tools: ["read"])])
+    }
+
+    /// shellExec 只能精确匹配命令数组；空数组不表示覆盖全部命令。
+    func test_shellExec_requiresExactCommandList() async throws {
+        let effective = EffectivePermissions(
+            declared: [.shellExec(commands: [])],
+            fromContexts: [],
+            fromSideEffects: [],
+            fromMCP: [],
+            fromBuiltins: [.shellExec(commands: ["ls", "-la"])]
+        )
+
+        XCTAssertEqual(effective.undeclared, [.shellExec(commands: ["ls", "-la"])])
     }
 }

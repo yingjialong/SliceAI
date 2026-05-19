@@ -2,12 +2,12 @@ import Foundation
 
 /// MCP server 配置描述；`mcp.json` 中一条记录对应一个 MCPDescriptor
 ///
-/// 兼容 Claude Desktop `mcpServers` 格式：stdio 下填 `command + args + env`；
-/// SSE / WebSocket 下填 `url`。Phase 1 的 `MCPClient` 消费此结构启动 / 连接 server。
+/// 兼容 Claude Desktop `mcpServers` 格式：stdio 下填 `command + args + env`。
+/// 远程传输使用 Streamable HTTP；旧 SSE / WebSocket 只保留解码兼容，不允许在设置页新建。
 ///
 /// `provenance` 由安装流程写入；`.unknown` 来源的 MCPDescriptor 在**安装流程入口**被拒绝，
 /// 不会被构造出来（D-23 / §3.9.4.2）。
-public struct MCPDescriptor: Identifiable, Sendable, Codable, Equatable {
+public struct MCPDescriptor: Identifiable, Sendable, Codable, Equatable, Hashable {
     /// 本地注册名
     public let id: String
     /// 传输方式
@@ -16,7 +16,7 @@ public struct MCPDescriptor: Identifiable, Sendable, Codable, Equatable {
     public let command: String?
     /// stdio 的命令参数；非 stdio 时 nil
     public let args: [String]?
-    /// SSE / WebSocket 端点；stdio 时 nil
+    /// 远程端点；stdio 时 nil
     public let url: URL?
     /// 环境变量；stdio 用于 `ProcessInfo.processEnv`
     public let env: [String: String]?
@@ -49,16 +49,38 @@ public struct MCPDescriptor: Identifiable, Sendable, Codable, Equatable {
         self.capabilities = capabilities
         self.provenance = provenance
     }
+
+    /// MCPDescriptor 的本地注册身份只由稳定 ID 决定，不按 transport/capabilities/provenance 做内容相等。
+    public static func == (lhs: MCPDescriptor, rhs: MCPDescriptor) -> Bool {
+        lhs.id == rhs.id
+    }
+
+    /// 仅用稳定注册 ID 参与哈希，保持 Equatable/Hashable 身份语义一致。
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
 }
 
 /// MCP 传输方式
 public enum MCPTransport: String, Sendable, Codable, CaseIterable {
     /// 标准输入输出
     case stdio
-    /// Server-Sent Events
+    /// Streamable HTTP
+    case streamableHTTP = "streamable-http"
+    /// 旧 HTTP+SSE 传输；仅保留解码兼容，Phase 1 不支持新建或连接
     case sse
     /// WebSocket
     case websocket
+
+    /// Phase 1 设置页是否允许新建该 transport。
+    public var isCreatableInPhase1Settings: Bool {
+        switch self {
+        case .stdio, .streamableHTTP:
+            return true
+        case .sse, .websocket:
+            return false
+        }
+    }
 }
 
 /// MCP server 能力声明

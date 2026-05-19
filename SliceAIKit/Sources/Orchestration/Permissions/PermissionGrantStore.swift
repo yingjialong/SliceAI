@@ -1,13 +1,17 @@
 import Foundation
 import SliceCore
 
+/// Permission grant 存储错误
+public enum SessionPermissionGrantStoreError: Error, Sendable, Equatable {
+    /// 尝试缓存必须逐次确认的权限
+    case nonCacheablePermission(Permission)
+}
+
 /// In-memory `PermissionGrant` 存储（actor 隔离）
 ///
-/// **M2 范围**：仅 in-memory session-scoped 实现；persistent grant 写入磁盘 / Settings
-/// UI 管理面板留到 Phase 1+。当前实现不区分 `GrantScope`——所有 record 进同一字典，
-/// 进程退出即丢；`PermissionBroker` 的"per-tier 是否允许缓存"逻辑由 broker 自身判断
-/// （network-write / exec 永不缓存 = broker 不写入 grant store；readonly-network /
-/// local-write 首次确认后写入；readonly-local 不需 grant 直接 .approved）。
+/// **Task 8 范围**：仅 in-memory session-scoped 实现；persistent grant 写入
+/// `PersistentPermissionGrantStore`。当前 store 只记录 `.session`，`.oneTime` / `.persistent`
+/// 不进入内存缓存；高风险 network / exec / 默认 MCP / AppIntents 在存储层直接拒绝。
 ///
 /// **Key 设计：`(Permission, Provenance)` 复合 key**——同一 permission 在不同 provenance
 /// 来源下不应共享 grant（如 firstParty 给过 `.fileWrite` 不能让 unknown 来源的 `.fileWrite`
@@ -69,7 +73,7 @@ public actor PermissionGrantStore {
 
     // MARK: - Init
 
-    /// 构造空 grant store（M2 不接受任何初始 grants）
+    /// 构造空 grant store（不接受任何初始 grants）
     public init() {}
 
     // MARK: - Public API
@@ -80,6 +84,9 @@ public actor PermissionGrantStore {
     ///   - provenance: 工具来源
     /// - Returns: true 命中（broker 可视为 .approved）；false 未命中（broker 走下限决策）
     public func has(permission: Permission, provenance: Provenance) -> Bool {
+        guard Self.isCacheable(permission) else {
+            return false
+        }
         // 中文调试日志：记录命中查询；测试场景方便观察 broker 是否短路命中
         let key = GrantKey(permission: permission, provenanceTag: Self.tag(for: provenance))
         let hit = grants[key] != nil
@@ -91,10 +98,16 @@ public actor PermissionGrantStore {
     /// - Parameters:
     ///   - permission: 被授予的 permission
     ///   - provenance: 工具来源
-    ///   - scope: 授权时长（M2 不持久化，但记入 PermissionGrant 字段为 Phase 1 留 hook）
-    /// - Throws: M2 范围 in-memory 实现不抛错；声明 `throws` 是为 Phase 1 加磁盘持久化时不破坏 ABI
+    ///   - scope: 授权时长；仅 `.session` 会写入内存缓存。
+    /// - Throws: `SessionPermissionGrantStoreError.nonCacheablePermission`。
     public func record(permission: Permission, provenance: Provenance, scope: GrantScope) throws {
-        // 中文调试日志意图：记录新 grant；M2 阶段以 silent 写入为主
+        guard Self.isCacheable(permission) else {
+            throw SessionPermissionGrantStoreError.nonCacheablePermission(permission)
+        }
+        guard scope == .session else {
+            return
+        }
+        // 中文调试日志意图：记录新 grant；当前以 silent 写入为主，真实审计由 broker/审计日志负责
         let key = GrantKey(permission: permission, provenanceTag: Self.tag(for: provenance))
         let grant = PermissionGrant(
             permission: permission,
@@ -109,4 +122,11 @@ public actor PermissionGrantStore {
 
     /// 当前 grant 数量；仅供测试断言（PermissionBrokerTests / PermissionGrantStoreTests）
     internal var count: Int { grants.count }
+
+    /// 判断权限是否允许进入 grant cache
+    /// - Parameter permission: 待判断权限。
+    /// - Returns: true 表示可缓存；false 表示必须逐次确认。
+    internal static func isCacheable(_ permission: Permission) -> Bool {
+        permission.supportsRuntimeGrantCache
+    }
 }

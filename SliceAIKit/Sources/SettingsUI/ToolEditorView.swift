@@ -18,6 +18,15 @@ public struct ToolEditorView: View {
     /// 可选的 Provider 列表，作为 Picker 数据源
     public let providers: [Provider]
 
+    /// 当前配置中的完整工具列表，用于跨工具热键冲突校验
+    public let tools: [Tool]
+
+    /// 全局热键配置绑定，工具热键通过 `hotkeys.tools[tool.id]` 集中保存
+    @Binding public var hotkeys: HotkeyBindings
+
+    /// 工具热键录制完成后的回调，用于立即持久化并触发 App 重新注册热键
+    let onHotkeyCommit: (() -> Void)?
+
     /// "添加变量"对话框是否展示
     @State var showAddVariableAlert = false
 
@@ -31,9 +40,21 @@ public struct ToolEditorView: View {
     /// - Parameters:
     ///   - tool: 指向 Configuration 中某个 Tool 的绑定
     ///   - providers: 供 Picker 显示的 Provider 列表
-    public init(tool: Binding<Tool>, providers: [Provider]) {
+    ///   - tools: 当前配置中的完整工具列表
+    ///   - hotkeys: 指向 Configuration.hotkeys 的绑定
+    ///   - onHotkeyCommit: 工具热键录制完成后的回调
+    public init(
+        tool: Binding<Tool>,
+        providers: [Provider],
+        tools: [Tool],
+        hotkeys: Binding<HotkeyBindings>,
+        onHotkeyCommit: (() -> Void)? = nil
+    ) {
         self._tool = tool
         self.providers = providers
+        self.tools = tools
+        self._hotkeys = hotkeys
+        self.onHotkeyCommit = onHotkeyCommit
     }
 
     public var body: some View {
@@ -50,6 +71,18 @@ public struct ToolEditorView: View {
 
                 // 自定义变量分组（始终显示——空态也要提供"添加变量"入口）
                 variablesCard
+            } else if isAgentTool {
+                // Agent 提示词分组：System / Initial User
+                agentPromptCard
+
+                // Agent Provider 与 ReAct 轮数分组
+                agentProviderCard
+
+                // MCP allowlist 文本编辑分组
+                agentMCPAllowlistCard
+
+                // MCP 调用策略分组：总量、单轮、重复参数和限流停止
+                agentToolCallPolicyCard
             } else {
                 unsupportedKindCard
             }

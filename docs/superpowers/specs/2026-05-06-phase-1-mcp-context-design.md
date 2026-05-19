@@ -1,7 +1,7 @@
 # Phase 1 MCP + Context 主干设计
 
 - **日期**：2026-05-06
-- **状态**：Design spec 已完成 Claude review loop（Round 3 `approve`），等待用户确认后进入 implementation plan。
+- **状态**：Design spec 已完成 Claude review loop（Round 3 `approve`），并已按 implementation plan 完成 Phase 1 M1-M4 主干实施；本文件作为 Phase 1 设计冻结记录保留。
 - **适用范围**：Phase 1 / v0.3 MCP + Context 主干。
 - **上游依据**：[2026-04-23-sliceai-v2-roadmap.md](2026-04-23-sliceai-v2-roadmap.md)、[docs/v2-refactor-master-todolist.md](../../v2-refactor-master-todolist.md)
 - **协议依据**：MCP 官方最新规范 2025-11-25；标准传输是 `stdio` 与 `Streamable HTTP`，旧 `HTTP+SSE` 在 Phase 1 中弃用且不实现。

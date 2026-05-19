@@ -12,7 +12,7 @@ public enum DefaultConfiguration {
         Configuration(
             schemaVersion: Configuration.currentSchemaVersion,
             providers: [openAIDefault],
-            tools: [translate, polish, summarize, explain],
+            tools: [translate, polish, summarize, explain, webSearchSummarize],
             hotkeys: HotkeyBindings(toggleCommandPalette: "option+space"),
             triggers: TriggerSettings(
                 floatingToolbarEnabled: true,
@@ -42,10 +42,10 @@ public enum DefaultConfiguration {
         baseURL: URL(string: "https://api.openai.com/v1")!, // swiftlint:disable:this force_unwrapping
         apiKeyRef: "keychain:openai-official",
         defaultModel: "gpt-5",
-        capabilities: []
+        capabilities: [.toolCalling]
     )
 
-    // MARK: - Tools（4 个内置工具，对齐 v1 DefaultConfiguration 文案）
+    // MARK: - Tools（4 个 prompt 工具 + 1 个 Phase 1 Agent 工具）
 
     /// 翻译工具：将选中文字翻译为 variables["language"] 指定的语言
     public static let translate = makePromptTool(
@@ -98,6 +98,62 @@ public enum DefaultConfiguration {
             temperature: 0.4,
             variables: [:]
         )
+    )
+
+    /// Web 搜索总结工具：通过 Brave Search MCP 搜索并总结选中内容
+    public static let webSearchSummarize = Tool(
+        id: "web-search-summarize",
+        name: "Web Search Summarize",
+        icon: "magnifyingglass",
+        description: "用 Brave Search MCP 搜索并总结选中内容",
+        kind: .agent(AgentTool(
+            systemPrompt: """
+            You use Brave web search sparingly and summarize with citations. Prefer one search. Use at most 2 \
+            Brave web searches total. If a search is rate limited or fails, stop searching and summarize from \
+            the successful results already available, clearly noting any limitations.
+            """,
+            initialUserPrompt: """
+            Use at most 2 Brave web searches to summarize reliable information related to:
+
+            {{selection}}
+            """,
+            contexts: [
+                ContextRequest(
+                    key: .init(rawValue: "selection"),
+                    provider: "selection",
+                    args: [:],
+                    cachePolicy: .none,
+                    requiredness: .required
+                )
+            ],
+            provider: .capability(requires: [.toolCalling], prefer: []),
+            skill: nil,
+            mcpAllowlist: [MCPToolRef(server: "brave-search", tool: "brave_web_search")],
+            builtinCapabilities: [],
+            maxSteps: 4,
+            stopCondition: .finalAnswerProvided,
+            toolCallPolicy: AgentToolCallPolicy(
+                maxTotalCalls: 2,
+                maxCallsPerTurn: 2,
+                perToolLimits: [
+                    AgentToolCallLimit(
+                        ref: MCPToolRef(server: "brave-search", tool: "brave_web_search"),
+                        maxCalls: 2
+                    )
+                ],
+                duplicateArgumentStrategy: .skipExactArguments,
+                stopOnRateLimit: true
+            )
+        )),
+        visibleWhen: nil,
+        displayMode: .window,
+        outputBinding: nil,
+        permissions: [.mcp(server: "brave-search", tools: ["brave_web_search"])],
+        provenance: .firstParty,
+        budget: nil,
+        hotkey: nil,
+        labelStyle: .icon,
+        tags: ["agent", "mcp", "web"]
     )
 
     // MARK: - Private helpers

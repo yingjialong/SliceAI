@@ -202,7 +202,7 @@ public actor PromptExecutor {
         )
 
         // 5. 估算 inputTokens（M2：所有 message content 字符数累加 / 4；下限 1，避免空输入算成 0）
-        let inputCharCount = messages.reduce(0) { $0 + $1.content.count }
+        let inputCharCount = messages.reduce(0) { $0 + ($1.content?.count ?? 0) }
         let inputTokens = max(1, inputCharCount / 4)
 
         // 6. 工厂创建 LLMProvider 实例 + 启动流式调用

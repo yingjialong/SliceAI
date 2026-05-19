@@ -23,14 +23,20 @@ public enum ExecutionEvent: Sendable {
     /// LLM provider 流式输出片段
     case llmChunk(delta: String)
 
-    /// Agent loop 提议调用 MCP tool（M2 仅声明，AgentExecutor 由 Phase 1 实现）
-    case toolCallProposed(ref: MCPToolRef, argsDescription: String)
+    /// Agent loop 提议调用 MCP tool；id 是 UI 生命周期关联 ID，不暴露 provider tool_call_id
+    case toolCallProposed(id: UUID, ref: MCPToolRef, argsDescription: String)
 
     /// PermissionBroker 同意 tool call
     case toolCallApproved(id: UUID)
 
     /// MCP tool 返回（脱敏后的简短摘要，避免污染日志）
     case toolCallResult(id: UUID, summary: String)
+
+    /// MCP tool 调用被权限或 allowlist 拒绝
+    case toolCallDenied(id: UUID, reason: String)
+
+    /// MCP tool 调用执行错误或结果标记为错误
+    case toolCallError(id: UUID, summary: String)
 
     /// Pipeline 进度（M2 仅声明，PipelineExecutor 由 Phase 5 实现）
     case stepCompleted(step: Int, total: Int)

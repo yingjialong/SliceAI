@@ -48,7 +48,7 @@ public enum SideEffect: Sendable, Equatable, Codable {
     case copyToClipboard
     case notify(title: String, body: String)
     case runAppIntent(bundleId: String, intent: String, params: [String: String])
-    case callMCP(ref: MCPToolRef, params: [String: String])
+    case callMCP(ref: MCPToolRef, params: MCPJSONValue.Object)
     /// 写 Tool 级 memory；`tool` 必须是调用方 Tool 的 `id`，会映射为 `.memoryAccess(scope: tool)` 权限
     case writeMemory(tool: String, entry: String)
     case tts(voice: String?)
@@ -66,7 +66,7 @@ public enum SideEffect: Sendable, Equatable, Codable {
         let intent: String
         let params: [String: String]
     }
-    private struct CallMCPRepr: Codable, Equatable { let ref: MCPToolRef; let params: [String: String] }
+    private struct CallMCPRepr: Codable, Equatable { let ref: MCPToolRef; let params: MCPJSONValue.Object }
     private struct MemoryRepr: Codable, Equatable { let tool: String; let entry: String }
     private struct TTSRepr: Codable, Equatable { let voice: String? }
 

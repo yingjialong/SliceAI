@@ -176,6 +176,28 @@ public struct PathSandbox: Sendable {
         return normalizedURL
     }
 
+    /// 判断原始路径是否命中 PathSandbox 的硬禁止前缀。
+    ///
+    /// 此方法只做 hard-deny 判定，不检查读写 allowlist；用于 PermissionGraph 的静态覆盖判断，
+    /// 确保敏感路径即使被 Tool 显式声明也不能覆盖 effective permission。
+    /// - Parameter raw: 调用方传入的原始路径字符串；可含 `~`、`..` 或 macOS symlink。
+    /// - Returns: 规范化后命中硬禁止前缀返回 `true`；无效输入或未命中返回 `false`。
+    public func isHardDenied(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        let expanded = (trimmed as NSString).expandingTildeInPath
+        guard expanded.hasPrefix("/") else { return false }
+
+        let normalizedPath = URL(fileURLWithPath: expanded)
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+            .path
+        let pathForPrefixCompare = normalizedPath.hasSuffix("/") ? normalizedPath : normalizedPath + "/"
+
+        return Self.matchesAnyPrefix(pathForPrefixCompare, prefixes: normalizedHardDenyPrefixes)
+    }
+
     // MARK: - 私有 helper
 
     /// 把单个前缀字符串展开 `~` 并保证以 `/` 结尾。

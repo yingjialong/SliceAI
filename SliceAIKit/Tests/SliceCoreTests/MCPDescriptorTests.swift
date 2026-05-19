@@ -3,6 +3,7 @@ import XCTest
 
 final class MCPDescriptorTests: XCTestCase {
 
+    /// stdio descriptor 的 Codable round-trip 必须逐字段保持一致，不能依赖 id-only Equatable。
     func test_stdio_descriptor_codable() throws {
         let d = MCPDescriptor(
             id: "postgres",
@@ -16,9 +17,18 @@ final class MCPDescriptorTests: XCTestCase {
         )
         let data = try JSONEncoder().encode(d)
         let decoded = try JSONDecoder().decode(MCPDescriptor.self, from: data)
-        XCTAssertEqual(d, decoded)
+
+        XCTAssertEqual(decoded.id, d.id)
+        XCTAssertEqual(decoded.transport, d.transport)
+        XCTAssertEqual(decoded.command, d.command)
+        XCTAssertEqual(decoded.args, d.args)
+        XCTAssertEqual(decoded.url, d.url)
+        XCTAssertEqual(decoded.env, d.env)
+        XCTAssertEqual(decoded.capabilities, d.capabilities)
+        XCTAssertEqual(decoded.provenance, d.provenance)
     }
 
+    /// SSE descriptor 的 Codable round-trip 必须逐字段保持一致，不能依赖 id-only Equatable。
     func test_sse_descriptor_codable() throws {
         let d = MCPDescriptor(
             id: "remote-mcp",
@@ -32,13 +42,82 @@ final class MCPDescriptorTests: XCTestCase {
         )
         let data = try JSONEncoder().encode(d)
         let decoded = try JSONDecoder().decode(MCPDescriptor.self, from: data)
-        XCTAssertEqual(d, decoded)
+
+        XCTAssertEqual(decoded.id, d.id)
+        XCTAssertEqual(decoded.transport, d.transport)
+        XCTAssertEqual(decoded.command, d.command)
+        XCTAssertEqual(decoded.args, d.args)
+        XCTAssertEqual(decoded.url, d.url)
+        XCTAssertEqual(decoded.env, d.env)
+        XCTAssertEqual(decoded.capabilities, d.capabilities)
+        XCTAssertEqual(decoded.provenance, d.provenance)
+    }
+
+    /// 验证 streamable HTTP transport 使用 MCP 约定的 kebab-case wire value。
+    func test_mcpTransport_streamableHTTP_decodesAndEncodes() throws {
+        let data = Data(#""streamable-http""#.utf8)
+
+        let transport = try JSONDecoder().decode(MCPTransport.self, from: data)
+        let encoded = try JSONEncoder().encode(transport)
+        let json = try XCTUnwrap(String(data: encoded, encoding: .utf8))
+
+        XCTAssertEqual(transport, .streamableHTTP)
+        XCTAssertEqual(json, #""streamable-http""#)
+        XCTAssertTrue(transport.isCreatableInPhase1Settings)
+    }
+
+    /// 验证 websocket 可解码历史配置，但 Phase 1 设置页不能新建。
+    func test_mcpTransport_websocket_decodesButIsNotCreatableInSettings() throws {
+        let data = Data(#""websocket""#.utf8)
+
+        let transport = try JSONDecoder().decode(MCPTransport.self, from: data)
+
+        XCTAssertEqual(transport, .websocket)
+        XCTAssertFalse(transport.isCreatableInPhase1Settings)
+    }
+
+    /// 旧 HTTP+SSE 只保留解码兼容，Phase 1 设置页不能新建。
+    func test_mcpTransport_sse_decodesButIsNotCreatableInSettings() throws {
+        let data = Data(#""sse""#.utf8)
+
+        let transport = try JSONDecoder().decode(MCPTransport.self, from: data)
+
+        XCTAssertEqual(transport, .sse)
+        XCTAssertFalse(transport.isCreatableInPhase1Settings)
     }
 
     func test_mcpToolRef_hashable_forSet() {
         let a = MCPToolRef(server: "s", tool: "t")
         let b = MCPToolRef(server: "s", tool: "t")
         XCTAssertEqual(Set([a, b]).count, 1)
+    }
+
+    /// MCPDescriptor 的身份语义只看稳定本地注册 ID；配置内容变化不应影响字典命中。
+    func test_mcpDescriptor_identityUsesStableIDForEqualityAndHashing() throws {
+        let original = MCPDescriptor(
+            id: "brave",
+            transport: .stdio,
+            command: "npx",
+            args: ["-y", "@modelcontextprotocol/server-brave-search"],
+            url: nil,
+            env: nil,
+            capabilities: [.tools(["brave_web_search"])],
+            provenance: .selfManaged(userAcknowledgedAt: Date(timeIntervalSince1970: 1))
+        )
+        let updated = MCPDescriptor(
+            id: "brave",
+            transport: .sse,
+            command: nil,
+            args: nil,
+            url: try XCTUnwrap(URL(string: "https://mcp.example.com/events")),
+            env: ["BRAVE_API_KEY": "redacted-in-test"],
+            capabilities: [.tools(["brave_web_search", "brave_news_search"]), .resources(["search://history"])],
+            provenance: .firstParty
+        )
+        let toolsByDescriptor = [original: ["brave_web_search"]]
+
+        XCTAssertEqual(original, updated)
+        XCTAssertEqual(toolsByDescriptor[updated], ["brave_web_search"])
     }
 
     func test_mcpCapability_tools_codable() throws {

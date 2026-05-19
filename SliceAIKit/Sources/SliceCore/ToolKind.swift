@@ -90,6 +90,7 @@ public struct AgentTool: Sendable, Codable, Equatable {
     public var builtinCapabilities: [BuiltinCapability]
     public var maxSteps: Int
     public var stopCondition: StopCondition
+    public var toolCallPolicy: AgentToolCallPolicy?
 
     /// 构造 AgentTool
     public init(
@@ -101,7 +102,8 @@ public struct AgentTool: Sendable, Codable, Equatable {
         mcpAllowlist: [MCPToolRef],
         builtinCapabilities: [BuiltinCapability],
         maxSteps: Int,
-        stopCondition: StopCondition
+        stopCondition: StopCondition,
+        toolCallPolicy: AgentToolCallPolicy? = nil
     ) {
         self.systemPrompt = systemPrompt
         self.initialUserPrompt = initialUserPrompt
@@ -112,6 +114,7 @@ public struct AgentTool: Sendable, Codable, Equatable {
         self.builtinCapabilities = builtinCapabilities
         self.maxSteps = maxSteps
         self.stopCondition = stopCondition
+        self.toolCallPolicy = toolCallPolicy
     }
 }
 
@@ -133,14 +136,14 @@ public struct PipelineTool: Sendable, Codable, Equatable {
 public enum PipelineStep: Sendable, Equatable, Codable {
     case tool(toolRef: String, input: String)
     case prompt(inline: PromptTool, input: String)
-    case mcp(ref: MCPToolRef, args: [String: String])
+    case mcp(ref: MCPToolRef, args: MCPJSONValue.Object)
     case transform(TransformOp)
     case branch(condition: ConditionExpr, onTrue: String, onFalse: String)
 
     private enum CodingKeys: String, CodingKey { case tool, prompt, mcp, transform, branch }
     private struct ToolRepr: Codable, Equatable { let toolRef: String; let input: String }
     private struct PromptRepr: Codable, Equatable { let inline: PromptTool; let input: String }
-    private struct MCPRepr: Codable, Equatable { let ref: MCPToolRef; let args: [String: String] }
+    private struct MCPRepr: Codable, Equatable { let ref: MCPToolRef; let args: MCPJSONValue.Object }
     private struct BranchRepr: Codable, Equatable {
         let condition: ConditionExpr
         let onTrue: String

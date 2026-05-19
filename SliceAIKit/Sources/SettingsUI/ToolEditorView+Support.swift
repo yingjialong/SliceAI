@@ -3,6 +3,40 @@ import DesignSystem
 import SliceCore
 import SwiftUI
 
+// MARK: - Agent MCP Allowlist Codec
+
+/// Agent MCP allowlist 的文本编解码器。
+///
+/// Phase 1 先采用一行一个 `server.tool` 的最小可编辑格式，避免在 Settings UI 里提前引入
+/// MCP tool picker 的复杂状态同步；后续可以在不改变底层模型的前提下替换为可视化选择器。
+enum AgentMCPAllowlistTextCodec {
+
+    /// 将 MCP allowlist 渲染为一行一个 `server.tool`。
+    /// - Parameter refs: MCP tool 引用列表。
+    /// - Returns: 可直接编辑的多行文本。
+    static func render(_ refs: [MCPToolRef]) -> String {
+        refs.map { "\($0.server).\($0.tool)" }.joined(separator: "\n")
+    }
+
+    /// 解析一行一个 `server.tool` 的 MCP allowlist 文本。
+    /// - Parameter text: 用户输入文本。
+    /// - Returns: 解析出的 MCP tool 引用；空行、注释行和无效行会被忽略。
+    static func parse(_ text: String) -> [MCPToolRef] {
+        text
+            .split(whereSeparator: \.isNewline)
+            .compactMap { rawLine -> MCPToolRef? in
+                let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !line.isEmpty, !line.hasPrefix("#") else { return nil }
+                let parts = line.split(separator: ".", maxSplits: 1, omittingEmptySubsequences: false)
+                guard parts.count == 2 else { return nil }
+                let server = String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)
+                let tool = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !server.isEmpty, !tool.isEmpty else { return nil }
+                return MCPToolRef(server: server, tool: tool)
+            }
+    }
+}
+
 // MARK: - PromptTextEditor
 
 /// 带 placeholder 和圆角边框的多行 prompt 编辑器。

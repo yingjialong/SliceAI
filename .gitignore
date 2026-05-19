@@ -4,6 +4,7 @@
 
 ## Claude Code 本地工具配置（plugin 启用状态等，属于开发者本机环境）
 .claude/
+.claude-review-loop/
 
 ## macOS
 .DS_Store

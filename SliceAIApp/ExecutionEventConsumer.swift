@@ -52,8 +52,8 @@ final class ExecutionEventConsumer {
             logPreparationEvent(event)
         case .contextResolved, .promptRendered, .llmChunk:
             logPreparationEvent(event)
-        case .toolCallProposed, .toolCallApproved, .toolCallResult, .stepCompleted:
-            logToolProgressEvent(event)
+        case .toolCallProposed, .toolCallApproved, .toolCallResult, .toolCallDenied, .toolCallError, .stepCompleted:
+            handleToolProgressEvent(event, panel: panel)
         case .sideEffectTriggered, .sideEffectSkippedDryRun, .permissionWouldBeRequested:
             logPermissionEvent(event)
         case .notImplemented(let reason):
@@ -81,6 +81,34 @@ final class ExecutionEventConsumer {
         }
     }
 
+    /// 处理工具调用生命周期事件：保留日志，同时同步 ResultPanel 状态行。
+    /// - Parameters:
+    ///   - event: 工具调用或步骤推进事件。
+    ///   - panel: 需要更新的结果面板。
+    private func handleToolProgressEvent(_ event: ExecutionEvent, panel: ResultPanel) {
+        logToolProgressEvent(event)
+
+        switch event {
+        case .toolCallProposed(let id, let ref, let argsDescription):
+            panel.showToolCallProposed(
+                id: id,
+                title: toolTitle(for: ref),
+                detail: argsDescription
+            )
+        case .toolCallApproved(let id):
+            panel.showToolCallApproved(id: id)
+        case .toolCallResult(let id, let summary):
+            panel.showToolCallResult(id: id, summary: summary)
+        case .toolCallDenied(let id, let reason):
+            panel.showToolCallDenied(id: id, reason: reason)
+        case .toolCallError(let id, let summary):
+            panel.showToolCallError(id: id, summary: summary)
+        default:
+            // stepCompleted 只用于日志与未来 pipeline UI，不修改当前 tool-call rows。
+            break
+        }
+    }
+
     /// 记录上下文、prompt 与 LLM chunk 相关的非 UI 变更事件。
     /// - Parameter event: 需要记录的执行事件。
     private func logPreparationEvent(_ event: ExecutionEvent) {
@@ -105,20 +133,32 @@ final class ExecutionEventConsumer {
     /// - Parameter event: 需要记录的执行事件。
     private func logToolProgressEvent(_ event: ExecutionEvent) {
         switch event {
-        case .toolCallProposed(let ref, let argsDescription):
+        case .toolCallProposed(let id, let ref, let argsDescription):
             let refDescription = String(describing: ref)
+            let detail = "ref=\(refDescription) args=\(argsDescription)"
             logger.debug(
-                "toolCallProposed ref=\(refDescription, privacy: .private) args=\(argsDescription, privacy: .private)"
+                "toolCallProposed id=\(id, privacy: .public) detail=\(detail, privacy: .private)"
             )
         case .toolCallApproved(let id):
             logger.debug("toolCallApproved id=\(id, privacy: .public)")
         case .toolCallResult(let id, let summary):
             logger.debug("toolCallResult id=\(id, privacy: .public) summary=\(summary, privacy: .private)")
+        case .toolCallDenied(let id, let reason):
+            logger.debug("toolCallDenied id=\(id, privacy: .public) reason=\(reason, privacy: .private)")
+        case .toolCallError(let id, let summary):
+            logger.debug("toolCallError id=\(id, privacy: .public) summary=\(summary, privacy: .private)")
         case .stepCompleted(let step, let total):
             logger.debug("stepCompleted \(step, privacy: .public)/\(total, privacy: .public)")
         default:
             break
         }
+    }
+
+    /// 生成面向 ResultPanel 的工具标题。
+    /// - Parameter ref: MCP 工具引用。
+    /// - Returns: `server.tool` 形式的紧凑标题。
+    private func toolTitle(for ref: MCPToolRef) -> String {
+        "\(ref.server).\(ref.tool)"
     }
 
     /// 记录权限与 side effect 相关的非 UI 变更事件。

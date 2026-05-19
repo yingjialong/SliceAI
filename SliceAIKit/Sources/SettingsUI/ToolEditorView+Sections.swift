@@ -15,6 +15,14 @@ extension ToolEditorView {
         return false
     }
 
+    /// 当前工具是否为 Phase 1 设置页支持编辑的 agent 类型。
+    var isAgentTool: Bool {
+        if case .agent = tool.kind {
+            return true
+        }
+        return false
+    }
+
     /// 基础信息分组：名称 / 图标 / 描述。
     var basicsCard: some View {
         SectionCard("基础信息") {
@@ -57,6 +65,22 @@ extension ToolEditorView {
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .frame(maxWidth: 240)
+            }
+
+            SettingsRow("快捷键") {
+                VStack(alignment: .trailing, spacing: SliceSpacing.xs) {
+                    HotkeyEditorView(
+                        binding: toolHotkeyBinding,
+                        onCommit: onHotkeyCommit
+                    )
+                    if let message = toolHotkeyValidationMessage {
+                        Text(message)
+                            .font(SliceFont.caption)
+                            .foregroundColor(.red)
+                            .multilineTextAlignment(.trailing)
+                    }
+                }
+                .frame(maxWidth: 280)
             }
         }
     }
@@ -158,6 +182,155 @@ extension ToolEditorView {
         }
     }
 
+    /// Agent 提示词分组：System / Initial User Prompt。
+    var agentPromptCard: some View {
+        SectionCard("Agent 提示词") {
+            PromptTextEditor(
+                label: "System Prompt",
+                placeholder: "描述 Agent 的角色、边界和工具使用规则...",
+                required: false,
+                text: agentSystemPromptBinding,
+                minHeight: 88
+            )
+            .padding(.vertical, SliceSpacing.base)
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(SliceColor.divider)
+                    .frame(height: 0.5)
+                    .padding(.horizontal, -SliceSpacing.xl)
+            }
+
+            PromptTextEditor(
+                label: "Initial User Prompt",
+                placeholder: "输入 Agent 的初始任务，可用 {{selection}} 等变量...",
+                required: true,
+                text: agentInitialUserPromptBinding,
+                minHeight: 120
+            )
+            .padding(.vertical, SliceSpacing.base)
+
+            Text("可用变量：{{selection}}  {{app}}  {{url}}")
+                .font(SliceFont.caption)
+                .foregroundColor(SliceColor.textTertiary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.bottom, SliceSpacing.xs)
+        }
+    }
+
+    /// Agent Provider 与 ReAct 轮数分组。
+    var agentProviderCard: some View {
+        SectionCard("Agent Provider") {
+            SettingsRow("Provider") {
+                if providers.isEmpty {
+                    Text("请先添加 Provider")
+                        .font(SliceFont.body)
+                        .foregroundColor(SliceColor.textTertiary)
+                } else {
+                    Picker("", selection: agentProviderIdBinding) {
+                        ForEach(providers) { provider in
+                            Text(provider.name).tag(provider.id)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                }
+            }
+
+            SettingsRow("模型覆写") {
+                TextField(
+                    "留空使用 Provider 默认模型",
+                    text: agentModelIdBinding
+                )
+                .textFieldStyle(.plain)
+                .multilineTextAlignment(.trailing)
+                .foregroundColor(SliceColor.textPrimary)
+                .font(SliceFont.body)
+            }
+
+            SettingsRow("LLM 轮数") {
+                Stepper(value: agentMaxStepsBinding, in: 1...20) {
+                    Text("\(agentMaxStepsBinding.wrappedValue)")
+                        .font(SliceFont.body)
+                        .foregroundColor(SliceColor.textPrimary)
+                        .frame(width: 32, alignment: .trailing)
+                }
+                .frame(width: 120)
+            }
+
+            SettingsRow("展示模式") {
+                Picker("", selection: $tool.displayMode) {
+                    ForEach(Self.editableDisplayModes, id: \.self) { mode in
+                        Text(mode.displayLabel).tag(mode)
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+            }
+        }
+    }
+
+    /// Agent MCP allowlist 分组。
+    var agentMCPAllowlistCard: some View {
+        SectionCard("MCP Allowlist") {
+            PromptTextEditor(
+                label: "允许调用的 MCP Tools",
+                placeholder: "brave-search.brave_web_search\nfilesystem.read_file",
+                required: false,
+                text: agentMCPAllowlistTextBinding,
+                minHeight: 96
+            )
+            .padding(.vertical, SliceSpacing.base)
+
+            Text("每行一个 server.tool；保存后会同步工具的 MCP 权限声明。")
+                .font(SliceFont.caption)
+                .foregroundColor(SliceColor.textTertiary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.bottom, SliceSpacing.xs)
+        }
+    }
+
+    /// Agent MCP 调用策略分组。
+    var agentToolCallPolicyCard: some View {
+        SectionCard("MCP 调用策略") {
+            SettingsRow("总 MCP 上限") {
+                Stepper(value: agentMaxTotalToolCallsBinding, in: 0...100) {
+                    Text(policyLimitLabel(agentMaxTotalToolCallsBinding.wrappedValue))
+                        .font(SliceFont.body)
+                        .foregroundColor(SliceColor.textPrimary)
+                        .frame(width: 56, alignment: .trailing)
+                }
+                .frame(width: 150)
+            }
+
+            SettingsRow("单轮 MCP 上限") {
+                Stepper(value: agentMaxCallsPerTurnBinding, in: 0...20) {
+                    Text(policyLimitLabel(agentMaxCallsPerTurnBinding.wrappedValue))
+                        .font(SliceFont.body)
+                        .foregroundColor(SliceColor.textPrimary)
+                        .frame(width: 56, alignment: .trailing)
+                }
+                .frame(width: 150)
+            }
+
+            SettingsRow("跳过重复参数") {
+                Toggle("", isOn: agentSkipDuplicateToolCallsBinding)
+                    .labelsHidden()
+            }
+
+            SettingsRow("限流后停止") {
+                Toggle("", isOn: agentStopOnRateLimitBinding)
+                    .labelsHidden()
+            }
+        }
+    }
+
+    /// 调用策略上限在 UI 中的展示文本。
+    /// - Parameter value: 绑定中的数值；0 表示自动。
+    /// - Returns: 展示文案。
+    private func policyLimitLabel(_ value: Int) -> String {
+        value <= 0 ? "自动" : "\(value)"
+    }
+
     /// 非 prompt 工具的只读提示，避免用户在 no-op editor 中误以为修改会保存。
     var unsupportedKindCard: some View {
         SectionCard("工具类型") {
@@ -167,7 +340,7 @@ extension ToolEditorView {
                     .foregroundColor(SliceColor.textSecondary)
                 Spacer(minLength: 0)
             }
-            Text("基础信息仍可编辑；Agent / Pipeline 的专用编辑器将在后续阶段接入。")
+            Text("基础信息仍可编辑；Pipeline 的专用编辑器将在后续阶段接入。")
                 .font(SliceFont.caption)
                 .foregroundColor(SliceColor.textTertiary)
                 .frame(maxWidth: .infinity, alignment: .leading)

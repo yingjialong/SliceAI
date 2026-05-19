@@ -29,4 +29,34 @@ struct OpenAIStreamChoice: Decodable {
 struct OpenAIStreamDelta: Decodable {
     /// 新增文本片段；首帧通常只带 role 而无 content；finish 帧 delta 为 {}，故允许 nil
     let content: String?
+    /// DeepSeek thinking mode 的推理内容增量；后续 tool-call 请求必须原样回传
+    let reasoningContent: String?
+    /// 工具调用增量；function arguments 会以字符串片段形式分批到达
+    let toolCalls: [OpenAIToolCallDelta]?
+
+    private enum CodingKeys: String, CodingKey {
+        case content
+        case reasoningContent = "reasoning_content"
+        case toolCalls = "tool_calls"
+    }
+}
+
+/// OpenAI-compatible streaming tool call delta。
+struct OpenAIToolCallDelta: Decodable {
+    /// 同一 assistant turn 内的 tool call 稳定索引
+    let index: Int
+    /// provider 返回的 tool_call_id；通常只在首个 delta 出现
+    let id: String?
+    /// 当前只支持 function tool；保留原始类型便于校验 / 测试
+    let type: String?
+    /// function 名称与 arguments 增量
+    let function: OpenAIToolCallFunctionDelta
+}
+
+/// OpenAI-compatible function tool call 增量。
+struct OpenAIToolCallFunctionDelta: Decodable {
+    /// function tool 名；通常只在首个 delta 出现
+    let name: String?
+    /// arguments 原始 JSON 字符串增量
+    let arguments: String?
 }

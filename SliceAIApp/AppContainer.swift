@@ -6,6 +6,7 @@ import Foundation
 import HotkeyManager
 import LLMProviders
 import Orchestration
+import OSLog
 import Permissions
 import SelectionCapture
 import SettingsUI
@@ -124,6 +125,8 @@ final class AppContainer {
         let permissionBroker: any PermissionBrokerProtocol
         let providerResolver: any ProviderResolverProtocol
         let promptExecutor: PromptExecutor
+        let agentExecutor: AgentExecutor
+        let mcpClient: any MCPClientProtocol
         let costAccounting: CostAccounting
         let auditLog: any AuditLogProtocol
         let outputDispatcher: any OutputDispatcherProtocol
@@ -214,12 +217,21 @@ final class AppContainer {
         llmProviderFactory: any LLMProviderFactory,
         resultPanel: ResultPanel
     ) async throws -> RuntimeDependencies {
-        let providerRegistry = ContextProviderRegistry(providers: [:])
-        let permissionBroker: any PermissionBrokerProtocol = PermissionBroker(store: PermissionGrantStore())
+        let providerRegistry = makeContextProviderRegistry()
+        let permissionBroker = makePermissionBroker(appSupport: appSupport)
+        let mcpRuntime = makeMCPRuntime(appSupport: appSupport)
         let providerResolver: any ProviderResolverProtocol = DefaultProviderResolver(
             configurationProvider: { [configStore] in try await configStore.current() }
         )
         let promptExecutor = PromptExecutor(keychain: keychain, llmProviderFactory: llmProviderFactory)
+        let agentExecutor = AgentExecutor(
+            providerResolver: providerResolver,
+            mcpClient: mcpRuntime.client,
+            permissionBroker: permissionBroker,
+            keychain: keychain,
+            llmProviderFactory: llmProviderFactory,
+            mcpDescriptors: mcpRuntime.descriptorsProvider
+        )
         let costAccounting = try CostAccounting(dbURL: appSupport.appendingPathComponent("cost.sqlite"))
         let auditLog: any AuditLogProtocol = try JSONLAuditLog(
             fileURL: appSupport.appendingPathComponent("audit.jsonl")
@@ -232,6 +244,8 @@ final class AppContainer {
             permissionBroker: permissionBroker,
             providerResolver: providerResolver,
             promptExecutor: promptExecutor,
+            agentExecutor: agentExecutor,
+            mcpClient: mcpRuntime.client,
             costAccounting: costAccounting,
             auditLog: auditLog,
             outputDispatcher: outputDispatcher
@@ -246,7 +260,7 @@ final class AppContainer {
         )
     }
 
-    /// 创建 v2 `ExecutionEngine`，集中保留 mock MCP/Skill 依赖的边界。
+    /// 创建生产 v2 `ExecutionEngine`，集中保留 runtime 依赖的装配边界。
     ///
     /// - Parameter dependencies: 创建执行引擎所需的 v2 内部依赖集合。
     /// - Returns: 完整装配但尚未接入 caller 的 v2 执行引擎。
@@ -257,12 +271,69 @@ final class AppContainer {
             permissionGraph: PermissionGraph(providerRegistry: dependencies.providerRegistry),
             providerResolver: dependencies.providerResolver,
             promptExecutor: dependencies.promptExecutor,
-            mcpClient: MockMCPClient(),
+            mcpClient: dependencies.mcpClient,
             skillRegistry: MockSkillRegistry(),
             costAccounting: dependencies.costAccounting,
             auditLog: dependencies.auditLog,
-            output: dependencies.outputDispatcher
+            output: dependencies.outputDispatcher,
+            agentExecutor: dependencies.agentExecutor
         )
+    }
+}
+
+/// AppContainer 生产 MCP runtime 依赖。
+private struct AppMCPRuntimeDependencies {
+    let descriptorsProvider: @Sendable () async throws -> [MCPDescriptor]
+    let client: any MCPClientProtocol
+}
+
+private extension AppContainer {
+
+    /// 创建生产 PermissionBroker。
+    /// - Parameter appSupport: app support 目录。
+    /// - Returns: 完整配置 presenter 与 persistent grant store 的 broker。
+    static func makePermissionBroker(appSupport: URL) -> any PermissionBrokerProtocol {
+        PermissionBroker(
+            store: PermissionGrantStore(),
+            persistentStore: PersistentPermissionGrantStore(
+                fileURL: appSupport.appendingPathComponent("permission-grants.json")
+            ),
+            consentPresenter: AppPermissionConsentPresenter()
+        )
+    }
+
+    /// 创建生产 MCP runtime。
+    /// - Parameter appSupport: app support 目录。
+    /// - Returns: MCP descriptor provider 与 routing client。
+    static func makeMCPRuntime(appSupport: URL) -> AppMCPRuntimeDependencies {
+        let mcpServerStore = MCPServerStore(fileURL: appSupport.appendingPathComponent("mcp.json"))
+        let descriptorsProvider: @Sendable () async throws -> [MCPDescriptor] = {
+            try await mcpServerStore.snapshot()
+        }
+        let stdioMCPClient = StdioMCPClient(descriptors: descriptorsProvider)
+        let streamableHTTPMCPClient = StreamableHTTPMCPClient(descriptors: descriptorsProvider)
+        let routingMCPClient = RoutingMCPClient(
+            descriptors: descriptorsProvider,
+            stdio: stdioMCPClient,
+            streamableHTTP: streamableHTTPMCPClient
+        )
+        return AppMCPRuntimeDependencies(descriptorsProvider: descriptorsProvider, client: routingMCPClient)
+    }
+
+    /// 创建生产上下文 provider 注册表。
+    ///
+    /// - Returns: 包含 Task 7 五个核心 provider 的 registry。
+    private static func makeContextProviderRegistry() -> ContextProviderRegistry {
+        let providers: [String: any ContextProvider] = [
+            "selection": SelectionContextProvider(),
+            "app.windowTitle": AppWindowTitleContextProvider(),
+            "app.url": AppURLContextProvider(),
+            "clipboard.current": ClipboardCurrentContextProvider(
+                readString: AppContextAdapters.readClipboardString
+            ),
+            "file.read": FileReadContextProvider(sandbox: PathSandbox())
+        ]
+        return ContextProviderRegistry(providers: providers)
     }
 
     /// 创建选区捕获服务：AX 为主路径，剪贴板为 fallback。

@@ -2,6 +2,7 @@
 //
 // 快捷键设置页：绑定命令面板全局热键，用户 onSubmit 后立即持久化。
 import DesignSystem
+import HotkeyManager
 import SliceCore
 import SwiftUI
 
@@ -44,15 +45,54 @@ public struct HotkeySettingsPage: View {
                         }
                     )
                 }
+                if let message = commandPaletteValidationMessage {
+                    Text(message)
+                        .font(SliceFont.caption)
+                        .foregroundColor(.red)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                }
             }
 
             // 备注卡片：提示未来规划
             SectionCard {
-                Text("未来版本将支持为每个工具单独绑定 ⌘1–⌘9。")
+                Text("工具快捷键可在 Tools 中每个工具的基础信息里设置。")
                     .font(SliceFont.callout)
                     .foregroundColor(SliceColor.textTertiary)
                     .padding(.vertical, SliceSpacing.base)
             }
+        }
+    }
+
+    /// 命令面板热键的跨工具校验提示
+    private var commandPaletteValidationMessage: String? {
+        let toolHotkeys = HotkeyBindingValidator.effectiveToolHotkeys(
+            bindings: viewModel.configuration.hotkeys,
+            tools: viewModel.configuration.tools
+        )
+        let issues = HotkeyBindingValidator.issues(
+            commandPalette: viewModel.configuration.hotkeys.toggleCommandPalette,
+            tools: toolHotkeys
+        )
+        guard let issue = issues.first(where: isCommandPaletteIssue) else { return nil }
+        switch issue {
+        case .invalidCommandPalette:
+            return "命令面板快捷键无效"
+        case .commandPaletteConflict(let toolID, let hotkey):
+            return "与工具 \(toolID) 的快捷键 \(hotkey) 冲突"
+        case .invalidTool, .toolConflict:
+            return nil
+        }
+    }
+
+    /// 判断校验问题是否需要显示在命令面板热键行下方
+    /// - Parameter issue: HotkeyManager 返回的纯校验问题
+    /// - Returns: `true` 表示问题与命令面板热键直接相关
+    private func isCommandPaletteIssue(_ issue: HotkeyBindingIssue) -> Bool {
+        switch issue {
+        case .invalidCommandPalette, .commandPaletteConflict:
+            return true
+        case .invalidTool, .toolConflict:
+            return false
         }
     }
 }

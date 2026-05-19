@@ -15,11 +15,11 @@
 
 | 字段 | 值 |
 |---|---|
-| 最后更新 | 2026-05-07 |
-| 当前 Phase | **Phase 1 M1 实施中**（MCP 配置与 stdio 主干） |
-| 当前 Milestone | **M1 Task 1-4 已完成；Task 4 已通过 Claude review loop** |
-| 下一个动作 | 先对 **M1 Task 5 · MCP Servers Settings Page** 做 `claude-review-loop` 预审；通过后继续用 `superpowers:subagent-driven-development` 按 TDD 实施 |
-| 阻塞 | 无 Task 5 实现阻塞；legacy HTTP+SSE fallback 偏差已修正为“弃用，不实现” |
+| 最后更新 | 2026-05-19 |
+| 当前 Phase | **Phase 1 M4 收口期**（MCP + Context 主干） |
+| 当前 Milestone | **Task 17 release E2E validation 主体验证已完成** |
+| 下一个动作 | 合并到 `main` 后执行最终 release gate / review loop，并准备 `v0.3` release notes 与 tag |
+| 阻塞 | 无已知代码阻塞；filesystem / postgres / brave-search / git / sqlite 直接 MCP JSON-RPC E2E 已通过，用户已基本复测 App 场景且未反馈阻塞问题；进入发布前仍需最终 gate 和发布记录 |
 
 **Milestone 状态**
 
@@ -30,7 +30,10 @@
 | 0 | M1 | ✅ 已 merge 入 main（merge commit `5cdf0f7`，2026-04-25） |
 | 0 | M2 | ✅ 已完成：Orchestration + Capabilities 骨架落地 |
 | 0 | M3 | ✅ 已完成并发布：PR #3 merged，`v0.2.0` tag + GitHub Release |
-| 1 | M1 | ⏳ Task 1-4 已完成；下一步 Task 5（MCP Servers Settings Page） |
+| 1 | M1 | ✅ 已完成：MCP 数据契约、store/importer、stdio client、Settings MCP Servers 页面 |
+| 1 | M2 | ✅ 已完成：Task 6 PermissionGraph case-aware coverage、Task 7 Core ContextProviders、Task 8 Permission Consent Grants、Task 9 AppContainer wiring |
+| 1 | M3 | ✅ 已完成：tool calling contract、AgentExecutor ReAct loop、ResultPanel tool-call lifecycle、`web-search-summarize` |
+| 1 | M4 | 🟩 Task 17 主体验证完成；直接 MCP E2E 已通过，DeepSeek/权限/finalization 缺陷、自定义 Agent Tool 编辑器、MCP allowlist 和通用 tool-call policy 已修复/补齐并通过完整 gate；用户已基本复测 App 场景 |
 | 2–5 | — | 🟦 Directional，进入前需重新 spec |
 
 ---
@@ -66,8 +69,8 @@
 | Phase | 主题 | 状态 | 时长（人天） | 对外可见新功能 | 关键产出 |
 |---|---|---|---|---|---|
 | **0** | 底层重构 | **Freeze，实施中**（M1 完成等 merge） | 15–21 (M1+M2+M3) | **无**（只重构） | Orchestration + Capabilities 骨架、Tool 三态、ExecutionSeed/ResolvedContext、Permission + Provenance + PermissionGraph + PathSandbox hook、v2 schema + 独立 config 路径 |
-| **1** | MCP + Context 主干 | **Freeze，M1 实施中** | 20–30 | MCP 支持 / 5 个核心 ContextProvider / Per-Tool Hotkey | MCPClient（stdio + Streamable HTTP；legacy HTTP+SSE 弃用不实现）+ MCPServersPage + AgentExecutor + `web-search-summarize` 首个真 Agent Tool |
-| **2** | Skill + 多 DisplayMode | Directional | — | Skill 接入 / replace / bubble / structured / TTS | 进入前重新 spec |
+| **1** | MCP + Context 主干 | **Freeze，实施中** | 20–30 | MCP 支持 / 5 个核心 ContextProvider / Per-Tool Hotkey / 基础自定义 Agent Tool | MCPClient（stdio + Streamable HTTP）+ MCPServersPage + AgentExecutor + Agent Tool 编辑器 + `web-search-summarize` 首个真 Agent Tool |
+| **2** | Skill + 多 DisplayMode | Directional | — | Skill 接入 / replace / bubble / structured / TTS | 进入前重新 spec；Skill 不再算 Phase 1 blocker |
 | **3** | Prompt IDE + 本地模型 | Directional | — | Playground / A-B / Ollama & Anthropic 原生 / Memory | 进入前重新 spec |
 | **4** | 生态与分享 | Directional | — | Tool Pack / Marketplace / SliceAI as MCP server / Shortcuts / Services | 进入前重新 spec；Pack 签名体系在 §3.9.4 已埋 hook |
 | **5** | 高级编排 | Directional | — | Pipeline / 智能路由 / Smart Actions | 进入前重新 spec |
@@ -305,26 +308,15 @@ fi
 
 **目标**：把 Phase 0 的 `ContextProvider` / `MCPClient` / `AgentExecutor` 填实；用户可以在 Settings 加 MCP server，并在 Tool 勾选哪些 MCP tool 可用；Per-Tool Hotkey 生效。
 
-**状态**：**设计已 Freeze**，**brainstorming design spec 与 implementation plan 均已通过 Claude review loop**；M1 Task 1-4 已在 `feature/phase-1-mcp-context` 完成，下一步进入 Task 5。
+**状态**：**M1-M4 主干已实施**，当前 worktree `feature/phase-1-mcp-context` 已完成 Task 16 release readiness review，并完成 Task 17 release E2E validation 的主体验证。自动化 gate 已通过；真实 5-server 直接 MCP E2E 已通过。App 实测发现的 DeepSeek thinking-mode finalize、Brave 搜索 MCP 授权范围、Agent maxSteps 无最终回答、最终回合 DSML 标记误作为正文输出缺陷已修复；基础自定义 Agent Tool 编辑器、MCP allowlist 文本配置和通用 MCP tool-call policy 已完成代码实现；用户已基本复测 App 场景且未反馈阻塞问题。
 
-**Entry criteria**（启动 plan 起草的前置条件）：
+**Entry criteria**（Phase 1 实施启动前置条件）：
 
 - [x] Phase 0 全部 milestone merge（v0.2 已发布）
 - [x] 用 superpowers:brainstorming skill 走一遍 Phase 1 设计（spec 已 freeze 但细节需要再走一遍）
-- [x] Claude review loop 审查 `docs/superpowers/specs/2026-05-06-phase-1-mcp-context-design.md` 到 Round 3 `approve`
 - [x] 用户 review `docs/superpowers/specs/2026-05-06-phase-1-mcp-context-design.md`
 - [x] 产出 `docs/superpowers/plans/2026-05-06-phase-1-mcp-context.md`
-- [x] plan 过一轮 Codex/Claude review，直到 APPROVED / COMMENT（Claude Round 8 `approve`）
-
-**M1 当前执行状态**：
-
-| Task | 范围 | 状态 |
-|---|---|---|
-| M1 Task 1 | SliceCore MCP JSON Contract | ✅ 已完成并提交 |
-| M1 Task 2 | MCP Client Protocol Uses Canonical Descriptor | ✅ 已完成并提交 |
-| M1 Task 3 | MCP Server Store And Claude Desktop Import | ✅ 已完成并提交 |
-| M1 Task 4 | Stdio MCP JSON-RPC Client | ✅ 已完成并通过 Claude review loop |
-| M1 Task 5 | MCP Servers Settings Page | ⏭ 下一步 |
+- [x] plan 经 `claude-review-loop` review 到 APPROVED / COMMENT 边界后进入实施
 
 **Early validation（Phase 1 早期验收，不是启动门槛）**——按 spec §5.3 定位，在首个真实 Agent Tool `web-search-summarize` 开发阶段实测：
 
@@ -337,7 +329,7 @@ fi
 | # | 项目 | 说明 |
 |---|---|---|
 | 1.1 | `Capabilities/MCPClient`（stdio） | 子进程管理、JSON-RPC framing、懒启动、idle 超时 |
-| 1.2 | `Capabilities/MCPClient`（Streamable HTTP） | 远程 MCP server；旧 HTTP+SSE 明确弃用，不作为 Phase 1 实现目标 |
+| 1.2 | `Capabilities/MCPClient`（Streamable HTTP） | 远程 MCP server；旧 HTTP+SSE 已弃用且不实现 |
 | 1.3 | `SettingsUI/Pages/MCPServersPage` | 增删改、测试连接、查看暴露的 tool 列表 |
 | 1.4 | 兼容 Claude Desktop 的 `mcp.json` 格式 | 用户导入一次搞定 |
 | 1.5 | `Orchestration/AgentExecutor` | ReAct loop + tool call 审批 UI |
@@ -346,17 +338,146 @@ fi
 | 1.8 | `Windowing/ResultPanel` 增加 tool call 展示 | 折叠/展开 + 参数 + 结果 |
 | 1.9 | `PermissionBroker` 真实接入 | Tool install 时批量授权、执行时 gate |
 | 1.10 | **首个真实 Agent Tool**：`web-search-summarize` | MCP: brave-search + agent loop + Markdown 总结 |
+| 1.11 | **基础 Agent Tool 编辑器** | Tools 设置页可新增 Agent，编辑 prompt / provider / LLM 轮数 / MCP allowlist / 调用策略 |
+| 1.12 | **Agent tool-call policy** | `maxSteps` 只表示 LLM 轮数；MCP 调用由独立 policy 控制 |
 
 **Exit criteria（DoD）**：
 
-- [ ] 可从 Claude Desktop 直接复制 `mcp.json` 并工作
-- [ ] 至少 5 个 MCP server 验证通过（filesystem / postgres / brave-search / git / sqlite）
-- [ ] Tool Permission 的一键同意 / 撤销 UX 有测试
-- [ ] `web-search-summarize` Tool 在 Safari / Notes / Slack 三个场景 E2E 通过
-- [ ] 新增文档 `docs/Module/MCPClient.md` `docs/Module/ContextProviders.md`
+- [x] 可从 Claude Desktop 直接复制 `mcp.json` 并导入 SliceAI（真实工作仍取决于 server runner confirmation 和本机可用命令）
+- [x] 至少 5 个 MCP server 验证通过（filesystem / postgres / brave-search / git / sqlite）——Task 17 已完成直接 MCP JSON-RPC `tools/list` 与低风险 `tools/call`，App 场景仍待回归
+- [x] Tool Permission 的批准 / 拒绝 / grant 下限有自动化测试；真实 UX 仍建议在 release 环境回归
+- [x] `web-search-summarize` Tool 在 Safari / Notes / Slack 等 App 场景完成用户基本复测（未沉淀逐项截图 / 日志证据）
+- [x] 用户可从 Settings 创建基础 Agent Tool，并用 `server.tool` 文本配置 MCP allowlist 和调用策略
+- [x] AgentExecutor 使用独立 `AgentToolCallPolicy` 控制总调用数、单轮调用数、重复参数和 rate limit 停止
+- [x] 新增文档 `docs/Module/MCPClient.md` `docs/Module/ContextProviders.md`
 - [ ] 发布 **v0.3** tag
 
 **Phase 1 预计人天**：20–30；加 20% buffer → 24–36 人天。
+
+### 4.1 M1：MCP 配置与 stdio
+
+**状态**：Task 1-5 已完成；Task 5 已按 code-quality review 修复两轮，二次复审 `APPROVED`。
+
+**计划文档**：[docs/superpowers/plans/2026-05-06-phase-1-mcp-context.md](superpowers/plans/2026-05-06-phase-1-mcp-context.md)
+
+| Task | 内容 | 状态 | 备注 |
+|---|---|---|---|
+| M1 Task 1 | SliceCore MCP JSON Contract | ✅ 已完成 | `MCPJSONValue` / MCP content / tool / transport contract；`.sse` 仅解码兼容不可新建 |
+| M1 Task 2 | MCP Client Protocol Uses Canonical Descriptor | ✅ 已完成 | Capabilities 使用 SliceCore canonical `MCPDescriptor` / `MCPToolDescriptor` |
+| M1 Task 3 | MCP Server Store And Claude Desktop Import | ✅ 已完成 | `mcp.json` store、fail-closed validation、Claude Desktop stdio import |
+| M1 Task 4 | Stdio MCP JSON-RPC Client | ✅ 已完成 | stdio JSON-RPC initialize / tools/list / tools/call；remote transport M4 前 fail-fast |
+| M1 Task 5 | MCP Servers Settings Page | ✅ 已完成 | Settings 页面、导入 / 新增 / 编辑 / 删除 / 测试连接；已修复原子 update、metadata 保留、sheet 失败保留输入、stale preview |
+
+**M1 Gate 候选验证**：
+
+- [x] `swift test --filter SliceCoreTests.MCPDescriptorTests`
+- [x] `swift test --filter CapabilitiesTests.MCPServerStoreTests`
+- [x] `swift test --filter CapabilitiesTests.RoutingMCPClientTests`
+- [x] `swift test --filter SettingsUITests.MCPServersViewModelTests`（15 tests）
+- [x] `swift test`（639 tests）
+- [x] Task 5 二次 code-quality 复审 APPROVED
+
+**下一步**：M1 已完成；继续查看 M2-M4 状态。
+
+---
+
+### 4.2 M2：Context 与 Permission
+
+**状态**：Task 6-9 已完成。
+
+| Task | 内容 | 状态 | 备注 |
+|---|---|---|---|
+| M2 Task 6 | PermissionGraph Case-Aware Coverage | ✅ 已完成 | `EffectivePermissions.undeclared` 改为 declared covers effective；支持文件 exact / 目录前缀 / glob、PathSandbox hard-deny、MCP nil/superset、shellExec exact |
+| M2 Task 7 | Five ContextProviders | ✅ 已完成 | 新增 `selection` / `app.windowTitle` / `app.url` / `clipboard.current` / `file.read`；剪贴板和文件 IO 支持取消检查，文件读取先经 `PathSandbox`，并按 chunk 读取且默认 1 MiB 上限 |
+| M2 Task 8 | Permission Grant Persistence And UI-Gate Protocol | ✅ 已完成 | 新增 UI-free consent boundary、session grant cache、persistent permission-grants store；默认 MCP / network / shell / AppIntents 不缓存；Task 17 仅对白名单内置 `brave-search.brave_web_search` 开启 session / persistent grant |
+| M2 Task 9 | AppContainer Wires Real Context And Permission UI | ✅ 已完成 | `AppContainer` 注册真实 provider registry，接入 AppKit presenter、`permission-grants.json` persistent store、`mcp.json` + stdio/routing MCP client；`.agent` stub 保持不变 |
+
+**Task 6 验证**：
+
+- [x] `swift test --filter OrchestrationTests.PermissionGraphTests`
+- [x] `swift test --filter OrchestrationTests.ExecutionEngineTests`
+- [x] `swift test --filter CapabilitiesTests.PathSandboxTests`
+- [x] `git diff --check`
+
+**Task 7 验证**：
+
+- [x] `cd SliceAIKit && swift test --filter CapabilitiesTests.ContextProviderTests`
+- [x] `cd SliceAIKit && swift test --filter OrchestrationTests.ContextCollectorTests`
+- [x] `cd SliceAIKit && swift test --filter OrchestrationTests.PermissionGraphTests`
+- [x] `git diff --check`
+
+**Task 8 验证**：
+
+- [x] `cd SliceAIKit && swift test --filter OrchestrationTests.PermissionBrokerTests`
+- [x] `cd SliceAIKit && swift test --filter OrchestrationTests.PermissionGrantStoreTests`
+- [x] `cd SliceAIKit && swift test --filter CapabilitiesTests.PersistentPermissionGrantStoreTests`（7 tests）
+- [x] `cd SliceAIKit && swift test`
+- [x] `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`
+
+**Task 9 验证**：
+
+- [x] `cd SliceAIKit && swift test --filter OrchestrationTests.ExecutionEngineTests`
+- [x] `cd SliceAIKit && swift test --filter CapabilitiesTests.ContextProviderTests`
+- [x] `cd SliceAIKit && swift test --filter OrchestrationTests.PermissionBrokerTests`
+- [x] `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`
+- [x] `git diff --check`
+
+**下一步**：M2 已完成；继续查看 M3-M4 状态。
+
+---
+
+### 4.3 M3：AgentExecutor 与工具调用 UI
+
+**状态**：Task 10-13 已完成。
+
+| Task | 内容 | 状态 | 备注 |
+|---|---|---|---|
+| M3 Task 10 | LLM Tool Calling Contract | ✅ 已完成 | OpenAI-compatible tool schema、流式 tool-call delta、`ChatToolCall.arguments` 解析 |
+| M3 Task 11 | AgentExecutor ReAct Loop | ✅ 已完成 | MCP allowlist catalog、permission gate、MCP result 回填、max step / denial / error 处理 |
+| M3 Task 12 | ResultPanel Tool Call Lifecycle | ✅ 已完成 | proposed / approved / result / denied / error rows 映射到 ResultPanel |
+| M3 Task 13 | Built-In web-search-summarize Agent Tool | ✅ 已完成 | 默认配置新增首方 Agent tool，声明 selection context、tool-calling provider capability 和 Brave MCP 权限 |
+
+**M3 验证摘要**：
+
+- [x] LLMProviders / Orchestration / Windowing focused tests
+- [x] AgentExecutor / ExecutionEngine 回归
+- [x] App Debug build
+- [x] 每个 Task 均完成 `claude-review-loop`
+
+**下一步**：M3 已完成；继续查看 M4 状态。
+
+---
+
+### 4.4 M4：Remote Transport、Per-Tool Hotkeys、E2E、Release Docs
+
+**状态**：Task 14-16 已实施；Task 16 review 已 approve。
+
+| Task | 内容 | 状态 | 备注 |
+|---|---|---|---|
+| M4 Task 14 | Streamable HTTP Transport | ✅ 已完成 | MCP 2025-06-18 HTTP POST、session id、JSON / SSE response、redirect 阻断、404 session retry |
+| M4 Task 15 | Per-Tool Hotkeys | ✅ 已完成 | `HotkeyBindings.tools`、冲突检测、Settings UI、AppDelegate 多热键注册和 tool id 路由 |
+| M4 Task 16 | Five MCP Server E2E And Release Documentation | ✅ 已完成 | 自动化 gate 和模块文档完成；真实 5-server/App E2E 缺本机配置，已记录 blocker；Claude Round 2 approve |
+| Task 17 | Release E2E Validation | ✅ 主体验证完成 | filesystem / postgres / brave-search / git / sqlite 直接 MCP E2E 已通过；已修复 DeepSeek / Brave permission / maxSteps / DSML finalization 缺陷；用户已基本复测 App 场景 |
+| Task 56 | Agent Tool Config And MCP Policy | ✅ 已完成 | 基础 Agent Tool 编辑器、MCP allowlist 文本配置、policy UI、独立 `AgentToolCallPolicy` 已实现；完整 gate 通过 |
+
+**Task 16 gate 结果**：
+
+- [x] `cd SliceAIKit && swift build`
+- [x] `cd SliceAIKit && swift test --parallel --enable-code-coverage`（735 tests）
+- [x] `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`
+- [x] `swiftlint lint --strict`（170 files，0 violations）
+- [x] `bash scripts/phase1-mcp-e2e.sh` 完成只读前置条件检查
+
+**Release 前环境 blocker**：
+
+- [x] SliceAI `~/Library/Application Support/SliceAI/mcp.json`
+- [x] Brave Search API key（仅写入本机配置，不记录原值）
+- [x] Postgres 只读连接串（仅写入本机配置，不记录原值）
+- [x] SQLite 测试 DB 路径
+- [x] filesystem 安全测试目录
+- [x] Safari / Notes / Slack 等真实 App 场景基本复测（用户反馈无阻塞；未沉淀逐项截图 / 日志证据）
+
+**下一步**：合并到 `main` 后运行最终 release gate / review loop；若无新问题，更新 release notes 并进入 `v0.3` tag 准备。
 
 ---
 
@@ -722,49 +843,109 @@ fi
 - 按 `superpowers:brainstorming` 完成 Phase 1 设计复核，范围确认采用完整 v0.3 DoD，总 plan 内部拆 M1-M4。
 - 推荐并确认执行方案为"主干先行 + 里程碑验收"：M1 MCP 配置与 stdio、M2 Context 与 Permission、M3 AgentExecutor 与工具调用 UI、M4 HTTP transport / Per-Tool Hotkey / 5 server E2E / 发布准备。
 - 新增 design spec：`docs/superpowers/specs/2026-05-06-phase-1-mcp-context-design.md`。
-- MCP 远程传输口径修正：当前 MCP 官方最新规范以 `Streamable HTTP` 为标准远程传输；旧 `HTTP+SSE` 已从 Phase 1 实现目标中移除，后续不做兼容 fallback。
+- MCP 远程传输口径修正：当前 MCP 官方最新规范以 `Streamable HTTP` 为标准远程传输，旧 `HTTP+SSE` 只作为兼容路径；Phase 1 不再把旧 SSE 当作新设计主线。
 
-**当时下一步（已完成）**：用户 review Claude review 修订后的 design spec，并用 `superpowers:writing-plans` 起草 `docs/superpowers/plans/2026-05-06-phase-1-mcp-context.md`。
+**下一步**：用户 review design spec；确认后用 `superpowers:writing-plans` 起草 `docs/superpowers/plans/2026-05-06-phase-1-mcp-context.md` 并做 plan review。
 
-### 2026-05-06 — Phase 1 design spec Claude review loop 通过
+### 2026-05-07 — Phase 1 M1 完成
 
-- 按 `claude-review-loop` 对 `docs/superpowers/specs/2026-05-06-phase-1-mcp-context-design.md` 跑 3 轮 Claude Opus review。
-- Round 1 接受并修复 1 high + 3 medium：MCP tool call grant 不缓存、`MCPTransport` 迁移、MCP JSON value / content item 落点、PermissionGraph 静态闭环。
-- Round 2 partial 修复 1 medium：D-24 的 `effectivePermissions ⊆ tool.permissions` 明确为 case-aware coverage，支持文件通配 / 前缀与 MCP tools 宽声明；shell 保持精确白名单。
-- Round 3 返回 `approve`，`findings: []`。
+- 已按 `superpowers:subagent-driven-development` + TDD 完成 M1 Task 1-5。
+- Task 5 新增 MCP Servers 设置页，支持 stdio server 新增 / 编辑 / 删除、Claude Desktop JSON 导入、`tools/list` 测试连接和工具预览。
+- code-quality review 两轮修复均已完成：原子 update、metadata 保留、save/import 失败保留 sheet 输入、stale preview 失效、同一 server 并发测试 loading 计数。
+- `claude-review-loop` Round 1 发现新增 server 重复 id 会静默覆盖现有配置；已修复为新增路径拒绝重复 id，导入路径仍保留同 id 覆盖语义。
+- 旧 HTTP+SSE 偏差已修正：`.sse` 仅保留解码兼容，不允许 Phase 1 新建或连接；M4 只实现 Streamable HTTP。
+- 验证：`swift build`、`swift test --filter SettingsUITests.MCPServersViewModelTests`（15 tests）、`swift test`（639 tests）、`git diff --check` 均通过。
+- Task 5 二次 code-quality 复审结论：`APPROVED`。
 
-**当时下一步（已完成）**：用户 review 后进入 `superpowers:writing-plans`。
+**下一步**：启动 M2 Task 6：PermissionGraph case-aware coverage。
 
-### 2026-05-06 — Phase 1 implementation plan 起草
+### 2026-05-07 — Phase 1 M2 Task 6 完成
 
-- 按 `superpowers:writing-plans` 起草 Phase 1 implementation plan：`docs/superpowers/plans/2026-05-06-phase-1-mcp-context.md`。
-- plan 保持完整 v0.3 DoD 范围，并拆为 M1-M4：MCP 配置与 stdio、Context 与 Permission、AgentExecutor 与工具调用 UI、HTTP transport / Per-Tool Hotkey / 五服务器 E2E / 发布准备。
-- plan 自审已覆盖 spec coverage、红旗词扫描与类型一致性；当前不进入实现。
+- Task 6 将 `EffectivePermissions.undeclared` 从 raw Set 差集升级为 case-aware coverage。
+- 文件权限 coverage 支持 exact、显式目录前缀、`*` / `**` glob，并在 coverage 前通过 `PathSandbox.isHardDenied(_:)` 拦截硬禁止路径。
+- MCP coverage 支持同 server 的 `tools=nil` 全量声明和 declared tools 超集；shellExec 保持命令数组 exact match，空数组不表示全部命令。
+- 验证：`swift test --filter OrchestrationTests.PermissionGraphTests`、`swift test --filter OrchestrationTests.ExecutionEngineTests`、`swift test --filter CapabilitiesTests.PathSandboxTests`、`git diff --check` 均通过。
 
-**下一步**：对 implementation plan 做完整 review，并按结果修订到 APPROVED / COMMENT。review 通过前不要进入实现。
+**下一步**：启动 M2 Task 7。
 
-### 2026-05-06 — Phase 1 implementation plan Claude review loop 达到上限
+### 2026-05-08 — Phase 1 M2 Task 7 完成
 
-- 按 `claude-review-loop` 对 `docs/superpowers/plans/2026-05-06-phase-1-mcp-context.md` 跑 5 轮 Claude Opus review。
-- 5 轮共返回 14 条 material findings，全部 `accept` 并修复，覆盖 MCP JSON wire shape、PermissionBroker consent ownership、PathSandbox hard-deny coverage、tool-call lifecycle event、MCP input schema flow、SettingsUI dependency、AgentExecutor descriptor injection、LLM tool-calling API、RoutingMCPClient、多 transport、`MCPCallResult.isError`、assistant tool_calls history 等执行缺口。
-- Round 5 是默认 `max_iterations=5` 的上限轮；该轮最后 1 条 medium 已修复，但未再运行第 6 轮，因此当前没有 Claude `approve` 信号。
+- Task 7 新增五个核心 ContextProvider：`selection`、`app.windowTitle`、`app.url`、`clipboard.current`、`file.read`。
+- `clipboard.current` 默认读取系统剪贴板文本并推导 `.clipboard`；`file.read` 根据 `args["path"]` 推导 `.fileRead(path:)`，执行时先通过 `PathSandbox.normalize(_:role: .read)`，再按 chunk 读取且默认 1 MiB 上限。
+- 触及 IO 的 provider 均在 IO 边界前后调用 `Task.checkCancellation()`。
+- 验证：`cd SliceAIKit && swift test --filter CapabilitiesTests.ContextProviderTests`、`cd SliceAIKit && swift test --filter OrchestrationTests.ContextCollectorTests`、`cd SliceAIKit && swift test --filter OrchestrationTests.PermissionGraphTests`、`git diff --check` 均通过。
 
-**当时下一步（已完成）**：用户确认追加 1-3 次 follow-up review，目标是获取明确 `approve`。
+**下一步**：启动 M2 Task 8。
 
-### 2026-05-06 — Phase 1 implementation plan Claude review approve
+### 2026-05-08 — Phase 1 M2 Task 8 完成
 
-- 按用户确认追加 Round 6-8 follow-up review。
-- Round 6 接受并修复 2 条 medium：missing descriptor 失败路径、AgentExecutor `.llmChunk` / OutputDispatcher 文本流路径。
-- Round 7 接受并修复 3 条 medium：out-of-allowlist tool call、多 tool_call 顺序处理、malformed arguments 失败路径。
-- Round 8 返回 `approve`，`findings: []`。至此 implementation plan 累计 19 条 material findings 全部修复。
+- Task 8 新增 UI-free permission consent boundary：`PermissionConsentRequest`、`PermissionConsentDecision`、`PermissionConsentPresenting`。
+- `PermissionBroker` 构造函数改为注入 presenter；生产非 dry-run 路径内部解析 approve / deny，不再把 `.requiresUserConsent` 泄漏给 `ExecutionEngine`。
+- session grant 只进入 `PermissionGrantStore`；persistent grant 只由 `PersistentPermissionGrantStore` 写入 `~/Library/Application Support/SliceAI/permission-grants.json`，运行时 broker 只读。
+- `.mcp`、`.network`、`.shellExec`、`.appIntents` 在 session 与 persistent 存储层均拒绝缓存；MCP 即使 presenter 返回 session approval 也只对本次 invocation 生效。
+- `AppContainer` 当前注入 fail-closed runtime presenter，真实 AppKit 弹窗留给 Task 9。
+- code-quality review follow-up 已补 persistent grant 读侧 schema/scope/permission/provenanceTag 校验，并拆分 session / persistent store 错误类型，避免跨模块 API 歧义。
+- 验证：`cd SliceAIKit && swift test --filter OrchestrationTests.PermissionBrokerTests`、`cd SliceAIKit && swift test --filter OrchestrationTests.PermissionGrantStoreTests`、`cd SliceAIKit && swift test --filter CapabilitiesTests.PersistentPermissionGrantStoreTests`（7 tests）、`cd SliceAIKit && swift test`、`xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build` 均通过。
 
-**下一步**：进入 Phase 1 实现。推荐按 plan 使用 `superpowers:subagent-driven-development`，从 M1 Task 1 开始；若不使用 subagent，则使用 `superpowers:executing-plans` inline 执行。
+**下一步**：启动 M2 Task 9：AppContainer Wires Real Context And Permission UI。
 
-### 2026-05-07 — Phase 1 M1 Task 1-4 完成，进入 Settings Page
+### 2026-05-09 — Phase 1 M4 Task 16 release readiness 自动化 gate 完成
 
-- `feature/phase-1-mcp-context` 已完成 M1 Task 1-4：SliceCore MCP JSON contract、canonical MCP client protocol、MCP server store / Claude Desktop stdio import、stdio MCP JSON-RPC client。
-- M1 Task 4 追加 `claude-review-loop` 复审，共 3 轮，最终 `verdict: "approve"` / `findings: []`；已修复 idle timeout generation、并发首次启动 single-flight、stdout/stderr FIFO 顺序等真实问题。
-- 当前自动化验证记录：`swift test --filter CapabilitiesTests` 通过，`swift test` 通过（622 tests），`git diff --check` 通过。
-- 远程 MCP 口径已按用户确认收敛：M4 只实现标准 `Streamable HTTP`；旧 HTTP+SSE 不再支持，相关 plan 段落进入 M4 前必须同步删改。
+- M3 Task 10-13 已完成：OpenAI-compatible tool calling contract、AgentExecutor ReAct loop、ResultPanel tool-call lifecycle、`web-search-summarize` Agent tool。
+- M4 Task 14-15 已完成：Streamable HTTP transport、per-tool hotkeys。
+- Task 16 清理了 release gate 的历史 SwiftLint blocker，全仓 `swiftlint lint --strict` 当前为 170 files / 0 violations。
+- Task 16 自动化 gate 已通过：`swift build`、`swift test --parallel --enable-code-coverage`（735 tests）、App Debug build、strict lint。
+- 新增 `docs/Module/MCPClient.md`、`docs/Module/ContextProviders.md` 和 `scripts/phase1-mcp-e2e.sh`。
+- 真实 5-server MCP E2E 与 Safari / Notes / Slack App 回归未在当前机器执行成功：缺 SliceAI `mcp.json`、Brave API key、Postgres 只读连接串、SQLite 测试 DB 和 filesystem 测试目录。
 
-**下一步**：先用 `claude-review-loop` 对 **M1 Task 5 · MCP Servers Settings Page** 做预审；通过后继续使用 `superpowers:subagent-driven-development` 和 TDD 实施 SettingsUI view model、页面入口、导入 / 测试连接 / tool list preview。
+**下一步**：补齐真实 release 环境做 5-server / App E2E，再决定是否打 `v0.3`。
+
+### 2026-05-10 — Phase 1 Task 17 release E2E validation 启动
+
+- 新增 Task 17 任务文档：`docs/Task-detail/2026-05-10-phase-1-release-e2e-validation.md`。
+- `docs/Task_history.md` 已登记 Task 55，作为当前恢复入口。
+- 已运行 `bash scripts/phase1-mcp-e2e.sh` 做只读环境检查；输出未包含 secret 原值。
+- 当前已具备命令：`node`、`npm`、`npx`、`uvx`、`git`、`sqlite3`、`jq`。
+- 当前缺失：`psql`、SliceAI `~/Library/Application Support/SliceAI/mcp.json`、`BRAVE_API_KEY`、`SLICEAI_E2E_FILESYSTEM_DIR`、`SLICEAI_E2E_POSTGRES_URL`、`SLICEAI_E2E_GIT_REPO`、`SLICEAI_E2E_SQLITE_DB`。
+- 真实 5-server MCP E2E 与 Safari / Notes / Slack App 回归仍未通过，原因是环境前置条件未齐备。
+
+**下一步**：补齐真实 MCP 配置和测试数据源；先在 Settings 中逐个 server 跑 `tools/list`，再做一次安全只读 tool call，最后回归 App 场景。
+
+### 2026-05-19 — Phase 1 Task 17 本地四项 MCP E2E 通过
+
+- 已创建本地 filesystem 安全目录和 SQLite 测试 DB，并使用当前 Phase 1 worktree 作为 git 测试仓库。
+- 已用 Docker 启动本地 Postgres E2E 容器，创建只读用户和测试数据。
+- 已写入 SliceAI `~/Library/Application Support/SliceAI/mcp.json`，包含 `filesystem`、`postgres`、`git`、`sqlite` 四个 stdio server，runner confirmations 覆盖 `npx` 与 `uvx`。
+- 直接 MCP JSON-RPC `tools/list` 通过：filesystem 14 个 tools、postgres 1 个 tool、git 12 个 tools、sqlite 6 个 tools。
+- 安全只读 `tools/call` 通过：filesystem `read_text_file`、postgres `query`、git `git_status`、sqlite `read_query`。
+- 仍未完成：brave-search、Settings UI 测试连接、Safari / Notes / Slack `web-search-summarize` App 回归。
+
+**后续**：Brave Search 已在下一节补齐；继续完成 App 场景回归。
+
+### 2026-05-19 — Phase 1 Task 17 五项 MCP 直接 E2E 通过
+
+- 用户提供 Brave Search API key 后，已将 `brave-search` stdio server 写入本机 SliceAI `mcp.json`；配置记录只保留 env key 名称，不记录 key 原值。
+- 直接 MCP JSON-RPC `tools/list` 通过：brave-search 2 个 tools（`brave_web_search`、`brave_local_search`）。
+- 低风险 `tools/call` 通过：`brave_web_search` 返回搜索结果，`isError=false`。
+- 当前 worktree Debug App 已启动，进程路径指向 `build/e2e/Build/Products/Debug/SliceAI.app`。
+- 当前用户配置缺少内置 `web-search-summarize` Agent 工具，且 Provider 未声明 `toolCalling`；已备份并补丁本机 `config-v2.json`，新增 `web-search-summarize`，并仅给 `deepSeek` Provider 标记 `toolCalling` 作为 Agent 首选。
+- App 实测发现 DeepSeek V4 thinking mode finalize 失败：Brave MCP 调用完成后，后续 LLM 请求因缺少 `reasoning_content` 续传而返回 `provider.invalidResponse(<redacted>)`。
+- 已修复 OpenAI-compatible tool-calling streaming 对 `reasoning_content` 的解码与 Agent follow-up 回传；验证通过 focused tests、LLMProvidersTests、AgentExecutorTests、ChatTypesTests、全量 SwiftPM 739 tests 和 App Debug build。
+- 后续 App 实测继续发现 Brave MCP 授权按钮不可用、Agent maxSteps 后无最终回答，以及最终回合 DSML 标记误作为正文输出；已在下一节修复并把最终验证更新为 748 tests。
+- 后续更新：用户已基本复测 Safari / Notes / Slack `web-search-summarize`、permission approval / denial、ResultPanel lifecycle、per-tool hotkey 和 command palette hotkey，未反馈阻塞问题；未沉淀逐项截图 / 日志证据。
+
+**下一步**：合并到 `main` 后运行最终 release gate / review loop，并准备 `v0.3` release notes 与 tag。
+
+### 2026-05-19 — Phase 1 Task 17 App 实测缺陷修复
+
+- 已修复 DeepSeek V4 thinking mode：OpenAI-compatible SSE 解码 `reasoning_content`，Agent follow-up assistant tool-call message 回传 `reasoning_content`。
+- 已修复 Brave Search MCP 权限弹窗：精确 `brave-search.brave_web_search` 权限允许“本次会话允许”和“以后一直允许”；其它 MCP 权限仍默认逐次确认。
+- 已修复 Agent 连续 tool call 后无最终回答：达到 `maxSteps` 后追加最终答案指令，并用不含 `tools/tool_choice` 的请求获取最终答案。
+- 已修复最终回合 DSML 工具标记泄漏：如果 provider 仍把 `DSML/tool_calls/invoke` 标记作为文本返回，执行器会转为受控 provider 错误，不再写入 ResultPanel。
+- 已补齐 Phase 1 基础自定义 Agent Tool 配置：Tools 设置页支持新增 Agent、编辑 prompt / provider / LLM 轮数 / MCP allowlist / 调用策略；allowlist 使用一行一个 `server.tool` 的文本格式并同步 MCP 权限声明。
+- 已把 MCP 调用预算从 `maxSteps` 中拆出：`maxSteps` 只表示 LLM ReAct 轮数，`AgentToolCallPolicy` 控制总调用数、单轮调用数、单工具调用数、重复参数和 rate limit 停止；`web-search-summarize` 显式限制最多 2 次 Brave 搜索。
+- 验证通过：focused tests（72 tests）、全量 SwiftPM（756 tests）、SwiftLint strict、`git diff --check`、Xcode Debug build、`build/e2e` Debug build。
+- Debug App 已重启，进程 `13394`，进程路径仍为 `build/e2e/Build/Products/Debug/SliceAI.app`。
+- 用户已基本复测 App 场景且未反馈阻塞问题；该反馈未附逐项截图 / 日志证据，发布前仍建议以最终 gate / review loop 补齐 release 可信度。
+
+**下一步**：合并到 `main` 后运行最终 release gate / review loop，并准备 `v0.3` release notes 与 tag。

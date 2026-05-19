@@ -30,6 +30,21 @@ public enum Permission: Codable, Sendable, Hashable {
     /// 触发其他 App 的 AppIntent / Shortcut
     case appIntents(bundleId: String)
 
+    /// 判断该权限是否允许运行时授权缓存。
+    ///
+    /// 说明：大多数 MCP tool 缺少只读/写入元数据，默认仍按高风险逐次确认；当前只对白名单内置
+    /// Brave Web Search 做精确放行，避免把文件、数据库、Git 等 MCP 工具误升级为可长期授权。
+    public var supportsRuntimeGrantCache: Bool {
+        switch self {
+        case .mcp(let server, let tools):
+            return server == "brave-search" && tools == ["brave_web_search"]
+        case .network, .shellExec, .appIntents:
+            return false
+        case .fileRead, .fileWrite, .clipboard, .clipboardHistory, .screen, .systemAudio, .memoryAccess:
+            return true
+        }
+    }
+
     // MARK: - 手写 Codable（见 plan 开头 Canonical JSON Schema 章节：模板 B + C 混合）
     // 产出形式：
     //   {"network":"api.openai.com"}   (模板 C, single String)

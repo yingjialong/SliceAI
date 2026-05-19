@@ -32,11 +32,58 @@ final class ToolKindTests: XCTestCase {
             mcpAllowlist: [MCPToolRef(server: "anki", tool: "createNote")],
             builtinCapabilities: [.tts],
             maxSteps: 6,
-            stopCondition: .finalAnswerProvided
+            stopCondition: .finalAnswerProvided,
+            toolCallPolicy: AgentToolCallPolicy(
+                maxTotalCalls: 4,
+                maxCallsPerTurn: 2,
+                perToolLimits: [
+                    AgentToolCallLimit(ref: MCPToolRef(server: "anki", tool: "createNote"), maxCalls: 2)
+                ],
+                duplicateArgumentStrategy: .skipExactArguments,
+                stopOnRateLimit: true
+            )
         )
         let data = try JSONEncoder().encode(at)
         let decoded = try JSONDecoder().decode(AgentTool.self, from: data)
         XCTAssertEqual(at, decoded)
+    }
+
+    func test_agentTool_decodesLegacyJSONWithoutToolCallPolicy() throws {
+        let json = Data(#"""
+        {
+          "systemPrompt": "agent sys",
+          "initialUserPrompt": "{{selection}}",
+          "contexts": [],
+          "provider": { "fixed": { "providerId": "openai", "modelId": null } },
+          "skill": null,
+          "mcpAllowlist": [],
+          "builtinCapabilities": [],
+          "maxSteps": 3,
+          "stopCondition": "finalAnswerProvided"
+        }
+        """#.utf8)
+
+        let decoded = try JSONDecoder().decode(AgentTool.self, from: json)
+
+        XCTAssertNil(decoded.toolCallPolicy)
+        XCTAssertEqual(decoded.maxSteps, 3)
+    }
+
+    func test_agentToolCallPolicy_codable_roundtrip() throws {
+        let policy = AgentToolCallPolicy(
+            maxTotalCalls: 5,
+            maxCallsPerTurn: 2,
+            perToolLimits: [
+                AgentToolCallLimit(ref: MCPToolRef(server: "brave-search", tool: "brave_web_search"), maxCalls: 2)
+            ],
+            duplicateArgumentStrategy: .skipExactArguments,
+            stopOnRateLimit: true
+        )
+
+        let data = try JSONEncoder().encode(policy)
+        let decoded = try JSONDecoder().decode(AgentToolCallPolicy.self, from: data)
+
+        XCTAssertEqual(policy, decoded)
     }
 
     // MARK: - PipelineTool
@@ -50,7 +97,7 @@ final class ToolKindTests: XCTestCase {
                     provider: .fixed(providerId: "openai", modelId: nil),
                     temperature: nil, maxTokens: nil, variables: [:]
                 ), input: "{{selection}}"),
-                .mcp(ref: MCPToolRef(server: "anki", tool: "createNote"), args: ["deck": "English"])
+                .mcp(ref: MCPToolRef(server: "anki", tool: "createNote"), args: ["deck": .string("English")])
             ],
             onStepFail: .abort
         )
@@ -77,7 +124,8 @@ final class ToolKindTests: XCTestCase {
             systemPrompt: nil, initialUserPrompt: "t",
             contexts: [], provider: .fixed(providerId: "p", modelId: nil),
             skill: nil, mcpAllowlist: [], builtinCapabilities: [],
-            maxSteps: 3, stopCondition: .finalAnswerProvided
+            maxSteps: 3, stopCondition: .finalAnswerProvided,
+            toolCallPolicy: nil
         ))
         let data = try JSONEncoder().encode(kind)
         let decoded = try JSONDecoder().decode(ToolKind.self, from: data)
@@ -143,7 +191,8 @@ final class ToolKindTests: XCTestCase {
             systemPrompt: nil, initialUserPrompt: "x",
             contexts: [], provider: .fixed(providerId: "p", modelId: nil),
             skill: nil, mcpAllowlist: [], builtinCapabilities: [],
-            maxSteps: 3, stopCondition: .finalAnswerProvided
+            maxSteps: 3, stopCondition: .finalAnswerProvided,
+            toolCallPolicy: nil
         ))
         let json = try XCTUnwrap(String(data: try enc.encode(kind), encoding: .utf8))
         XCTAssertTrue(json.hasPrefix(#"{"agent":{"#), "got: \(json)")
@@ -152,12 +201,26 @@ final class ToolKindTests: XCTestCase {
 
     func test_pipelineStep_goldenJSON_mcp_nestedStruct() throws {
         let enc = JSONEncoder(); enc.outputFormatting = [.sortedKeys]
-        let step = PipelineStep.mcp(ref: MCPToolRef(server: "anki", tool: "createNote"), args: ["deck": "English"])
+        let step = PipelineStep.mcp(ref: MCPToolRef(server: "anki", tool: "createNote"), args: ["deck": .string("English")])
         let json = try XCTUnwrap(String(data: try enc.encode(step), encoding: .utf8))
         XCTAssertTrue(json.hasPrefix(#"{"mcp":{"#), "got: \(json)")
         XCTAssertTrue(json.contains(#""server":"anki""#))
         XCTAssertTrue(json.contains(#""tool":"createNote""#))
         XCTAssertFalse(json.contains("\"_0\""))
+    }
+
+    /// 验证 PipelineStep.mcp 可接受嵌套 JSON args，而不是仅字符串字典。
+    func test_pipelineStepMCP_acceptsNestedJSONArgs() throws {
+        let step = PipelineStep.mcp(ref: MCPToolRef(server: "search", tool: "query"), args: [
+            "query": .string("{{selection}}"),
+            "limit": .number(3),
+            "filters": .object(["safe": .bool(true)])
+        ])
+
+        let data = try JSONEncoder().encode(step)
+        let decoded = try JSONDecoder().decode(PipelineStep.self, from: data)
+
+        XCTAssertEqual(decoded, step)
     }
 
     func test_pipelineStep_goldenJSON_branch_nestedStruct() throws {
