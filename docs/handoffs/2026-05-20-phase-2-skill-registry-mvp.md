@@ -21,12 +21,13 @@ last_updated: 2026-05-20 22:28
 
 - Branch: `main`
 - Recent relevant commits:
+  - `af63587` docs: hand off phase 2 skill registry kickoff
   - `a578581` docs: record v0.3 draft release readiness
   - `4a32e30` fix(ci): satisfy release archive sendability
   - `810c21f` fix(agent): close v0.3 release prep blockers
   - `2d1df67` merge: phase 1 mcp context
 - Uncommitted changes:
-  - 交接完成后预期为无；下一会话仍必须先运行 `git status -sb`，如看到 docs-only diff，先确认是否是本 handoff 未提交完成。
+  - 无。下一会话仍必须先运行 `git status -sb`，确认本地是否有用户后续改动。
 - Key files (next session must read):
   - `README.md`：项目状态入口，已记录暂缓 `v0.3.0` 人工发布和 Phase 2 下一步。
   - `docs/v2-refactor-master-todolist.md`：跨 Phase 主进度表，§0 Dashboard 和 §5.1 是当前工作的主索引。
