@@ -18,8 +18,8 @@
 | 最后更新 | 2026-05-20 |
 | 当前 Phase | **Phase 1 M4 收口期**（MCP + Context 主干） |
 | 当前 Milestone | **Task 57 v0.3 release prep 已完成** |
-| 下一个动作 | 推送 CI Release archive 修复后，重指向并推送 `v0.3.0` tag，等待 GitHub Actions 生成 draft release |
-| 阻塞 | 无已知产品代码阻塞；首次 Release run 已暴露并修复 `StreamableHTTPMCPClient.retryingExpiredSession` 的 Swift 6 `Sendable` 约束缺口，正在重跑 release workflow |
+| 下一个动作 | 人工 review 并发布 `v0.3.0` GitHub Release draft |
+| 阻塞 | 无已知产品代码阻塞；第二次 Release run `26168050987` 已成功生成 draft release，CI DMG SHA256 已校验一致。剩余为人工发布决策 |
 
 **Milestone 状态**
 
@@ -459,7 +459,7 @@ fi
 | M4 Task 16 | Five MCP Server E2E And Release Documentation | ✅ 已完成 | 自动化 gate 和模块文档完成；真实 5-server/App E2E 缺本机配置，已记录 blocker；Claude Round 2 approve |
 | Task 17 | Release E2E Validation | ✅ 主体验证完成 | filesystem / postgres / brave-search / git / sqlite 直接 MCP E2E 已通过；已修复 DeepSeek / Brave permission / maxSteps / DSML finalization 缺陷；用户已基本复测 App 场景 |
 | Task 56 | Agent Tool Config And MCP Policy | ✅ 已完成 | 基础 Agent Tool 编辑器、MCP allowlist 文本配置、policy UI、独立 `AgentToolCallPolicy` 已实现；完整 gate 通过 |
-| Task 57 | v0.3 Release Prep | ✅ 已完成 | Claude Round 2 approve；修复长 MCP result 回填 LLM 截断、stdio descriptor 变更不重启两项发布阻塞；最终 gate、本地 DMG 构建和挂载结构校验通过 |
+| Task 57 | v0.3 Release Prep | ✅ 已完成 | Claude Round 2 approve；修复长 MCP result 回填 LLM 截断、stdio descriptor 变更不重启、CI Release archive Sendable 约束三项发布阻塞；最终 gate、本地 DMG 构建、draft release 生成和 CI artifact SHA 校验通过 |
 
 **Task 16 gate 结果**：
 
@@ -478,7 +478,7 @@ fi
 - [x] filesystem 安全测试目录
 - [x] Safari / Notes / Slack 等真实 App 场景基本复测（用户反馈无阻塞；未沉淀逐项截图 / 日志证据）
 
-**下一步**：用户确认后 push `main`、推 `v0.3.0` tag；等待 GitHub Actions 生成 draft release，校验 artifact / SHA 后人工发布。
+**下一步**：人工 review 并发布 `v0.3.0` GitHub Release draft。
 
 ---
 
@@ -935,7 +935,7 @@ fi
 - 后续 App 实测继续发现 Brave MCP 授权按钮不可用、Agent maxSteps 后无最终回答，以及最终回合 DSML 标记误作为正文输出；已在下一节修复并把最终验证更新为 748 tests。
 - 后续更新：用户已基本复测 Safari / Notes / Slack `web-search-summarize`、permission approval / denial、ResultPanel lifecycle、per-tool hotkey 和 command palette hotkey，未反馈阻塞问题；未沉淀逐项截图 / 日志证据。
 
-**下一步**：该项已在后续 Task 57 完成；等待用户确认远端 push / tag / release。
+**下一步**：该项已在后续 Task 57 完成；`v0.3.0` draft release 已生成，等待人工发布。
 
 ### 2026-05-19 — Phase 1 Task 17 App 实测缺陷修复
 
@@ -949,7 +949,7 @@ fi
 - Debug App 已重启，进程 `13394`，进程路径仍为 `build/e2e/Build/Products/Debug/SliceAI.app`。
 - 用户已基本复测 App 场景且未反馈阻塞问题；该反馈未附逐项截图 / 日志证据，发布前仍建议以最终 gate / review loop 补齐 release 可信度。
 
-**下一步**：该项已在后续 Task 57 完成；等待用户确认远端 push / tag / release。
+**下一步**：该项已在后续 Task 57 完成；`v0.3.0` draft release 已生成，等待人工发布。
 
 ### 2026-05-19 — Phase 1 Task 57 v0.3 Release Prep 完成
 
@@ -960,6 +960,7 @@ fi
 - Claude review loop Round 2 approve，`findings: []`。
 - 验证通过：focused tests（55 tests）、全量 SwiftPM 758 tests、SwiftLint strict、`git diff --check`、App Debug build、本地 `scripts/build-dmg.sh 0.3.0`、DMG SHA256 和只读挂载结构校验。
 - 首次 GitHub Actions Release run `26167656542` 已触发，但在 Xcode 16.4 Release archive 阶段因 Swift 6 严格并发失败；已补齐 `StreamableHTTPMCPClient.retryingExpiredSession<Result: Sendable>` 约束，并通过相关 focused tests、SwiftLint 和本地 `scripts/build-dmg.sh 0.3.0`。
+- 第二次 GitHub Actions Release run `26168050987` 已成功生成 `v0.3.0` draft release；artifact `SliceAI-0.3.0.dmg` 文件名正确，release body SHA 和下载后本地 `shasum -a 256` 均为 `cf63e4e50b8eeda63e38f04c85ff485d11cdfa939038d7555b72ae61ad96f0e0`。
 - 最新本地 unsigned DMG：`build/SliceAI-0.3.0.dmg`，SHA256 `1520d53e6e0edd097c30f6d6552f28d8b0bc0f80799e0b080f0b36a2bd121e34`。该产物只作为本地预检；CI 会重新构建 draft release artifact，SHA 可能不同。
 
-**下一步**：推送修复 commit，重指向并推送 `v0.3.0` tag；等待 GitHub Actions 生成 draft release，校验 artifact / SHA 后人工发布。
+**下一步**：人工 review 并发布 `v0.3.0` GitHub Release draft。

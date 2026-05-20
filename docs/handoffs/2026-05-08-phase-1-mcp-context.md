@@ -13,10 +13,11 @@ last_updated: 2026-05-20 22:10
 
 Phase 1 的目标是把 Phase 0 已落地的 `ContextProvider` / `MCPClient` / `PermissionBroker` / `ExecutionEngine` 主干填实到 v0.3 可用状态：用户可以配置 MCP server，真实采集核心上下文，通过权限 gate 调用工具，并交付 `web-search-summarize`、基础自定义 Agent Tool、Per-Tool Hotkey、Streamable HTTP 和 5-server E2E。
 
-当前代码主干和自动化 gate 已完成；filesystem / postgres / brave-search / git / sqlite 五个 MCP server 已完成直接 JSON-RPC E2E。基础 Agent Tool 编辑器、MCP allowlist 文本配置和独立 MCP tool-call policy 已完成代码实现。用户已基本复测真实 App 场景且未反馈阻塞问题。Phase 1 已合并到 `main`，`v0.3` release prep 已完成：Claude review loop Round 2 approve，最终 gate 通过，并已完成本地 unsigned DMG 预检。`main` 与 `v0.3.0` tag 已首次推送；首次 GitHub Actions Release run 暴露并修复了 CI Xcode 16.4 Release archive 的 Swift 6 `Sendable` 约束缺口，当前剩余动作是重推修正后的 tag 并校验 draft release。
+当前代码主干和自动化 gate 已完成；filesystem / postgres / brave-search / git / sqlite 五个 MCP server 已完成直接 JSON-RPC E2E。基础 Agent Tool 编辑器、MCP allowlist 文本配置和独立 MCP tool-call policy 已完成代码实现。用户已基本复测真实 App 场景且未反馈阻塞问题。Phase 1 已合并到 `main`，`v0.3` release prep 已完成：Claude review loop Round 2 approve，最终 gate 通过，并已完成本地 unsigned DMG 预检。`main` 与 `v0.3.0` tag 已推送；首次 GitHub Actions Release run 暴露并修复了 CI Xcode 16.4 Release archive 的 Swift 6 `Sendable` 约束缺口，第二次 run 已成功生成 draft release。剩余动作是人工 review 并发布 GitHub Release。
 
 ## Session history
 
+- **2026-05-20 Release draft ready**: Release run `26168050987` 成功，已生成 `v0.3.0` draft release。Artifact `SliceAI-0.3.0.dmg` 文件名正确，release body SHA 和下载后本地 `shasum -a 256` 均为 `cf63e4e50b8eeda63e38f04c85ff485d11cdfa939038d7555b72ae61ad96f0e0`。GitHub Release 仍为 draft，等待人工发布。
 - **2026-05-20 Release workflow retry fix**: `main` 与 `v0.3.0` tag 已推送，Release run `26167656542` 在 `Build DMG` 阶段失败。根因是 CI Xcode 16.4 Release archive 开启 Swift 6 严格并发后要求 `StreamableHTTPMCPClient.retryingExpiredSession<Result>` 的泛型返回值为 `Sendable`。已将其改为 `Result: Sendable`；实际返回类型 `[MCPToolDescriptor]` 和 `MCPCallResult` 均已是 `Sendable`。验证通过 Streamable HTTP / Routing MCP focused tests、SwiftLint strict 和本地 `scripts/build-dmg.sh 0.3.0`，最新本地 DMG SHA256 `1520d53e6e0edd097c30f6d6552f28d8b0bc0f80799e0b080f0b36a2bd121e34`。
 - **2026-05-19 Task 57 v0.3 Release Prep**: Phase 1 和归档文档分支已合并到 `main`；Claude review loop Round 1 找到 2 个 release blocker 并全部修复：长 MCP tool result 不再以 `<truncated:N>` 回填给 LLM，stdio MCP server 在 command / args / env 变化后会重启旧 session。Round 2 approve，`findings: []`。验证通过 focused tests、全量 SwiftPM 758 tests（第一次出现一次未复现取消竞态，单测和全量复跑通过）、SwiftLint strict、`git diff --check`、App Debug build、本地 `scripts/build-dmg.sh 0.3.0` 和 DMG 挂载结构校验。DMG SHA256：`e2c111a0c6cbfe8f460a63ff92079be0abdb5ed629f2db2ca048c2fbe1a8b5ca`。
 - **2026-05-19 Task 56 Agent Tool Config And MCP Policy**: 纠正 Task 17 中把 MCP 总预算临时绑到 `maxSteps` 的方案。新增 `AgentToolCallPolicy`，`maxSteps` 只表示 LLM ReAct 轮数；执行器按 policy 控制总调用数、单轮调用数、单工具调用数、重复参数和 rate limit 停止。Tools 设置页支持新增 Agent、编辑 prompt / provider / LLM 轮数 / MCP allowlist / 调用策略。本机 `config-v2.json` 已同步 `web-search-summarize` policy。验证通过 focused tests 72、全量 SwiftPM 756、SwiftLint strict、`git diff --check`、Xcode Debug build 和 `build/e2e` Debug build；Debug App 已重启，进程 `13394`。
@@ -34,7 +35,7 @@ Phase 1 的目标是把 Phase 0 已落地的 `ContextProvider` / `MCPClient` / `
 
 - Branch: `main`
 - Worktree: `/Users/majiajun/workspace/SliceAI`
-- Current status: `main` has release prep code; a CI Release archive fix is pending push in the current session. Build artifacts live under ignored `build/`.
+- Current status: `main` and `v0.3.0` tag are pushed; draft GitHub Release is generated and awaits manual publish. Build artifacts live under ignored `build/`.
 - Remaining local branch not merged by design: `archive/pre-phase1-local-appcontainer-snapshot`, which only preserves an old local AppContainer snapshot and must not be silently merged.
 - Current release state: code review and gate are complete; remote push / tag / GitHub Release are intentionally not executed until user confirms.
 - Recent relevant commits:
@@ -75,9 +76,8 @@ Key files next session must read:
 
 ## Next steps (ordered by priority)
 
-1. 推送 CI Release archive 修复 commit 到 `main`。Done when: `origin/main` 包含 `StreamableHTTPMCPClient.retryingExpiredSession<Result: Sendable>`。
-2. 将 `v0.3.0` tag 重指向修复 commit 并推送。Done when: `.github/workflows/release.yml` 自动重新运行并创建 draft GitHub Release。
-3. 等 GitHub Actions release workflow 完成，检查 draft release 的 artifact 文件名和 SHA256；CI 产物 SHA 可能不同于本地预检 DMG，因为 `scripts/build-dmg.sh` 不是可复现构建。Done when: release draft 经人工确认后发布。
+1. 人工 review `v0.3.0` draft release 内容、DMG 文件名和 SHA。Done when: reviewer accepts draft body and artifact.
+2. 发布 GitHub Release。Done when: `v0.3.0` release is no longer draft and download link is public.
 
 ## Known traps / do not touch
 

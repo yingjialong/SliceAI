@@ -8,7 +8,7 @@ SliceAI 让你在任何 Mac 应用里选中文字后，通过快捷工具栏或 
 
 v0.2.0 Phase 0 底层重构已正式发布：v2 数据模型、Orchestration 执行引擎、Capabilities 能力边界已接入真实 App 触发链。Release: <https://github.com/yingjialong/SliceAI/releases/tag/v0.2.0>。
 
-Phase 1 MCP + Context 主干已完成 `v0.3` release prep：stdio / Streamable HTTP MCP client、MCP Servers 设置页、五个核心 ContextProvider、PermissionBroker UI gate、AgentExecutor tool calling、ResultPanel tool-call lifecycle、`web-search-summarize`、per-tool hotkey 和基础自定义 Agent Tool 配置均已落地。Task 17 已完成真实 release E2E 主体验证；filesystem / postgres / brave-search / git / sqlite 五项本地 MCP server 已完成直接 JSON-RPC `tools/list` 与安全只读 / 低风险 `tools/call`，用户已基本复测 App 场景且未反馈阻塞问题。最终 Claude review loop Round 2 approve；review 中发现并修复了两项发布阻塞：长 MCP tool result 不再以 `<truncated:N>` 回填给 LLM，stdio MCP server 在 command / args / env 变化后会重启旧 session。最终 gate 已通过 SwiftPM 758 tests、SwiftLint strict、`git diff --check`、App Debug build、本地 unsigned DMG 构建和 DMG 挂载结构校验。下一步等待用户确认后 push `main`、推 `v0.3.0` tag 并检查 GitHub Actions draft release。参见 [docs/v2-refactor-master-todolist.md](docs/v2-refactor-master-todolist.md) 跟踪后续 Phase。
+Phase 1 MCP + Context 主干已完成 `v0.3` release prep：stdio / Streamable HTTP MCP client、MCP Servers 设置页、五个核心 ContextProvider、PermissionBroker UI gate、AgentExecutor tool calling、ResultPanel tool-call lifecycle、`web-search-summarize`、per-tool hotkey 和基础自定义 Agent Tool 配置均已落地。Task 17 已完成真实 release E2E 主体验证；filesystem / postgres / brave-search / git / sqlite 五项本地 MCP server 已完成直接 JSON-RPC `tools/list` 与安全只读 / 低风险 `tools/call`，用户已基本复测 App 场景且未反馈阻塞问题。最终 Claude review loop Round 2 approve；review 中发现并修复了两项发布阻塞：长 MCP tool result 不再以 `<truncated:N>` 回填给 LLM，stdio MCP server 在 command / args / env 变化后会重启旧 session。最终 gate 已通过 SwiftPM 758 tests、SwiftLint strict、`git diff --check`、App Debug build、本地 unsigned DMG 构建和 DMG 挂载结构校验。`v0.3.0` tag 已推送，GitHub Actions Release run `26168050987` 已成功生成 draft release；CI DMG SHA256 为 `cf63e4e50b8eeda63e38f04c85ff485d11cdfa939038d7555b72ae61ad96f0e0`。下一步只剩人工发布 GitHub Release。参见 [docs/v2-refactor-master-todolist.md](docs/v2-refactor-master-todolist.md) 跟踪后续 Phase。
 
 ## Features (MVP v0.2)
 
@@ -75,7 +75,7 @@ open SliceAI.xcodeproj
 - 已通过：`swift test --package-path SliceAIKit --filter 'StreamableHTTPMCPClientTests|RoutingMCPClientTests'`（12 tests，覆盖 Release archive 失败根因相关模块）。
 - 已通过：DMG 只读挂载结构校验，包含 `SliceAI.app` 和 `Applications -> /Applications`。
 
-**当前状态**：`main` 和 `v0.3.0` tag 已推送；首次 release workflow 在 Xcode 16.4 Release archive 阶段暴露严格并发编译问题，补丁已完成并待重推 tag 触发 workflow 重跑。
+**当前状态**：`main` 和 `v0.3.0` tag 已推送；首次 release workflow 在 Xcode 16.4 Release archive 阶段暴露严格并发编译问题，补丁后重跑成功。Draft release 已生成，CI DMG SHA256：`cf63e4e50b8eeda63e38f04c85ff485d11cdfa939038d7555b72ae61ad96f0e0`；下一步人工发布 GitHub Release。
 
 ### 2026-05-10 · Phase 1 Task 17 · Release E2E Validation
 
@@ -94,7 +94,7 @@ open SliceAI.xcodeproj
 - 已修复：Web Search Summarize 的限流复测问题。执行器按顺序处理 MCP tool call，不是并发 fan-out；根因是模型可在一轮/多轮里连续发起过多 Brave 搜索。当前默认提示词要求最多 2 次 Brave 搜索，`web-search-summarize` 显式配置 `AgentToolCallPolicy(maxTotalCalls: 2, maxCallsPerTurn: 2)`，重复参数会跳过，命中 rate limit 后会停止继续调用 MCP；`maxSteps` 保持为 LLM ReAct 轮数，不再兼任 MCP 总预算。
 - 已完成：Phase 1 基础自定义 Agent Tool 配置。Tools 设置页现在可以新增 Agent Tool，编辑 system / initial prompt、Provider、LLM 轮数，并用一行一个 `server.tool` 的文本格式配置 MCP allowlist；同时可配置总 MCP 上限、单轮 MCP 上限、重复参数跳过和限流后停止，保存时同步对应 MCP 权限声明。
 - 当前结论：本机仍无 `psql`，但 Postgres MCP 已通过 Docker 测试库完成直接 E2E；用户已基本复测 App 场景且未反馈阻塞问题；`v0.3` release prep 已完成。
-- 下一步：用户确认后 push `main`、推 `v0.3.0` tag，并检查 GitHub Actions draft release。
+- 下一步：Task 57 已完成并生成 `v0.3.0` draft release；等待人工发布 GitHub Release。
 
 ### 2026-05-09 · Phase 1 M4 Task 16 · Five MCP Server E2E And Release Documentation
 
