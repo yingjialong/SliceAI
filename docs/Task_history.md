@@ -9,7 +9,7 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 - **时间**：2026-05-20
 - **描述**：在 `v0.3.0` draft release 已生成但用户决定暂缓人工发布后，启动 Phase 2 的第一个设计切片：Skill Registry MVP。该任务只负责把 Phase 2 Directional Outline 收敛为可评审的规格，不直接实现业务代码。
 - **详情**：[docs/Task-detail/2026-05-20-phase-2-skill-registry-mvp-spec.md](Task-detail/2026-05-20-phase-2-skill-registry-mvp-spec.md)
-- **结果**：进行中。当前已记录暂缓发布决策和推荐方向；下一步必须先使用 `superpowers:brainstorming` 与用户确认 Skill Registry MVP 的真实范围，再产出 `docs/superpowers/specs/YYYY-MM-DD-phase-2-skill-registry-mvp.md`。spec 获确认前不进入实现。
+- **结果**：进行中。当前已完成 `superpowers:brainstorming` 范围收敛，并产出 [docs/superpowers/specs/2026-05-20-phase-2-skill-registry-mvp.md](superpowers/specs/2026-05-20-phase-2-skill-registry-mvp.md)。本轮确定采用自研最小 loader：用户配置多个 skill roots，Agent Tool 绑定最多 5 个 enabled skills，执行时先暴露元数据，模型通过内置 pseudo-tool `sliceai.load_skill` 渐进式加载完整 `SKILL.md`。Prompt Tool、supporting files 读取、脚本执行、marketplace、DisplayMode 和 English Tutor 不进入本 MVP；下一步是 spec 自检和用户 review，确认前不进入 implementation plan。
 
 ---
 

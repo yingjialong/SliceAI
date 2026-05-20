@@ -18,8 +18,8 @@
 | 最后更新 | 2026-05-20 |
 | 当前 Phase | **Phase 2 启动准备**（Skill + 多 DisplayMode 进入前重新 spec） |
 | 当前 Milestone | **Task 58 Skill Registry MVP spec kickoff** |
-| 下一个动作 | 用 `superpowers:brainstorming` 对齐 Skill Registry MVP 范围，并产出 `docs/superpowers/specs/YYYY-MM-DD-phase-2-skill-registry-mvp.md` |
-| 阻塞 | 无已知产品代码阻塞；`v0.3.0` draft release 已生成并校验通过，但用户已决定暂缓人工发布。spec 确认前不得进入 Phase 2 业务代码实现 |
+| 下一个动作 | 用户 review `docs/superpowers/specs/2026-05-20-phase-2-skill-registry-mvp.md`；确认后用 `superpowers:writing-plans` 产出 implementation plan |
+| 阻塞 | 无已知产品代码阻塞；`v0.3.0` draft release 已生成并校验通过，但用户已决定暂缓人工发布。Skill Registry MVP spec 确认前不得进入 Phase 2 业务代码实现 |
 
 **Milestone 状态**
 
@@ -34,7 +34,7 @@
 | 1 | M2 | ✅ 已完成：Task 6 PermissionGraph case-aware coverage、Task 7 Core ContextProviders、Task 8 Permission Consent Grants、Task 9 AppContainer wiring |
 | 1 | M3 | ✅ 已完成：tool calling contract、AgentExecutor ReAct loop、ResultPanel tool-call lifecycle、`web-search-summarize` |
 | 1 | M4 | ✅ Task 57 release prep 已完成；直接 MCP E2E 已通过，DeepSeek/权限/finalization 缺陷、自定义 Agent Tool 编辑器、MCP allowlist、通用 tool-call policy 和 review 发现的 release blocker 均已修复；最终 gate、本地 DMG 预检、CI draft release 和 artifact SHA 校验通过 |
-| 2 | Skill Registry MVP spec | 🟨 启动准备；先重新 spec，不直接实现 |
+| 2 | Skill Registry MVP spec | 🟨 spec 已产出，等待用户 review；不直接实现 |
 | 3–5 | — | 🟦 Directional，进入前需重新 spec |
 
 ---
@@ -501,14 +501,15 @@ fi
 
 **当前启动切片**：先做 Skill Registry MVP spec，不直接铺开全部 Phase 2。原因是 skill 包发现、`SKILL.md` 解析、资源目录边界、Settings 可见性、Tool 引用关系和权限语义是后续 DisplayMode / English Tutor 的前置能力；如果先做 English Tutor 或 replace/structured UI，容易把未冻结的 Skill 抽象写死。
 
-**推荐 MVP 边界（进入 brainstorming 后可调整）**：
+**已收敛的 MVP 边界（等待用户 review spec）**：
 
-- [ ] 本地 skill 目录扫描与 enable / disable 状态模型。
-- [ ] `SKILL.md` frontmatter / description / instructions 的最小解析规则。
-- [ ] Settings UI 可查看 skill 列表、来源、状态和解析错误。
-- [ ] Tool 配置能引用已启用 skill，并在执行前把 skill 指令注入到 agent / prompt 上下文。
-- [ ] 至少 2 个本地 fixture skill 覆盖解析成功、解析失败和禁用场景。
-- [ ] 暂不实现 marketplace、远端安装、skill 内脚本执行、复杂 DisplayMode、English Tutor 全流程。
+- [x] 用户可配置多个本地 skill roots，registry 扫描 root skill、collection root、`skills/`、`.claude/skills/`、`.agents/skills/`、`.codex/skills/`。
+- [x] `SKILL.md` frontmatter / description / instructions 的最小解析规则；兼容 Claude / Codex 常见字段，`allowed-tools` 仅展示不授权。
+- [x] Settings UI 可查看 skill 列表、来源、状态、解析错误和 enable / disable overrides。
+- [x] Agent Tool 可绑定最多 5 个 enabled skills；Prompt Tool 暂不支持 skill 绑定。
+- [x] AgentExecutor 初始只注入绑定 skills 的 metadata，模型通过内置 pseudo-tool `sliceai.load_skill` 按需加载完整 `SKILL.md`。
+- [x] 至少 2 个本地 fixture skill 覆盖解析成功、解析失败、禁用和 shadowed 场景。
+- [x] 暂不实现 marketplace、远端安装、skill 内脚本执行、supporting files 读取、复杂 DisplayMode、English Tutor 全流程。
 
 **关键交付**（粗粒度，进入前重新 spec）：
 
@@ -984,4 +985,15 @@ fi
 - Phase 2 仍是 Directional Outline，不能直接实现。推荐的第一个切片是 Skill Registry MVP spec，而不是 English Tutor、DisplayMode 或完整 Skill runtime。
 - 当前已登记 Task 58，并将 README / Task History / 本 TodoList 更新到“Phase 2 启动准备”口径。
 
-**下一步**：使用 `superpowers:brainstorming` 对齐 Skill Registry MVP 范围，随后产出 `docs/superpowers/specs/YYYY-MM-DD-phase-2-skill-registry-mvp.md`；spec 获用户确认前不改业务代码。
+**下一步（历史记录）**：该动作已在下一节完成，正式 spec 为 `docs/superpowers/specs/2026-05-20-phase-2-skill-registry-mvp.md`。
+
+### 2026-05-20 — Phase 2 Skill Registry MVP spec 已产出
+
+- 已按 `superpowers:brainstorming` 完成 Skill Registry MVP 范围收敛，并写入 `docs/superpowers/specs/2026-05-20-phase-2-skill-registry-mvp.md`。
+- 本轮采用自研最小 loader，不直接引入 `swift-skills` 或 TypeScript 生态实现；原因是现有 Swift 方案要求 Swift 6.2 / macOS 15+，不符合 SliceAI 当前 Swift 6.0 / macOS 14+ 基线。
+- 确认用户可配置多个 skill roots；registry 扫描 root skill、collection root、`skills/`、`.claude/skills/`、`.agents/skills/`、`.codex/skills/`，不做无限递归。
+- 确认 Skill MVP 只接入 Agent Tool：每个 Agent Tool 最多绑定 5 个 enabled skills；Prompt Tool 不支持 skill 绑定。
+- 确认执行时使用 progressive disclosure：初始只给模型绑定 skills 的 `name / description / path` 元数据，模型通过内置 pseudo-tool `sliceai.load_skill` 按需加载完整 `SKILL.md`。
+- 明确本 MVP 不实现 supporting files 读取、脚本执行、marketplace、远端安装、DisplayMode、TTS 或 English Tutor；supporting files 渐进式读取作为技术债务记录在 spec。
+
+**下一步**：用户 review Skill Registry MVP spec；确认后用 `superpowers:writing-plans` 产出 implementation plan，plan 通过 review 前不改业务代码。
