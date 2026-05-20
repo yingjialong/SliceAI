@@ -15,11 +15,11 @@
 
 | 字段 | 值 |
 |---|---|
-| 最后更新 | 2026-05-19 |
+| 最后更新 | 2026-05-20 |
 | 当前 Phase | **Phase 1 M4 收口期**（MCP + Context 主干） |
 | 当前 Milestone | **Task 57 v0.3 release prep 已完成** |
-| 下一个动作 | 用户确认后 push `main`、推 `v0.3.0` tag，并检查 GitHub Actions draft release |
-| 阻塞 | 无已知代码阻塞；最终 Claude review loop Round 2 approve，SwiftPM 758 tests、SwiftLint strict、whitespace check、App Debug build、本地 unsigned DMG 构建和 DMG 挂载结构校验均通过。远端 push / tag / GitHub Release 前需用户确认 |
+| 下一个动作 | 推送 CI Release archive 修复后，重指向并推送 `v0.3.0` tag，等待 GitHub Actions 生成 draft release |
+| 阻塞 | 无已知产品代码阻塞；首次 Release run 已暴露并修复 `StreamableHTTPMCPClient.retryingExpiredSession` 的 Swift 6 `Sendable` 约束缺口，正在重跑 release workflow |
 
 **Milestone 状态**
 
@@ -959,6 +959,7 @@ fi
   - stdio MCP server 在 Settings 修改 command / args / env / url / transport 后会 teardown 并重启旧 session。
 - Claude review loop Round 2 approve，`findings: []`。
 - 验证通过：focused tests（55 tests）、全量 SwiftPM 758 tests、SwiftLint strict、`git diff --check`、App Debug build、本地 `scripts/build-dmg.sh 0.3.0`、DMG SHA256 和只读挂载结构校验。
-- 本地 unsigned DMG：`build/SliceAI-0.3.0.dmg`，SHA256 `e2c111a0c6cbfe8f460a63ff92079be0abdb5ed629f2db2ca048c2fbe1a8b5ca`。该产物只作为本地预检；tag push 后 CI 会重新构建 draft release artifact，SHA 可能不同。
+- 首次 GitHub Actions Release run `26167656542` 已触发，但在 Xcode 16.4 Release archive 阶段因 Swift 6 严格并发失败；已补齐 `StreamableHTTPMCPClient.retryingExpiredSession<Result: Sendable>` 约束，并通过相关 focused tests、SwiftLint 和本地 `scripts/build-dmg.sh 0.3.0`。
+- 最新本地 unsigned DMG：`build/SliceAI-0.3.0.dmg`，SHA256 `1520d53e6e0edd097c30f6d6552f28d8b0bc0f80799e0b080f0b36a2bd121e34`。该产物只作为本地预检；CI 会重新构建 draft release artifact，SHA 可能不同。
 
-**下一步**：用户确认后 push `main`、推 `v0.3.0` tag；等待 GitHub Actions 生成 draft release，校验 artifact / SHA 后人工发布。
+**下一步**：推送修复 commit，重指向并推送 `v0.3.0` tag；等待 GitHub Actions 生成 draft release，校验 artifact / SHA 后人工发布。

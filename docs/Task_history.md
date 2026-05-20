@@ -9,7 +9,7 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 - **时间**：2026-05-19
 - **描述**：Phase 1 MCP + Context 主干合并到 `main` 后，执行 `v0.3` 发布前最终 gate、Claude review loop、release notes 与 tag checklist 准备。
 - **详情**：[docs/Task-detail/2026-05-19-v0.3-release-prep.md](Task-detail/2026-05-19-v0.3-release-prep.md)
-- **结果**：完成。`main` 当前领先 `origin/main`，Phase 1 相关 feature/docs worktree 已合并或清理，保留 `archive/pre-phase1-local-appcontainer-snapshot` 作为不参与发布的旧 AppContainer 本机快照。Claude review loop Round 1 找到并修复 2 个发布阻塞：长 MCP tool result 不再以 `<truncated:N>` 回填给 LLM，stdio MCP server 在 command / args / env 变化后会重启旧 session；Round 2 approve，`findings: []`。验证通过 focused tests、全量 SwiftPM 758 tests、SwiftLint strict、whitespace check、App Debug build、本地 unsigned DMG 构建和 DMG 挂载结构校验；本地 `SliceAI-0.3.0.dmg` SHA256 为 `e2c111a0c6cbfe8f460a63ff92079be0abdb5ed629f2db2ca048c2fbe1a8b5ca`。下一步等待用户确认后 push `main`、推 `v0.3.0` tag 并检查 GitHub Actions draft release。
+- **结果**：完成。Phase 1 相关 feature/docs worktree 已合并或清理，保留 `archive/pre-phase1-local-appcontainer-snapshot` 作为不参与发布的旧 AppContainer 本机快照。Claude review loop Round 1 找到并修复 2 个发布阻塞：长 MCP tool result 不再以 `<truncated:N>` 回填给 LLM，stdio MCP server 在 command / args / env 变化后会重启旧 session；Round 2 approve，`findings: []`。验证通过 focused tests、全量 SwiftPM 758 tests、SwiftLint strict、whitespace check、App Debug build、本地 unsigned DMG 构建和 DMG 挂载结构校验。2026-05-20 首次 GitHub Actions Release run `26167656542` 在 Xcode 16.4 Release archive 阶段暴露 Swift 6 `Sendable` 约束缺口；已补齐 `StreamableHTTPMCPClient.retryingExpiredSession<Result: Sendable>` 并通过相关 focused tests、SwiftLint strict 和本地 `scripts/build-dmg.sh 0.3.0`。最新本地 `SliceAI-0.3.0.dmg` SHA256 为 `1520d53e6e0edd097c30f6d6552f28d8b0bc0f80799e0b080f0b36a2bd121e34`。下一步重推修复 commit 与 `v0.3.0` tag 并检查 GitHub Actions draft release。
 
 ---
 

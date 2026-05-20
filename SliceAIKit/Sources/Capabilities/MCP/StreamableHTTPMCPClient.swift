@@ -82,7 +82,7 @@ public final actor StreamableHTTPMCPClient: MCPClientProtocol {
 
 private extension StreamableHTTPMCPClient {
     /// 带一次 session-expired retry 执行 operation，404 过期后清理缓存并重建 session。
-    func retryingExpiredSession<Result>(
+    func retryingExpiredSession<Result: Sendable>(
         serverID: String,
         operation: () async throws -> Result
     ) async throws -> Result {

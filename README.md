@@ -61,8 +61,9 @@ open SliceAI.xcodeproj
 - Claude review loop Round 1 发现 2 个 material finding，Round 2 approve。
 - 修复 AgentExecutor MCP 结果回填：UI / 日志继续使用短摘要，LLM `.tool` role message 使用 pattern-only 脱敏并保留最多 16 KiB 前缀内容，避免 `web-search-summarize` 只能看到 `<truncated:N>`。
 - 修复 stdio MCP session 缓存：同一 server id 的 transport / command / args / env / url 变化后会 teardown 并重启子进程，Settings 保存后不再继续使用旧 runner。
+- 修复 GitHub Actions Release archive 的 Swift 6 严格并发编译失败：`StreamableHTTPMCPClient.retryingExpiredSession` 的泛型结果现在要求 `Sendable`，与实际返回的 `[MCPToolDescriptor]` / `MCPCallResult` 类型一致。
 - 新增长 MCP 结果、长 rate-limit body 和 stdio descriptor 启动配置变化的回归测试。
-- 本地生成 unsigned `build/SliceAI-0.3.0.dmg` 并完成只读挂载结构校验；SHA256：`e2c111a0c6cbfe8f460a63ff92079be0abdb5ed629f2db2ca048c2fbe1a8b5ca`。
+- 本地生成 unsigned `build/SliceAI-0.3.0.dmg` 并完成只读挂载结构校验；最新本地预检 SHA256：`1520d53e6e0edd097c30f6d6552f28d8b0bc0f80799e0b080f0b36a2bd121e34`。
 
 **验证状态**：
 - 已通过：`swift test --package-path SliceAIKit --filter 'AgentExecutorTests|StdioMCPClientTests|RedactionTests'`（55 tests）。
@@ -71,9 +72,10 @@ open SliceAI.xcodeproj
 - 已通过：`git diff --check HEAD~1 HEAD && git diff --check`。
 - 已通过：`xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`。
 - 已通过：`scripts/build-dmg.sh 0.3.0` + `shasum -a 256 build/SliceAI-0.3.0.dmg`。
+- 已通过：`swift test --package-path SliceAIKit --filter 'StreamableHTTPMCPClientTests|RoutingMCPClientTests'`（12 tests，覆盖 Release archive 失败根因相关模块）。
 - 已通过：DMG 只读挂载结构校验，包含 `SliceAI.app` 和 `Applications -> /Applications`。
 
-**下一步**：用户确认后推送 `main` 与 `v0.3.0` tag；等待 release workflow 生成 draft GitHub Release 后再人工发布。
+**当前状态**：`main` 和 `v0.3.0` tag 已推送；首次 release workflow 在 Xcode 16.4 Release archive 阶段暴露严格并发编译问题，补丁已完成并待重推 tag 触发 workflow 重跑。
 
 ### 2026-05-10 · Phase 1 Task 17 · Release E2E Validation
 
