@@ -16,10 +16,10 @@
 | 字段 | 值 |
 |---|---|
 | 最后更新 | 2026-05-20 |
-| 当前 Phase | **Phase 1 M4 收口期**（MCP + Context 主干） |
-| 当前 Milestone | **Task 57 v0.3 release prep 已完成** |
-| 下一个动作 | 人工 review 并发布 `v0.3.0` GitHub Release draft |
-| 阻塞 | 无已知产品代码阻塞；第二次 Release run `26168050987` 已成功生成 draft release，CI DMG SHA256 已校验一致。剩余为人工发布决策 |
+| 当前 Phase | **Phase 2 启动准备**（Skill + 多 DisplayMode 进入前重新 spec） |
+| 当前 Milestone | **Task 58 Skill Registry MVP spec kickoff** |
+| 下一个动作 | 用 `superpowers:brainstorming` 对齐 Skill Registry MVP 范围，并产出 `docs/superpowers/specs/YYYY-MM-DD-phase-2-skill-registry-mvp.md` |
+| 阻塞 | 无已知产品代码阻塞；`v0.3.0` draft release 已生成并校验通过，但用户已决定暂缓人工发布。spec 确认前不得进入 Phase 2 业务代码实现 |
 
 **Milestone 状态**
 
@@ -33,8 +33,9 @@
 | 1 | M1 | ✅ 已完成：MCP 数据契约、store/importer、stdio client、Settings MCP Servers 页面 |
 | 1 | M2 | ✅ 已完成：Task 6 PermissionGraph case-aware coverage、Task 7 Core ContextProviders、Task 8 Permission Consent Grants、Task 9 AppContainer wiring |
 | 1 | M3 | ✅ 已完成：tool calling contract、AgentExecutor ReAct loop、ResultPanel tool-call lifecycle、`web-search-summarize` |
-| 1 | M4 | 🟩 Task 57 release prep 已完成；直接 MCP E2E 已通过，DeepSeek/权限/finalization 缺陷、自定义 Agent Tool 编辑器、MCP allowlist、通用 tool-call policy 和 review 发现的 release blocker 均已修复；最终 gate 与本地 DMG 预检通过 |
-| 2–5 | — | 🟦 Directional，进入前需重新 spec |
+| 1 | M4 | ✅ Task 57 release prep 已完成；直接 MCP E2E 已通过，DeepSeek/权限/finalization 缺陷、自定义 Agent Tool 编辑器、MCP allowlist、通用 tool-call policy 和 review 发现的 release blocker 均已修复；最终 gate、本地 DMG 预检、CI draft release 和 artifact SHA 校验通过 |
+| 2 | Skill Registry MVP spec | 🟨 启动准备；先重新 spec，不直接实现 |
+| 3–5 | — | 🟦 Directional，进入前需重新 spec |
 
 ---
 
@@ -478,7 +479,7 @@ fi
 - [x] filesystem 安全测试目录
 - [x] Safari / Notes / Slack 等真实 App 场景基本复测（用户反馈无阻塞；未沉淀逐项截图 / 日志证据）
 
-**下一步**：人工 review 并发布 `v0.3.0` GitHub Release draft。
+**下一步**：用户已决定暂缓人工发布 `v0.3.0` GitHub Release draft；进入 Phase 2 前先启动 Skill Registry MVP spec。
 
 ---
 
@@ -497,6 +498,17 @@ fi
 ### 5.1 Phase 2：Skill + 多 DisplayMode
 
 **目标**：把 Anthropic Skills 规范的 skill 包引入；`replace / bubble / structured / silent` 四种 DisplayMode 真正可用。
+
+**当前启动切片**：先做 Skill Registry MVP spec，不直接铺开全部 Phase 2。原因是 skill 包发现、`SKILL.md` 解析、资源目录边界、Settings 可见性、Tool 引用关系和权限语义是后续 DisplayMode / English Tutor 的前置能力；如果先做 English Tutor 或 replace/structured UI，容易把未冻结的 Skill 抽象写死。
+
+**推荐 MVP 边界（进入 brainstorming 后可调整）**：
+
+- [ ] 本地 skill 目录扫描与 enable / disable 状态模型。
+- [ ] `SKILL.md` frontmatter / description / instructions 的最小解析规则。
+- [ ] Settings UI 可查看 skill 列表、来源、状态和解析错误。
+- [ ] Tool 配置能引用已启用 skill，并在执行前把 skill 指令注入到 agent / prompt 上下文。
+- [ ] 至少 2 个本地 fixture skill 覆盖解析成功、解析失败和禁用场景。
+- [ ] 暂不实现 marketplace、远端安装、skill 内脚本执行、复杂 DisplayMode、English Tutor 全流程。
 
 **关键交付**（粗粒度，进入前重新 spec）：
 
@@ -935,7 +947,7 @@ fi
 - 后续 App 实测继续发现 Brave MCP 授权按钮不可用、Agent maxSteps 后无最终回答，以及最终回合 DSML 标记误作为正文输出；已在下一节修复并把最终验证更新为 748 tests。
 - 后续更新：用户已基本复测 Safari / Notes / Slack `web-search-summarize`、permission approval / denial、ResultPanel lifecycle、per-tool hotkey 和 command palette hotkey，未反馈阻塞问题；未沉淀逐项截图 / 日志证据。
 
-**下一步**：该项已在后续 Task 57 完成；`v0.3.0` draft release 已生成，等待人工发布。
+**下一步**：该项已在后续 Task 57 完成；`v0.3.0` draft release 已生成并在 Task 58 中暂缓人工发布，后续转入 Phase 2 Skill Registry MVP spec。
 
 ### 2026-05-19 — Phase 1 Task 17 App 实测缺陷修复
 
@@ -949,7 +961,7 @@ fi
 - Debug App 已重启，进程 `13394`，进程路径仍为 `build/e2e/Build/Products/Debug/SliceAI.app`。
 - 用户已基本复测 App 场景且未反馈阻塞问题；该反馈未附逐项截图 / 日志证据，发布前仍建议以最终 gate / review loop 补齐 release 可信度。
 
-**下一步**：该项已在后续 Task 57 完成；`v0.3.0` draft release 已生成，等待人工发布。
+**下一步**：该项已在后续 Task 57 完成；`v0.3.0` draft release 已生成并在 Task 58 中暂缓人工发布，后续转入 Phase 2 Skill Registry MVP spec。
 
 ### 2026-05-19 — Phase 1 Task 57 v0.3 Release Prep 完成
 
@@ -963,4 +975,13 @@ fi
 - 第二次 GitHub Actions Release run `26168050987` 已成功生成 `v0.3.0` draft release；artifact `SliceAI-0.3.0.dmg` 文件名正确，release body SHA 和下载后本地 `shasum -a 256` 均为 `cf63e4e50b8eeda63e38f04c85ff485d11cdfa939038d7555b72ae61ad96f0e0`。
 - 最新本地 unsigned DMG：`build/SliceAI-0.3.0.dmg`，SHA256 `1520d53e6e0edd097c30f6d6552f28d8b0bc0f80799e0b080f0b36a2bd121e34`。该产物只作为本地预检；CI 会重新构建 draft release artifact，SHA 可能不同。
 
-**下一步**：人工 review 并发布 `v0.3.0` GitHub Release draft。
+**下一步**：后续 2026-05-20 用户已决定暂缓人工发布 `v0.3.0` GitHub Release draft，转入 Phase 2 Skill Registry MVP spec。
+
+### 2026-05-20 — 暂缓 v0.3.0 人工发布，启动 Phase 2 Skill Registry MVP spec
+
+- `v0.3.0` draft release 已由 GitHub Actions Release run `26168050987` 生成并校验通过；用户已明确选择暂缓人工发布，继续后续开发。
+- 不删除 draft release，不删除或重打 `v0.3.0` tag；后续若要发布，需要用户重新明确要求，并注意 `main` 可能已包含 release tag 之后的文档或开发提交。
+- Phase 2 仍是 Directional Outline，不能直接实现。推荐的第一个切片是 Skill Registry MVP spec，而不是 English Tutor、DisplayMode 或完整 Skill runtime。
+- 当前已登记 Task 58，并将 README / Task History / 本 TodoList 更新到“Phase 2 启动准备”口径。
+
+**下一步**：使用 `superpowers:brainstorming` 对齐 Skill Registry MVP 范围，随后产出 `docs/superpowers/specs/YYYY-MM-DD-phase-2-skill-registry-mvp.md`；spec 获用户确认前不改业务代码。

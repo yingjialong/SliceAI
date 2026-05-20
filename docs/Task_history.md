@@ -4,12 +4,21 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 
 ---
 
+## Task 58 · Phase 2 Skill Registry MVP Spec Kickoff
+
+- **时间**：2026-05-20
+- **描述**：在 `v0.3.0` draft release 已生成但用户决定暂缓人工发布后，启动 Phase 2 的第一个设计切片：Skill Registry MVP。该任务只负责把 Phase 2 Directional Outline 收敛为可评审的规格，不直接实现业务代码。
+- **详情**：[docs/Task-detail/2026-05-20-phase-2-skill-registry-mvp-spec.md](Task-detail/2026-05-20-phase-2-skill-registry-mvp-spec.md)
+- **结果**：进行中。当前已记录暂缓发布决策和推荐方向；下一步必须先使用 `superpowers:brainstorming` 与用户确认 Skill Registry MVP 的真实范围，再产出 `docs/superpowers/specs/YYYY-MM-DD-phase-2-skill-registry-mvp.md`。spec 获确认前不进入实现。
+
+---
+
 ## Task 57 · v0.3 Release Prep
 
 - **时间**：2026-05-19
 - **描述**：Phase 1 MCP + Context 主干合并到 `main` 后，执行 `v0.3` 发布前最终 gate、Claude review loop、release notes 与 tag checklist 准备。
 - **详情**：[docs/Task-detail/2026-05-19-v0.3-release-prep.md](Task-detail/2026-05-19-v0.3-release-prep.md)
-- **结果**：完成。Phase 1 相关 feature/docs worktree 已合并或清理，保留 `archive/pre-phase1-local-appcontainer-snapshot` 作为不参与发布的旧 AppContainer 本机快照。Claude review loop Round 1 找到并修复 2 个发布阻塞：长 MCP tool result 不再以 `<truncated:N>` 回填给 LLM，stdio MCP server 在 command / args / env 变化后会重启旧 session；Round 2 approve，`findings: []`。验证通过 focused tests、全量 SwiftPM 758 tests、SwiftLint strict、whitespace check、App Debug build、本地 unsigned DMG 构建和 DMG 挂载结构校验。2026-05-20 首次 GitHub Actions Release run `26167656542` 在 Xcode 16.4 Release archive 阶段暴露 Swift 6 `Sendable` 约束缺口；已补齐 `StreamableHTTPMCPClient.retryingExpiredSession<Result: Sendable>` 并通过相关 focused tests、SwiftLint strict 和本地 `scripts/build-dmg.sh 0.3.0`。第二次 Release run `26168050987` 已成功生成 `v0.3.0` draft release，CI DMG SHA256 为 `cf63e4e50b8eeda63e38f04c85ff485d11cdfa939038d7555b72ae61ad96f0e0`，下载后本地校验一致。下一步等待人工发布 GitHub Release。
+- **结果**：完成。Phase 1 相关 feature/docs worktree 已合并或清理，保留 `archive/pre-phase1-local-appcontainer-snapshot` 作为不参与发布的旧 AppContainer 本机快照。Claude review loop Round 1 找到并修复 2 个发布阻塞：长 MCP tool result 不再以 `<truncated:N>` 回填给 LLM，stdio MCP server 在 command / args / env 变化后会重启旧 session；Round 2 approve，`findings: []`。验证通过 focused tests、全量 SwiftPM 758 tests、SwiftLint strict、whitespace check、App Debug build、本地 unsigned DMG 构建和 DMG 挂载结构校验。2026-05-20 首次 GitHub Actions Release run `26167656542` 在 Xcode 16.4 Release archive 阶段暴露 Swift 6 `Sendable` 约束缺口；已补齐 `StreamableHTTPMCPClient.retryingExpiredSession<Result: Sendable>` 并通过相关 focused tests、SwiftLint strict 和本地 `scripts/build-dmg.sh 0.3.0`。第二次 Release run `26168050987` 已成功生成 `v0.3.0` draft release，CI DMG SHA256 为 `cf63e4e50b8eeda63e38f04c85ff485d11cdfa939038d7555b72ae61ad96f0e0`，下载后本地校验一致。用户已决定暂缓人工发布，后续开发转入 Phase 2 Skill Registry MVP 规格设计。
 
 ---
 
