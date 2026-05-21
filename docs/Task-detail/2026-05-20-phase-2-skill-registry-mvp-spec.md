@@ -12,6 +12,7 @@
 2. 使用 `session-handoff` 保存当前工作流，要求下一会话先复述上下文，再开始任何编辑。
 3. 下一会话先使用 `superpowers:brainstorming` 与用户对齐 Skill Registry MVP 的用户价值、scope 和 out-of-scope。
 4. 在确认设计后产出 `docs/superpowers/specs/2026-05-20-phase-2-skill-registry-mvp.md`，再进入 plan / 实现。
+5. 用户确认 spec 后，使用 `superpowers:writing-plans` 产出 `docs/superpowers/plans/2026-05-21-phase-2-skill-registry-mvp.md`，进入执行方式选择。
 
 ## ToDoList
 
@@ -21,7 +22,9 @@
 - [x] 创建 `docs/handoffs/2026-05-20-phase-2-skill-registry-mvp.md`。
 - [x] 使用 `superpowers:brainstorming` 明确 Skill Registry MVP 范围。
 - [x] 产出 `docs/superpowers/specs/2026-05-20-phase-2-skill-registry-mvp.md`。
-- [ ] 用户 review spec；确认后进入 implementation plan。
+- [x] 用户 review spec 并确认进入 implementation plan。
+- [x] 使用 `superpowers:writing-plans` 产出 `docs/superpowers/plans/2026-05-21-phase-2-skill-registry-mvp.md`。
+- [ ] 用户选择执行方式：Subagent-Driven 或 Inline Execution。
 
 ## 当前状态
 
@@ -29,7 +32,7 @@
 - 当前工作不改业务代码，只修正文档和交接状态。
 - `v0.3.0` draft release 保持草稿；除非用户重新明确要求，不发布、不删 draft、不重打 tag。
 - Phase 2 推荐首个切片为 Skill Registry MVP；DisplayMode、English Tutor、远端 skill 安装、marketplace 和复杂运行时能力先不进入第一轮 spec。
-- 已完成 Skill Registry MVP 范围对齐、正式 spec 写入和 spec 自检：`docs/superpowers/specs/2026-05-20-phase-2-skill-registry-mvp.md`。当前等待用户 review，未进入 implementation plan。
+- 已完成 Skill Registry MVP 范围对齐、正式 spec 写入、spec 自检和 implementation plan：`docs/superpowers/specs/2026-05-20-phase-2-skill-registry-mvp.md`、`docs/superpowers/plans/2026-05-21-phase-2-skill-registry-mvp.md`。当前等待用户选择执行方式，未改业务代码。
 
 ## 推荐 MVP 边界
 
@@ -66,6 +69,7 @@
 - `docs/Task-detail/2026-05-20-phase-2-skill-registry-mvp-spec.md`：新增本任务文档。
 - `docs/handoffs/2026-05-20-phase-2-skill-registry-mvp.md`：新增下一会话交接。
 - `docs/superpowers/specs/2026-05-20-phase-2-skill-registry-mvp.md`：新增 Skill Registry MVP 正式规格，记录 Claude/Codex 兼容、渐进式加载、pseudo-tool、配置、UI、错误模型、测试策略和技术债务。
+- `docs/superpowers/plans/2026-05-21-phase-2-skill-registry-mvp.md`：新增 implementation plan，按 TDD 拆分 SliceCore schema、parser/scanner、registry、AgentExecutor pseudo-tool、Settings UI、AppContainer wiring、文档和最终 gate。
 
 ## 代码修改逻辑
 
@@ -73,8 +77,11 @@
 
 Skill Registry MVP 的 spec 修改逻辑是把原 roadmap 中“执行前直接拼接完整 `SKILL.md`”修正为更接近 Claude/Codex 的 progressive disclosure：Agent Tool 先绑定候选 skills，模型初始只看到 `name / description / path` 元数据，真正需要时通过内置 `sliceai.load_skill` 读取完整 `SKILL.md`。同时明确本轮只支持 Agent Tool，不支持 Prompt Tool；只读取 `SKILL.md`，不执行脚本、不读取 supporting files，并把后续资源读取列为技术债务。
 
+Implementation plan 的修改逻辑是把 spec 拆为 8 个可 TDD 执行的任务：先稳定 SliceCore schema，再落 parser / scanner / registry，再接 AgentExecutor 渐进式加载，最后接 Settings UI 和 AppContainer wiring。这样可以避免 UI 先行或执行链先行导致模型边界反复重写。
+
 ## 测试结果
 
 - 已通过：`git diff --check`，确认文档 patch 无 whitespace 问题。
 - 已通过：spec 完整性扫描，未发现未完成标记或未替换日期模板。
+- 已通过：plan 完整性扫描，未发现未完成标记或未替换日期模板。
 - 未执行 Swift 测试：本任务未修改业务代码。

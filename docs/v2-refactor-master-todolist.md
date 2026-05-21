@@ -15,11 +15,11 @@
 
 | 字段 | 值 |
 |---|---|
-| 最后更新 | 2026-05-20 |
+| 最后更新 | 2026-05-21 |
 | 当前 Phase | **Phase 2 启动准备**（Skill + 多 DisplayMode 进入前重新 spec） |
 | 当前 Milestone | **Task 58 Skill Registry MVP spec kickoff** |
-| 下一个动作 | 用户 review `docs/superpowers/specs/2026-05-20-phase-2-skill-registry-mvp.md`；确认后用 `superpowers:writing-plans` 产出 implementation plan |
-| 阻塞 | 无已知产品代码阻塞；`v0.3.0` draft release 已生成并校验通过，但用户已决定暂缓人工发布。Skill Registry MVP spec 确认前不得进入 Phase 2 业务代码实现 |
+| 下一个动作 | 用户选择 `docs/superpowers/plans/2026-05-21-phase-2-skill-registry-mvp.md` 的执行方式：Subagent-Driven 或 Inline Execution |
+| 阻塞 | 无已知产品代码阻塞；`v0.3.0` draft release 已生成并校验通过，但用户已决定暂缓人工发布。执行方式确认前不得进入 Phase 2 业务代码实现 |
 
 **Milestone 状态**
 
@@ -34,7 +34,7 @@
 | 1 | M2 | ✅ 已完成：Task 6 PermissionGraph case-aware coverage、Task 7 Core ContextProviders、Task 8 Permission Consent Grants、Task 9 AppContainer wiring |
 | 1 | M3 | ✅ 已完成：tool calling contract、AgentExecutor ReAct loop、ResultPanel tool-call lifecycle、`web-search-summarize` |
 | 1 | M4 | ✅ Task 57 release prep 已完成；直接 MCP E2E 已通过，DeepSeek/权限/finalization 缺陷、自定义 Agent Tool 编辑器、MCP allowlist、通用 tool-call policy 和 review 发现的 release blocker 均已修复；最终 gate、本地 DMG 预检、CI draft release 和 artifact SHA 校验通过 |
-| 2 | Skill Registry MVP spec | 🟨 spec 已产出，等待用户 review；不直接实现 |
+| 2 | Skill Registry MVP spec/plan | 🟨 spec 和 implementation plan 已产出，等待选择执行方式；不直接实现 |
 | 3–5 | — | 🟦 Directional，进入前需重新 spec |
 
 ---
@@ -997,3 +997,12 @@ fi
 - 明确本 MVP 不实现 supporting files 读取、脚本执行、marketplace、远端安装、DisplayMode、TTS 或 English Tutor；supporting files 渐进式读取作为技术债务记录在 spec。
 
 **下一步**：用户 review Skill Registry MVP spec；确认后用 `superpowers:writing-plans` 产出 implementation plan，plan 通过 review 前不改业务代码。
+
+### 2026-05-21 — Phase 2 Skill Registry MVP implementation plan 已产出
+
+- 用户确认进入 implementation plan 后，已按 `superpowers:writing-plans` 写入 `docs/superpowers/plans/2026-05-21-phase-2-skill-registry-mvp.md`。
+- Plan 将实现拆成 8 个任务：preflight/worktree、SliceCore schema、`SKILL.md` parser/scanner、`LocalSkillRegistry`、AgentExecutor pseudo-tool、Skills 设置页、Agent Tool skill binding、AppContainer wiring 与最终 gate。
+- Plan 明确采用 TDD，每个任务包含 focused tests、预期失败/通过命令和 commit 点；最终 gate 包含 SwiftPM 全量测试、SwiftLint strict、`git diff --check` 和 Xcode Debug build。
+- 当前仍未修改业务代码；下一步需要用户选择执行方式。
+
+**下一步**：用户选择执行方式：Subagent-Driven（推荐）或 Inline Execution。选择前不进入代码实现。
