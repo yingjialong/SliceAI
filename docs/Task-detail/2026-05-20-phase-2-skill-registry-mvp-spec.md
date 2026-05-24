@@ -32,14 +32,17 @@
 - [x] 按用户反馈将 Agent Tool skill 绑定 UI 从全量列表改为逐条添加：加号新增一行，每行用下拉菜单选择 skill，减号删除该行。
 - [x] 完成 AppContainer 真实 `LocalSkillRegistry` 注入。
 - [x] 完成 full gate。
+- [x] 用户完成 App 手测且未反馈问题。
+- [x] 提交 `1411e88 feat: add skill registry mvp` 并推送到 `origin/main`。
 
 ## 当前状态
 
-- 当前分支：`codex/phase-2-skill-registry-mvp`。
-- 当前工作已完成 Skill Registry MVP 实现与 final gate；Agent Tool skill 绑定 UI 已改为逐条添加 / 下拉选择 / 减号删除，不再一次性列出全部 skills。
+- 当前分支：`main`。
+- 当前 HEAD / `origin/main`：`1411e88 feat: add skill registry mvp`。
+- 当前工作已完成 Skill Registry MVP 实现、final gate、用户 App 手测和远端推送；Agent Tool skill 绑定 UI 已改为逐条添加 / 下拉选择 / 减号删除，不再一次性列出全部 skills。
 - `v0.3.0` draft release 保持草稿；除非用户重新明确要求，不发布、不删 draft、不重打 tag。
 - Phase 2 推荐首个切片为 Skill Registry MVP；DisplayMode、English Tutor、远端 skill 安装、marketplace 和复杂运行时能力先不进入第一轮 spec。
-- 已完成 Skill Registry MVP 范围对齐、正式 spec、implementation plan、Claude review loop approve、Subagent-Driven 实施和最终验证。当前等待用户决定是否提交/PR/继续后续 Phase 2 切片。
+- 已完成 Skill Registry MVP 范围对齐、正式 spec、implementation plan、Claude review loop approve、Subagent-Driven 实施、最终验证、用户手测和 `origin/main` 推送。下一步建议先做真实 Skill E2E 兼容性验证，再决定 supporting files、DisplayMode 或 marketplace 的优先级。
 
 ## 推荐 MVP 边界
 
@@ -61,12 +64,14 @@
 
 ## 验证策略
 
-本任务当前阶段是文档和设计启动，不需要运行 Swift 测试。下一步进入 spec / plan 后，应在实现前按 TDD 补齐以下验证方向：
+本任务已从文档和设计启动推进到实现、手测和远端推送。实现阶段按 TDD 补齐并运行以下验证方向：
 
 - Skill manifest / `SKILL.md` 解析单测。
 - Skill registry 扫描、错误收集和 enable / disable 状态单测。
 - Agent Tool 绑定 skill 后的 metadata 注入与 `sliceai.load_skill` pseudo-tool 单测。
 - Settings UI 的 skill 列表、roots 管理、错误态和 Agent Tool skill 绑定 ViewModel 测试。
+- Agent Tool skill 绑定 UI 的逐条新增、下拉候选去重、行内替换和删除测试。
+- 全量 SwiftPM、SwiftLint strict、`git diff --check` 和 Xcode Debug build gate。
 
 ## 变动文件清单
 
@@ -110,3 +115,5 @@ final gate 前的 lint 修复只做结构性小拆分：`SkillDirectoryScanner` 
 - 已通过：`swift test --package-path SliceAIKit`（795 tests，0 failures）。
 - 已通过：`swiftlint lint --strict`（0 violations，0 serious）。
 - 已通过：`xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`（`BUILD SUCCEEDED`）。
+- 已完成：用户 App 手测，未反馈问题。
+- 已完成：`git push origin main`，`HEAD == origin/main == 1411e88c47660512ff876d76174da41ec5e5f209`。

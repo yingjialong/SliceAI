@@ -9,7 +9,7 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 - **时间**：2026-05-20
 - **描述**：在 `v0.3.0` draft release 已生成但用户决定暂缓人工发布后，启动并实现 Phase 2 的第一个设计切片：Skill Registry MVP。
 - **详情**：[docs/Task-detail/2026-05-20-phase-2-skill-registry-mvp-spec.md](Task-detail/2026-05-20-phase-2-skill-registry-mvp-spec.md)
-- **结果**：完成。已完成 `superpowers:brainstorming` 范围收敛、正式 spec、implementation plan、Claude review loop approve 和 Subagent-Driven 实施。MVP 采用自研最小 loader：用户配置多个 skill roots，Agent Tool 通过加号逐条绑定最多 5 个 enabled skills，每行以下拉菜单选择并可用减号删除；执行时先暴露元数据，模型通过内置 pseudo-tool `sliceai.load_skill` 渐进式加载完整 `SKILL.md`。Prompt Tool、supporting files 读取、脚本执行、marketplace、DisplayMode 和 English Tutor 不进入本 MVP。验证通过全量 SwiftPM 795 tests、SwiftLint strict、App Debug build 和 `git diff --check`。
+- **结果**：完成。已完成 `superpowers:brainstorming` 范围收敛、正式 spec、implementation plan、Claude review loop approve 和 Subagent-Driven 实施。MVP 采用自研最小 loader：用户配置多个 skill roots，Agent Tool 通过加号逐条绑定最多 5 个 enabled skills，每行以下拉菜单选择并可用减号删除；执行时先暴露元数据，模型通过内置 pseudo-tool `sliceai.load_skill` 渐进式加载完整 `SKILL.md`。Prompt Tool、supporting files 读取、脚本执行、marketplace、DisplayMode 和 English Tutor 不进入本 MVP。验证通过全量 SwiftPM 795 tests、SwiftLint strict、App Debug build 和 `git diff --check`；用户已完成 App 手测且未反馈问题。已提交 `1411e88 feat: add skill registry mvp` 并推送到 `origin/main`。
 
 ---
 

@@ -15,10 +15,10 @@
 
 | 字段 | 值 |
 |---|---|
-| 最后更新 | 2026-05-21 |
-| 当前 Phase | **Phase 2 Skill Registry MVP** |
-| 当前 Milestone | **Task 58 Skill Registry MVP implementation** |
-| 下一个动作 | 完成 final gate 后由用户决定是否提交/PR/继续后续 Phase 2 切片 |
+| 最后更新 | 2026-05-24 |
+| 当前 Phase | **Phase 2 Skill + 多 DisplayMode** |
+| 当前 Milestone | **Task 58 Skill Registry MVP 已完成** |
+| 下一个动作 | 启动真实 Skill E2E 兼容性验证：用 3 个本地 Claude / Codex 风格 skill 验证扫描、启停、Agent 绑定和 `sliceai.load_skill` 运行链路 |
 | 阻塞 | 无已知产品代码阻塞；`v0.3.0` draft release 已生成并校验通过，但用户已决定暂缓人工发布 |
 
 **Milestone 状态**
@@ -34,7 +34,7 @@
 | 1 | M2 | ✅ 已完成：Task 6 PermissionGraph case-aware coverage、Task 7 Core ContextProviders、Task 8 Permission Consent Grants、Task 9 AppContainer wiring |
 | 1 | M3 | ✅ 已完成：tool calling contract、AgentExecutor ReAct loop、ResultPanel tool-call lifecycle、`web-search-summarize` |
 | 1 | M4 | ✅ Task 57 release prep 已完成；直接 MCP E2E 已通过，DeepSeek/权限/finalization 缺陷、自定义 Agent Tool 编辑器、MCP allowlist、通用 tool-call policy 和 review 发现的 release blocker 均已修复；最终 gate、本地 DMG 预检、CI draft release 和 artifact SHA 校验通过 |
-| 2 | Skill Registry MVP | 🟨 本地实现已完成，正在 final gate |
+| 2 | Skill Registry MVP | ✅ 已完成并推送 `main` / `origin/main`（commit `1411e88`）；用户已完成 App 手测且未反馈问题 |
 | 3–5 | — | 🟦 Directional，进入前需重新 spec |
 
 ---
@@ -57,7 +57,7 @@
 6. **完成任何实质性推进后**：
    - 更新 §0 Dashboard 的"最后更新 / 当前 Milestone / 下一个动作"字段
    - 在 §9 追加一条历史 snapshot
-   - 提交文档 commit（在 main 分支）
+   - 提交文档 commit（在 main 分支），按用户确认后推送
 
 **"实质性推进"指**：启动新 milestone、merge PR、完成一轮评审修复、写完一份 plan、回答一个 Open Question。**单纯的技术讨论不算**。
 
@@ -509,12 +509,15 @@ fi
 - [x] Agent Tool 可通过加号逐条绑定最多 5 个 enabled skills，每行下拉选择并可删除；Prompt Tool 暂不支持 skill 绑定。
 - [x] AgentExecutor 初始只注入绑定 skills 的 metadata，模型通过内置 pseudo-tool `sliceai.load_skill` 按需加载完整 `SKILL.md`。
 - [x] 单元测试覆盖解析成功、解析失败、禁用、too large、missing description、missing source、shadowed 和 pseudo-tool 加载场景。
+- [x] 完整 gate 已通过：SwiftPM 795 tests、SwiftLint strict、App Debug build 和 `git diff --check`。
+- [x] 已合入并推送 `main` / `origin/main`（commit `1411e88`）；用户已完成 App 手测且未反馈问题。
 - [x] 暂不实现 marketplace、远端安装、skill 内脚本执行、supporting files 读取、复杂 DisplayMode、English Tutor 全流程。
 
 **关键交付**（粗粒度，进入前重新 spec）：
 
 - [x] `Capabilities/SkillRegistry`（扫目录、解析 SKILL.md、生成 snapshot 和按需加载 body）
 - [x] `SettingsUI/Pages/SkillsPage`
+- [ ] 真实 Skill E2E 兼容性验证（3 个本地 Claude / Codex 风格 skill）
 - [ ] `Windowing/BubblePanel`（小气泡、2.5s 自动消失）
 - [ ] `Windowing/InlineReplaceOverlay`（AX `setSelectedText` + 确认撤销浮条）
 - [ ] `Windowing/StructuredResultView`（JSONSchema → SwiftUI 表单）
@@ -1005,12 +1008,15 @@ fi
 - Plan 明确采用 TDD，每个任务包含 focused tests、预期失败/通过命令和 commit 点；最终 gate 包含 SwiftPM 全量测试、SwiftLint strict、`git diff --check` 和 Xcode Debug build。
 - 当前仍未修改业务代码；下一步需要用户选择执行方式。
 
-**下一步**：已选择 Subagent-Driven 并完成实现，继续 final gate。
+**下一步**：已选择 Subagent-Driven 并完成实现，见下一条实现完成记录。
 
-### 2026-05-21 — Phase 2 Skill Registry MVP 本地实现完成
+### 2026-05-24 — Phase 2 Skill Registry MVP 完成并推送 main
 
 - 已按 Subagent-Driven 执行实现，覆盖 SliceCore schema、Capabilities parser/scanner/registry、AgentExecutor pseudo-tool、Settings Skills 页面、Agent Tool skill 绑定和 AppContainer wiring。
 - `sliceai.load_skill` 的 provider function name 固定为 `sliceai_load_skill`，避免 OpenAI-compatible function name 中使用点号。
 - AppContainer 已创建单例 `LocalSkillRegistry`，同一实例注入 Settings、AgentExecutor 和 ExecutionEngine。
 - Agent Tool skill 绑定 UI 已按用户反馈改为加号逐条新增、行内下拉选择、减号删除，避免在编辑器里一次性铺开全部 skills。
-- 当前 full gate 已通过：SwiftPM 795 tests、SwiftLint strict、App Debug build 和 `git diff --check`。
+- Full gate 已通过：SwiftPM 795 tests、SwiftLint strict、App Debug build 和 `git diff --check`。
+- 用户已完成 App 手测且未反馈问题。
+- 已提交 `1411e88 feat: add skill registry mvp`，并推送到 `origin/main`；本地 `HEAD`、`main`、`origin/main` 均指向 `1411e88`。
+- 下一步建议启动真实 Skill E2E 兼容性验证，再根据真实缺口决定 supporting files 只读加载、DisplayMode 或 marketplace 的优先级。

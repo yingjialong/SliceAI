@@ -8,7 +8,7 @@ SliceAI 让你在任何 Mac 应用里选中文字后，通过快捷工具栏或 
 
 v0.2.0 Phase 0 底层重构已正式发布：v2 数据模型、Orchestration 执行引擎、Capabilities 能力边界已接入真实 App 触发链。Release: <https://github.com/yingjialong/SliceAI/releases/tag/v0.2.0>。
 
-Phase 1 MCP + Context 主干已完成 `v0.3` release prep：stdio / Streamable HTTP MCP client、MCP Servers 设置页、五个核心 ContextProvider、PermissionBroker UI gate、AgentExecutor tool calling、ResultPanel tool-call lifecycle、`web-search-summarize`、per-tool hotkey 和基础自定义 Agent Tool 配置均已落地。Task 17 已完成真实 release E2E 主体验证；filesystem / postgres / brave-search / git / sqlite 五项本地 MCP server 已完成直接 JSON-RPC `tools/list` 与安全只读 / 低风险 `tools/call`，用户已基本复测 App 场景且未反馈阻塞问题。最终 Claude review loop Round 2 approve；review 中发现并修复了两项发布阻塞：长 MCP tool result 不再以 `<truncated:N>` 回填给 LLM，stdio MCP server 在 command / args / env 变化后会重启旧 session。最终 gate 已通过 SwiftPM 758 tests、SwiftLint strict、`git diff --check`、App Debug build、本地 unsigned DMG 构建和 DMG 挂载结构校验。`v0.3.0` tag 已推送，GitHub Actions Release run `26168050987` 已成功生成 draft release；CI DMG SHA256 为 `cf63e4e50b8eeda63e38f04c85ff485d11cdfa939038d7555b72ae61ad96f0e0`。用户已明确暂缓人工发布，draft release 保持草稿；Phase 2 Skill Registry MVP 已完成本地实现并进入最终 gate：支持本地 skill roots、`SKILL.md` parser/scanner、Settings Skills 页面、Agent Tool 最多 5 个 skill 绑定，以及 `sliceai.load_skill` 渐进式加载。参见 [docs/v2-refactor-master-todolist.md](docs/v2-refactor-master-todolist.md) 跟踪后续 Phase。
+Phase 1 MCP + Context 主干已完成 `v0.3` release prep：stdio / Streamable HTTP MCP client、MCP Servers 设置页、五个核心 ContextProvider、PermissionBroker UI gate、AgentExecutor tool calling、ResultPanel tool-call lifecycle、`web-search-summarize`、per-tool hotkey 和基础自定义 Agent Tool 配置均已落地。Task 17 已完成真实 release E2E 主体验证；filesystem / postgres / brave-search / git / sqlite 五项本地 MCP server 已完成直接 JSON-RPC `tools/list` 与安全只读 / 低风险 `tools/call`，用户已基本复测 App 场景且未反馈阻塞问题。最终 Claude review loop Round 2 approve；review 中发现并修复了两项发布阻塞：长 MCP tool result 不再以 `<truncated:N>` 回填给 LLM，stdio MCP server 在 command / args / env 变化后会重启旧 session。最终 gate 已通过 SwiftPM 758 tests、SwiftLint strict、`git diff --check`、App Debug build、本地 unsigned DMG 构建和 DMG 挂载结构校验。`v0.3.0` tag 已推送，GitHub Actions Release run `26168050987` 已成功生成 draft release；CI DMG SHA256 为 `cf63e4e50b8eeda63e38f04c85ff485d11cdfa939038d7555b72ae61ad96f0e0`。用户已明确暂缓人工发布，draft release 保持草稿；Phase 2 Skill Registry MVP 已完成并推送到 `main` / `origin/main`（commit `1411e88`）：支持本地 skill roots、`SKILL.md` parser/scanner、Settings Skills 页面、Agent Tool 最多 5 个 skill 绑定，以及 `sliceai.load_skill` 渐进式加载。参见 [docs/v2-refactor-master-todolist.md](docs/v2-refactor-master-todolist.md) 跟踪后续 Phase。
 
 ## Features (MVP v0.2)
 
@@ -53,9 +53,9 @@ open SliceAI.xcodeproj
 
 ## 项目修改变动记录
 
-### 2026-05-21 · Phase 2 Skill Registry MVP Implementation
+### 2026-05-24 · Phase 2 Skill Registry MVP Implementation Complete
 
-**范围**：`codex/phase-2-skill-registry-mvp`，本地 Skill Registry MVP 实现
+**范围**：`main`，本地 Skill Registry MVP 实现已合入并推送（commit `1411e88`）
 
 **当前状态**：
 - SliceCore schema 已新增 `SkillSettings`、canonical `Skill`、`AgentTool.skills` 和旧 `skill` JSON 兼容解码；每个 Agent Tool 最多 5 个 skills。
@@ -66,6 +66,8 @@ open SliceAI.xcodeproj
 
 **验证状态**：已通过 focused tests、全量 SwiftPM 795 tests、SwiftLint strict、`git diff --check` 和 App Debug build。
 
+**合并状态**：已完成并推送到 `origin/main`；用户已完成 App 手测且未反馈问题。下一步建议先做真实 Claude / Codex 风格 skill 的 E2E 兼容性验证，再决定 supporting files、DisplayMode 或 marketplace 的后续顺序。
+
 ### 2026-05-20 · Phase 2 Skill Registry MVP Spec Kickoff
 
 **范围**：`main`，Phase 2 启动前的方向收敛与规格设计准备
@@ -75,7 +77,7 @@ open SliceAI.xcodeproj
 - Phase 2 原始 scope 仍是 Directional Outline，不能直接进入实现。
 - Skill Registry MVP spec 已写入 `docs/superpowers/specs/2026-05-20-phase-2-skill-registry-mvp.md`，implementation plan 已写入 `docs/superpowers/plans/2026-05-21-phase-2-skill-registry-mvp.md`：采用自研最小 loader，支持用户配置多个 skill roots、Agent Tool 绑定最多 5 个 enabled skills，并通过内置 `sliceai.load_skill` pseudo-tool 渐进式加载完整 `SKILL.md`。
 
-**下一步**：已选择 Subagent-Driven 并进入实现；实现状态见 2026-05-21 记录。
+**下一步**：已选择 Subagent-Driven 并完成实现；结果见 2026-05-21 记录。
 
 ### 2026-05-19 · v0.3 Release Prep
 

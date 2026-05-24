@@ -10,6 +10,17 @@
 
 ---
 
+## Execution Status
+
+Completed on 2026-05-24 via Subagent-Driven implementation and pushed to `main` / `origin/main`.
+
+- Final commit: `1411e88 feat: add skill registry mvp`.
+- Scope completed: SliceCore skill schema, `SKILL.md` parser/scanner, `LocalSkillRegistry`, AgentExecutor `sliceai_load_skill` pseudo-tool, Settings Skills page, Agent Tool skill binding UI, and AppContainer wiring.
+- UI adjustment completed after user feedback: Agent Tool skill selection now uses plus-button row creation, per-row dropdown selection, duplicate exclusion, and minus-button removal instead of listing every skill at once.
+- Verification completed on `main`: `swift test --package-path SliceAIKit`（795 tests, 0 failures）、`swiftlint lint --strict`（0 violations）、`git diff --check`、`xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`（BUILD SUCCEEDED）。
+- Manual validation: user completed App testing and reported no issues.
+- Next recommended work: real Skill E2E compatibility validation with 3 local Claude / Codex-style skills before expanding into supporting files, DisplayMode, scripts, or marketplace.
+
 ## Scope Check
 
 This plan implements the single MVP frozen in `docs/superpowers/specs/2026-05-20-phase-2-skill-registry-mvp.md`. It does not implement marketplace, remote install, scripts, `references/` / `assets/` resource reading, Prompt Tool skill binding, DisplayMode work, TTS, or English Tutor.
@@ -2003,15 +2014,15 @@ SkillRegistry 负责扫描用户配置的本地 skill roots，解析 Claude / Co
 记录 supporting files、完整 YAML、SwiftSkill 复评估、Codex duplicate name 语义和 `agents/openai.yaml`。
 ```
 
-- [ ] **Step 2: Update project status docs**
+- [x] **Step 2: Update project status docs**
 
 Update:
 
 - `README.md`: mention Skill Registry MVP implemented locally.
-- `docs/v2-refactor-master-todolist.md`: mark Skill Registry MVP implementation completed and next step review/release gate.
+- `docs/v2-refactor-master-todolist.md`: mark Skill Registry MVP implementation completed and next step real Skill E2E compatibility validation.
 - Task detail: add changed files, tests, and final result.
 
-- [ ] **Step 3: Run focused tests**
+- [x] **Step 3: Run focused tests**
 
 Run:
 
@@ -2021,7 +2032,7 @@ swift test --package-path SliceAIKit --filter 'SkillTests|ToolKindTests|Configur
 
 Expected: PASS.
 
-- [ ] **Step 4: Run full SwiftPM tests**
+- [x] **Step 4: Run full SwiftPM tests**
 
 Run:
 
@@ -2031,7 +2042,7 @@ swift test --package-path SliceAIKit
 
 Expected: PASS.
 
-- [ ] **Step 5: Run lint and whitespace checks**
+- [x] **Step 5: Run lint and whitespace checks**
 
 Run:
 
@@ -2042,7 +2053,7 @@ git diff --check
 
 Expected: `swiftlint` reports `0 violations`, `git diff --check` prints nothing.
 
-- [ ] **Step 6: Build app**
+- [x] **Step 6: Build app**
 
 Run:
 
@@ -2052,16 +2063,18 @@ xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build
 
 Expected: `BUILD SUCCEEDED`.
 
-- [ ] **Step 7: Commit docs and final gate record**
+- [x] **Step 7: Commit docs and final gate record**
 
 ```bash
 git add README.md docs SliceAIKit/Tests
 git commit -m "docs: document skill registry mvp"
 ```
 
-- [ ] **Step 8: Stop before PR or merge**
+- [x] **Step 8: Stop before PR or merge**
 
-Do not publish `v0.3.0`, do not retag, do not create a release, and do not merge without user instruction. Report:
+Do not publish `v0.3.0`, do not retag, do not create a release, and do not merge without user instruction. This stop point was honored during implementation; after user explicitly requested updating `main` and pushing remote, the work was fast-forwarded into `main` and pushed to `origin/main`.
+
+Report:
 
 - commit list,
 - tests run,
