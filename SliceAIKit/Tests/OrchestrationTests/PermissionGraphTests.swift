@@ -121,7 +121,7 @@ final class PermissionGraphTests: XCTestCase {
             initialUserPrompt: "u",
             contexts: contexts,
             provider: .fixed(providerId: "p", modelId: nil),
-            skill: nil,
+            skills: [],
             mcpAllowlist: mcpAllowlist,
             builtinCapabilities: builtinCapabilities,
             maxSteps: 5,

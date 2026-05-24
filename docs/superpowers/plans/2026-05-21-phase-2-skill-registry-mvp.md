@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the Skill Registry MVP so SliceAI can scan user-selected Claude/Codex-style skill roots, show skills in Settings, bind up to 5 enabled skills to Agent Tools, and let AgentExecutor progressively load `SKILL.md` through `sliceai.load_skill`.
+**Goal:** Build the Skill Registry MVP so SliceAI can scan user-selected Claude/Codex-style skill roots, show skills in Settings, bind up to 5 enabled skills to Agent Tools, and let AgentExecutor progressively load `SKILL.md` through the conceptual `sliceai.load_skill` pseudo-tool. The OpenAI-compatible function name is `sliceai_load_skill`.
 
 **Architecture:** `SliceCore` owns canonical skill/config models. `Capabilities` owns filesystem scanning, `SKILL.md` parsing, registry snapshots, and diagnostics. `Orchestration` consumes only skills bound to the current Agent Tool and exposes a local pseudo-tool; `SettingsUI` manages roots and bindings; `SliceAIApp` wires the real registry.
 
@@ -67,7 +67,7 @@ The plan intentionally uses a small in-house frontmatter parser. Replacing it wi
 - Modify `SliceAIKit/Sources/Orchestration/Executors/AgentExecutor+ToolCatalog.swift`
   - Extend catalog with built-in pseudo-tool.
 - Modify `SliceAIKit/Sources/Orchestration/Executors/AgentExecutor+ToolCalls.swift`
-  - Dispatch `sliceai.load_skill` locally before MCP gate.
+  - Dispatch provider function `sliceai_load_skill` locally before MCP gate and display it as conceptual `sliceai.load_skill`.
 - Modify `SliceAIKit/Sources/Orchestration/Executors/AgentPromptBuilder.swift`
   - Add skill metadata block with 8,000 character budget.
 - Modify `SliceAIKit/Tests/OrchestrationTests/AgentExecutorTests.swift`
@@ -164,6 +164,7 @@ Expected: PASS. If existing tests fail before edits, stop and document the basel
 - Modify: `SliceAIKit/Sources/SliceCore/ToolKind.swift`
 - Modify: `SliceAIKit/Sources/SliceCore/DefaultConfiguration.swift`
 - Modify: `SliceAIKit/Sources/SliceCore/ConfigurationStore.swift`
+- Compile-fix references to `AgentTool(skill:)` across `SliceAIKit/Sources` and `SliceAIKit/Tests`
 - Test: `SliceAIKit/Tests/SliceCoreTests/SkillTests.swift`
 - Test: `SliceAIKit/Tests/SliceCoreTests/ToolKindTests.swift`
 - Test: `SliceAIKit/Tests/SliceCoreTests/ConfigurationTests.swift`
@@ -171,7 +172,15 @@ Expected: PASS. If existing tests fail before edits, stop and document the basel
 
 - [ ] **Step 1: Write failing SliceCore tests**
 
-Add these tests to `SkillTests.swift`:
+First update existing `SkillTests.swift` tests that lock the old M1 `SkillManifest` / `Skill` shape. Remove or rewrite:
+
+- `test_skillManifest_codable`
+- `test_skill_carriesProvenance_andRoundtrips`
+- `test_skillManifest_goldenJSON_fieldOrder`
+
+Those tests currently construct `SkillManifest(name:description:version:triggers:requiredCapabilities:)` and `Skill(id:path:manifest:resources:provenance:)`; after this task there is one canonical Phase 2 shape with `canonicalName`, `skillFile`, `source`, and `state`.
+
+Add these replacement tests to `SkillTests.swift`:
 
 ```swift
 func test_skillSettings_defaultsRoundTrip() throws {
@@ -269,8 +278,13 @@ func test_configurationDefaultsSkillSettingsWhenMissing() throws {
       "providers": [],
       "tools": [],
       "hotkeys": { "toggleCommandPalette": "option+space" },
-      "triggers": { "mouseSelection": true, "triggerDelayMs": 120, "minimumSelectionLength": 1 },
-      "telemetry": { "enabled": false, "retentionDays": 30 },
+      "triggers": {
+        "floatingToolbarEnabled": true,
+        "commandPaletteEnabled": true,
+        "triggerDelayMs": 120,
+        "minimumSelectionLength": 1
+      },
+      "telemetry": { "enabled": false },
       "appBlocklist": [],
       "appearance": "auto"
     }
@@ -506,7 +520,27 @@ public func encode(to encoder: any Encoder) throws {
 }
 ```
 
-Update every `AgentTool(...)` initializer call from `skill:` to `skills:`.
+Update every `AgentTool(...)` initializer call from `skill:` to `skills:` before running focused tests. SwiftPM compiles the full package even with a test filter, so this must be part of Task 1, not left for later UI/orchestration tasks.
+
+Run this search and migrate every result:
+
+```bash
+rg -n "AgentTool\\(|skill:" SliceAIKit/Sources SliceAIKit/Tests
+```
+
+Known affected areas at plan time:
+
+- `SliceAIKit/Sources/SliceCore/DefaultConfiguration.swift`
+- `SliceAIKit/Sources/SettingsUI/Pages/ToolsSettingsPage+Actions.swift`
+- `SliceAIKit/Tests/SliceCoreTests/ToolKindTests.swift`
+- `SliceAIKit/Tests/SliceCoreTests/ToolTests.swift`
+- `SliceAIKit/Tests/SliceCoreTests/ConfigurationTests.swift`
+- `SliceAIKit/Tests/OrchestrationTests/AgentExecutorTests.swift`
+- `SliceAIKit/Tests/OrchestrationTests/ExecutionEngineTests.swift`
+- `SliceAIKit/Tests/OrchestrationTests/PermissionGraphTests.swift`
+- Orchestration helper code that pattern-matches or forwards `AgentTool.skill`
+
+Rewrite the existing `ToolKindTests.test_agentTool_codable_roundtrip` to use `skills:` and update any legacy JSON tests so old `"skill": null` decodes to `skills == []`.
 
 - [ ] **Step 6: Add validation for max 5 skills**
 
@@ -606,6 +640,20 @@ final class SkillMarkdownParserTests: XCTestCase {
 
         XCTAssertThrowsError(try SkillMarkdownParser().parse(text, directoryName: "bad"))
     }
+
+    func test_parseMissingDescriptionReturnsWarning() throws {
+        let text = """
+        ---
+        name: no-description
+        ---
+        Body
+        """
+
+        let result = try SkillMarkdownParser().parse(text, directoryName: "fallback")
+
+        XCTAssertEqual(result.manifest.description, "")
+        XCTAssertTrue(result.warnings.contains(.missingDescription))
+    }
 }
 ```
 
@@ -642,6 +690,20 @@ final class SkillDirectoryScannerTests: XCTestCase {
         let candidates = try SkillDirectoryScanner().candidates(in: source)
 
         XCTAssertTrue(candidates.isEmpty)
+    }
+
+    func test_scannerRejectsSymlinkEscapingSourceRoot() throws {
+        let root = try makeTempRoot()
+        let outside = try makeTempRoot()
+        try writeSkill(outside.appendingPathComponent("escape/SKILL.md"), name: "escape")
+        let link = root.appendingPathComponent("escape")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: outside.appendingPathComponent("escape"))
+
+        let source = SkillSource(id: "root", displayName: "Root", rootPath: root.path, isEnabled: true, order: 0)
+        let result = try SkillDirectoryScanner().scan(in: source)
+
+        XCTAssertTrue(result.candidates.isEmpty)
+        XCTAssertTrue(result.rejections.contains { $0.reason == .symlinkEscapesSourceRoot })
     }
 }
 ```
@@ -703,6 +765,10 @@ public struct SkillMarkdownParser: Sendable {
         let fields = try parseFields(parts.frontmatter)
         let name = fields.scalars["name"]?.trimmingCharacters(in: .whitespacesAndNewlines)
         let description = fields.scalars["description"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        var warnings: Set<SkillMarkdownWarning> = []
+        if description.isEmpty {
+            warnings.insert(.missingDescription)
+        }
         let disable = try parseBool(fields.scalars["disable-model-invocation"] ?? "false")
         let userInvocable = try fields.scalars["user-invocable"].map(parseBool)
         let manifest = SkillManifest(
@@ -714,7 +780,7 @@ public struct SkillMarkdownParser: Sendable {
             rawFrontmatter: parts.frontmatter,
             instructionsCharacterCount: parts.body.count
         )
-        return SkillMarkdownParseResult(manifest: manifest, instructions: parts.body)
+        return SkillMarkdownParseResult(manifest: manifest, instructions: parts.body, warnings: warnings)
     }
 }
 
@@ -722,6 +788,12 @@ public struct SkillMarkdownParser: Sendable {
 public struct SkillMarkdownParseResult: Sendable, Equatable {
     public let manifest: SkillManifest
     public let instructions: String
+    public let warnings: Set<SkillMarkdownWarning>
+}
+
+/// SKILL.md 可恢复解析警告；registry 决定警告如何影响 state。
+public enum SkillMarkdownWarning: String, Sendable, Codable, Equatable {
+    case missingDescription
 }
 ```
 
@@ -740,6 +812,8 @@ private struct ParsedFields {
 ```
 
 Implement `splitFrontmatter`, `parseFields`, and `parseBool` as line-based helpers with Chinese comments around list parsing. Print no free-form logs from parser; callers log diagnostics.
+
+When `description` is absent or trims to empty, keep `manifest.description == ""` and include `.missingDescription` in `warnings`. Do not throw: the registry must keep the skill visible in Settings as `.defaultDisabled` with a warning diagnostic, because the user can still inspect and fix the package.
 
 - [ ] **Step 5: Implement scanner**
 
@@ -761,18 +835,48 @@ public struct SkillDirectoryScanner: Sendable {
 
     /// 发现一个 source root 下的候选 skill。
     public func candidates(in source: SkillSource) throws -> [SkillCandidate] {
-        guard source.isEnabled else { return [] }
+        try scan(in: source).candidates
+    }
+
+    /// 发现候选 skill，并返回被安全规则拒绝的路径摘要。
+    public func scan(in source: SkillSource) throws -> SkillDirectoryScanResult {
+        guard source.isEnabled else { return SkillDirectoryScanResult(candidates: [], rejections: []) }
         let root = URL(fileURLWithPath: source.rootPath).standardizedFileURL
+        let resolvedRoot = root.resolvingSymlinksInPath()
         let patterns = candidateParentDirectories(root: root)
         var candidates: [SkillCandidate] = []
+        var rejections: [SkillDirectoryScannerRejection] = []
         if fileManager.fileExists(atPath: root.appendingPathComponent("SKILL.md").path) {
-            candidates.append(SkillCandidate(source: source, directory: root, skillFile: root.appendingPathComponent("SKILL.md")))
+            appendCandidateIfAllowed(
+                directory: root,
+                skillFile: root.appendingPathComponent("SKILL.md"),
+                source: source,
+                resolvedRoot: resolvedRoot,
+                candidates: &candidates,
+                rejections: &rejections
+            )
         }
         for parent in patterns {
-            candidates.append(contentsOf: try directChildrenWithSkillFiles(parent: parent, source: source, root: root))
+            let children = try directChildrenWithSkillFiles(parent: parent, source: source, root: root)
+            for child in children {
+                appendCandidateIfAllowed(
+                    directory: child.directory,
+                    skillFile: child.skillFile,
+                    source: source,
+                    resolvedRoot: resolvedRoot,
+                    candidates: &candidates,
+                    rejections: &rejections
+                )
+            }
         }
-        return Array(candidates.prefix(Self.maxCandidatesPerSource))
+        return SkillDirectoryScanResult(candidates: Array(candidates.prefix(Self.maxCandidatesPerSource)), rejections: rejections)
     }
+}
+
+/// Scanner 结果；registry 将 rejections 映射为 UI diagnostics。
+public struct SkillDirectoryScanResult: Sendable, Equatable {
+    public let candidates: [SkillCandidate]
+    public let rejections: [SkillDirectoryScannerRejection]
 }
 
 /// Scanner 发现的候选 skill 目录。
@@ -780,6 +884,17 @@ public struct SkillCandidate: Sendable, Equatable {
     public let source: SkillSource
     public let directory: URL
     public let skillFile: URL
+}
+
+/// Scanner 拒绝候选的原因。
+public struct SkillDirectoryScannerRejection: Sendable, Equatable {
+    public let source: SkillSource
+    public let path: URL
+    public let reason: SkillDirectoryScannerRejectionReason
+}
+
+public enum SkillDirectoryScannerRejectionReason: Sendable, Equatable {
+    case symlinkEscapesSourceRoot
 }
 ```
 
@@ -796,6 +911,8 @@ Add helper `candidateParentDirectories(root:)` returning:
 ```
 
 Use `contentsOfDirectory(at:includingPropertiesForKeys:)` and only inspect one level.
+
+For every candidate directory and `SKILL.md`, resolve symlinks with `resolvingSymlinksInPath()` and require both resolved paths to stay under the resolved source root. Implement a small path-prefix helper that compares path components, not string prefixes, so `/tmp/root2` is not treated as inside `/tmp/root`. Rejected symlink escapes must appear in `SkillDirectoryScanResult.rejections` and must not appear in `candidates`.
 
 - [ ] **Step 6: Run parser/scanner tests**
 
@@ -876,10 +993,41 @@ final class LocalSkillRegistryTests: XCTestCase {
         XCTAssertEqual(payload.canonicalName, "writing")
         XCTAssertTrue(payload.instructions.contains("Use active voice."))
     }
+
+    func test_missingDescriptionIsDefaultDisabledAndDiagnosed() async throws {
+        let root = try makeTempRoot()
+        try writeSkill(root.appendingPathComponent("writing/SKILL.md"), name: "writing", description: nil)
+        let registry = LocalSkillRegistry(settingsProvider: {
+            SkillSettings(sources: [source(root)], overrides: [:])
+        })
+
+        let snapshot = try await registry.snapshot()
+
+        XCTAssertEqual(snapshot.skills.first?.state, .defaultDisabled)
+        XCTAssertTrue(snapshot.diagnostics.contains { $0.code == .missingDescription })
+    }
+
+    func test_oversizeSkillFileIsTooLargeAndNotLoadable() async throws {
+        let root = try makeTempRoot()
+        try writeOversizeSkill(root.appendingPathComponent("huge/SKILL.md"))
+        let registry = LocalSkillRegistry(settingsProvider: {
+            SkillSettings(sources: [source(root)], overrides: [:])
+        })
+
+        let snapshot = try await registry.snapshot()
+
+        XCTAssertEqual(snapshot.skills.first?.state, .tooLarge)
+        do {
+            _ = try await registry.loadSkillInstructions(id: "huge")
+            XCTFail("oversize skill must not be loadable")
+        } catch {
+            // Expected.
+        }
+    }
 }
 ```
 
-Reuse helper methods from scanner tests or create local helpers in this test file. Keep helpers private to avoid cross-test coupling.
+Reuse helper methods from scanner tests or create local helpers in this test file. Keep helpers private to avoid cross-test coupling. Let `writeSkill(..., description: nil)` omit the frontmatter key entirely; do not write `description:`.
 
 - [ ] **Step 2: Run tests to verify red**
 
@@ -910,7 +1058,27 @@ public protocol SkillRegistryProtocol: Sendable {
 }
 ```
 
-Define `SkillRegistrySnapshot`, `SkillInstructionPayload`, `SkillRegistryDiagnostic`, and `SkillRegistryDiagnosticCode` in the same file.
+Delete the old `Capabilities.Skill` struct from `SkillRegistryProtocol.swift`. After Task 1 there must be exactly one canonical `Skill`, imported from `SliceCore`; leaving the old three-field `Capabilities.Skill` creates ambiguous references and stale tests.
+
+Define `SkillRegistrySnapshot`, `SkillInstructionPayload`, `SkillRegistryDiagnostic`, and `SkillRegistryDiagnosticCode` in the same file. Use this diagnostic code set for MVP:
+
+```swift
+public enum SkillRegistryDiagnosticCode: String, Sendable, Codable, Equatable {
+    case sourceUnreadable
+    case parseError
+    case missingDescription
+    case tooLarge
+    case duplicateName
+    case symlinkEscape
+}
+```
+
+Rewrite `SkillRegistryProtocolTests.swift`; do not keep tests that construct the removed `Capabilities.Skill(id:name:manifestPath:)` shape or call the removed `allSkills()` API. Replacement coverage:
+
+- Empty `MockSkillRegistry` snapshot has no skills and no diagnostics.
+- `MockSkillRegistry.findSkill(id:)` returns only enabled injected `SliceCore.Skill` values.
+- `MockSkillRegistry.loadSkillInstructions(id:)` returns injected payloads and throws for missing payloads.
+- `SkillRegistrySnapshot` / `SkillInstructionPayload` round-trip with `SliceCore.Skill`.
 
 - [ ] **Step 4: Implement LocalSkillRegistry**
 
@@ -966,7 +1134,17 @@ Implement helper methods with Chinese comments:
 - `state(for:manifest:settings:)`
 - `applyShadowing(to:diagnostics:)`
 
+Helper behavior:
+
+- `appendSource` calls `scanner.scan(in:)`, maps scanner `.symlinkEscapesSourceRoot` rejections to `.symlinkEscape` diagnostics, then calls `makeSkill` for each candidate. A source-level scanner failure becomes a `.sourceUnreadable` diagnostic and does not abort other sources.
+- `makeSkill` reads `SKILL.md` as `Data` first and checks `data.count <= SkillMarkdownParser.maxSkillBytes` before constructing `String`. Oversize files create a visible `Skill` with `state == .tooLarge`, `manifest.name` falling back to the directory name, empty instructions count, and a `.tooLarge` diagnostic; they are not loadable.
+- `makeSkill` maps parser `.missingDescription` warning to a `.missingDescription` diagnostic and lets `state(for:parseResult:settings:)` make the skill `.defaultDisabled` unless override is `.on`.
+- `state` precedence is: `.off` override -> `.disabled`; parse/size/source errors -> their error state; missing description -> `.defaultDisabled` unless `.on`; `disableModelInvocation == true` -> `.defaultDisabled` unless `.on`; `.on` -> `.enabled`; otherwise `.enabled`.
+- `applyShadowing` groups by `canonicalName` after source-order scan, keeps the first `.enabled` skill active, marks later `.enabled` duplicates `.shadowed`, and adds `.duplicateName` diagnostics. Already disabled/default-disabled/error skills keep their state and are not promoted over an enabled earlier duplicate.
+
 Diagnostics should use short UI messages and log only fixed fields.
+
+Implement `loadSkillInstructions(id:)` by recomputing a snapshot, finding an enabled active skill, re-reading its `SKILL.md` with the same size guard, parsing it, and returning the body. Do not load `.defaultDisabled`, `.disabled`, `.shadowed`, `.parseError`, `.sourceError`, or `.tooLarge` skills.
 
 - [ ] **Step 5: Update MockSkillRegistry**
 
@@ -1035,25 +1213,31 @@ func test_agentWithBoundSkillExposesLoadSkillToolAndMetadata() async throws {
     let payload = makeSkillPayload(name: "writing", instructions: "Follow writing rules.")
     let registry = MockSkillRegistry(skills: [skill], instructions: ["writing": payload])
     let llm = MockToolCallingLLMProvider(turns: [
-        toolCallTurn(id: "skill-1", name: "sliceai.load_skill", arguments: "{\"name\":\"writing\"}"),
+        toolCallTurn(id: "skill-1", name: "sliceai_load_skill", arguments: "{\"name\":\"writing\"}"),
         finalAnswerTurn("Done")
     ])
     let executor = makeExecutor(llm: llm, mcpClient: makeMCPClient(), skillRegistry: registry)
     let agent = makeAgent(allowlist: [], skills: [SkillReference(id: "writing", pinVersion: nil)])
 
-    let events = await collectEvents(from: executor.run(
+    let events = await collectEvents(from: await executor.run(
         tool: makeTool(agent: agent),
         agent: agent,
         resolved: makeResolvedContext(),
-        provider: makeProvider()
+        provider: MockProvider.openAIStub()
     ))
 
+    XCTAssertTrue(events.contains { event in
+        if case .toolCallProposed(_, let ref, _) = event {
+            return ref == AgentBuiltInTool.loadSkillRef
+        }
+        return false
+    })
     XCTAssertTrue(events.contains { event in
         if case .toolCallResult(_, let summary) = event { return summary.contains("writing") }
         return false
     })
-    XCTAssertTrue(llm.requests.first?.tools.contains { $0.name == "sliceai.load_skill" } ?? false)
-    XCTAssertTrue(llm.requests.first?.messages.map(\.content).joined(separator: "\n").contains("Available SliceAI skills") ?? false)
+    XCTAssertTrue(llm.capturedToolRequests.first?.tools.contains { $0.name == "sliceai_load_skill" } ?? false)
+    XCTAssertTrue(llm.capturedToolRequests.first?.messages.map(\.content).joined(separator: "\n").contains("Available SliceAI skills") ?? false)
 }
 
 func test_loadSkillRejectsUnboundSkillWithoutCallingMCP() async throws {
@@ -1061,28 +1245,105 @@ func test_loadSkillRejectsUnboundSkillWithoutCallingMCP() async throws {
     let registry = MockSkillRegistry(skills: [skill], instructions: ["writing": makeSkillPayload(name: "writing")])
     let mcp = makeMCPClient()
     let llm = MockToolCallingLLMProvider(turns: [
-        toolCallTurn(id: "skill-1", name: "sliceai.load_skill", arguments: "{\"name\":\"writing\"}"),
+        toolCallTurn(id: "skill-1", name: "sliceai_load_skill", arguments: "{\"name\":\"writing\"}"),
         finalAnswerTurn("Done")
     ])
     let executor = makeExecutor(llm: llm, mcpClient: mcp, skillRegistry: registry)
     let agent = makeAgent(allowlist: [], skills: [])
 
-    let events = await collectEvents(from: executor.run(
+    let events = await collectEvents(from: await executor.run(
         tool: makeTool(agent: agent),
         agent: agent,
         resolved: makeResolvedContext(),
-        provider: makeProvider()
+        provider: MockProvider.openAIStub()
     ))
 
     XCTAssertTrue(events.contains { event in
         if case .toolCallError(_, let summary) = event { return summary.contains("not bound") }
         return false
     })
-    XCTAssertEqual(mcp.callCount, 0)
+    let mcpCallCount = await mcp.callCount
+    XCTAssertEqual(mcpCallCount, 0)
+}
+
+func test_agentWithoutBoundSkillsHidesLoadSkillToolAndMetadata() async throws {
+    let llm = MockToolCallingLLMProvider(turns: [finalAnswerTurn("Done")])
+    let executor = makeExecutor(llm: llm, mcpClient: makeMCPClient())
+    let agent = makeAgent(allowlist: [], skills: [])
+
+    _ = await collectEvents(from: await executor.run(
+        tool: makeTool(agent: agent),
+        agent: agent,
+        resolved: makeResolvedContext(),
+        provider: MockProvider.openAIStub()
+    ))
+
+    let request = try XCTUnwrap(llm.capturedToolRequests.first)
+    XCTAssertFalse(request.tools.contains { $0.name == AgentBuiltInTool.loadSkillName })
+    XCTAssertFalse(request.messages.map(\.content).joined(separator: "\n").contains("Available SliceAI skills"))
+}
+
+func test_duplicateLoadSkillReturnsAlreadyLoadedAndDoesNotReload() async throws {
+    let skill = makeSkill(name: "writing")
+    let registry = CountingSkillRegistry(skill: skill, payload: makeSkillPayload(name: "writing"))
+    let llm = MockToolCallingLLMProvider(turns: [
+        toolCallTurn(id: "skill-1", name: "sliceai_load_skill", arguments: "{\"name\":\"writing\"}"),
+        toolCallTurn(id: "skill-2", name: "sliceai_load_skill", arguments: "{\"name\":\"writing\"}"),
+        finalAnswerTurn("Done")
+    ])
+    let executor = makeExecutor(llm: llm, mcpClient: makeMCPClient(), skillRegistry: registry)
+    let agent = makeAgent(allowlist: [], skills: [SkillReference(id: "writing", pinVersion: nil)])
+
+    let events = await collectEvents(from: await executor.run(
+        tool: makeTool(agent: agent),
+        agent: agent,
+        resolved: makeResolvedContext(),
+        provider: MockProvider.openAIStub()
+    ))
+
+    let loadCount = await registry.loadCount
+    XCTAssertEqual(loadCount, 1)
+    XCTAssertTrue(events.contains { event in
+        if case .toolCallResult(_, let summary) = event { return summary.contains("already loaded") }
+        return false
+    })
+}
+
+func test_skillMetadataTruncatesDescriptionWhenOverBudget() async throws {
+    let skills = (0..<5).map { index in
+        makeSkill(
+            name: "skill-\(index)",
+            description: String(repeating: "d", count: 3_000),
+            skillFile: URL(fileURLWithPath: "/tmp/skills/skill-\(index)/SKILL.md")
+        )
+    }
+    let registry = MockSkillRegistry(skills: skills)
+    let llm = MockToolCallingLLMProvider(turns: [finalAnswerTurn("Done")])
+    let executor = makeExecutor(llm: llm, mcpClient: makeMCPClient(), skillRegistry: registry)
+    let refs = skills.map { SkillReference(id: $0.id, pinVersion: nil) }
+    let agent = makeAgent(allowlist: [], skills: refs)
+
+    _ = await collectEvents(from: await executor.run(
+        tool: makeTool(agent: agent),
+        agent: agent,
+        resolved: makeResolvedContext(),
+        provider: MockProvider.openAIStub()
+    ))
+
+    let content = try XCTUnwrap(llm.capturedToolRequests.first?.messages.map(\.content).joined(separator: "\n"))
+    let parts = content.components(separatedBy: "Available SliceAI skills for this tool:")
+    XCTAssertEqual(parts.count, 2)
+    let block = parts[1]
+    XCTAssertLessThanOrEqual(block.count, 8_000)
+    for skill in skills {
+        XCTAssertTrue(block.contains("name: \(skill.canonicalName)"))
+        XCTAssertTrue(block.contains("path: \(skill.skillFile.path)"))
+    }
+    XCTAssertTrue(block.contains("..."))
 }
 ```
 
-Update test helpers to accept `skillRegistry` and `skills` parameters:
+Update test helpers to accept `skillRegistry`, `skills`, and richer `makeSkill` parameters. Add a private `CountingSkillRegistry` actor in the test file for the duplicate-load test.
 
 ```swift
 private func makeExecutor(
@@ -1093,6 +1354,34 @@ private func makeExecutor(
     timeout: UInt64 = 1_000_000_000,
     skillRegistry: any SkillRegistryProtocol = MockSkillRegistry()
 ) -> AgentExecutor
+```
+
+Add this test helper:
+
+```swift
+private actor CountingSkillRegistry: SkillRegistryProtocol {
+    private let skill: Skill
+    private let payload: SkillInstructionPayload
+    private(set) var loadCount = 0
+
+    init(skill: Skill, payload: SkillInstructionPayload) {
+        self.skill = skill
+        self.payload = payload
+    }
+
+    func snapshot() async throws -> SkillRegistrySnapshot {
+        SkillRegistrySnapshot(sources: [], skills: [skill], diagnostics: [], generatedAt: Date())
+    }
+
+    func findSkill(id: String) async throws -> Skill? {
+        skill.id == id && skill.state == .enabled ? skill : nil
+    }
+
+    func loadSkillInstructions(id: String) async throws -> SkillInstructionPayload {
+        loadCount += 1
+        return payload
+    }
+}
 ```
 
 - [ ] **Step 2: Run tests to verify red**
@@ -1128,7 +1417,11 @@ In `AgentExecutor+ToolCatalog.swift`, add constants:
 
 ```swift
 enum AgentBuiltInTool {
-    static let loadSkillName = "sliceai.load_skill"
+    /// Provider-visible function name. Dot is intentionally avoided because OpenAI-compatible function names
+    /// allow only letters, numbers, underscores, and dashes.
+    static let loadSkillName = "sliceai_load_skill"
+    /// UI/lifecycle synthetic ref for the conceptual pseudo-tool `sliceai.load_skill`.
+    static let loadSkillRef = MCPToolRef(server: "sliceai", tool: "load_skill")
 }
 ```
 
@@ -1139,6 +1432,8 @@ When `agent.skills` is non-empty:
 1. Resolve each `SkillReference` through `skillRegistry.findSkill(id:)`.
 2. Fail with `SliceError.configuration(.invalidTool(...))` if missing or not enabled.
 3. Append `ChatTool(name: AgentBuiltInTool.loadSkillName, ...)`.
+
+Keep display copy and docs referring to the conceptual pseudo-tool as `sliceai.load_skill`, but never send a dotted function name to an OpenAI-compatible provider.
 
 - [ ] **Step 5: Add metadata prompt builder**
 
@@ -1165,14 +1460,32 @@ private static func appendSkillMetadata(_ prompt: String, boundSkills: [Skill]) 
     Available SliceAI skills for this tool:
     \(lines.joined(separator: "\n"))
 
-    Use sliceai.load_skill with the exact skill name when a skill is relevant.
+    Use sliceai_load_skill with the exact skill name when a skill is relevant.
     Do not assume instructions from a skill until you load it.
     """
     return prompt + block
 }
 ```
 
-Add a private 8,000 character budget helper that truncates descriptions but keeps name/path.
+Add a private 8,000 character budget helper with one testable contract:
+
+- Build the skill metadata block separately from the original user prompt.
+- The budget applies to the block after the `Available SliceAI skills for this tool:` marker.
+- Name and path lines are fixed and must always be preserved for all bound skills in order.
+- Description text uses the remaining budget after fixed lines and separators.
+- Allocate description budget in bound-skill order; truncate a description only when it would exceed the remaining budget.
+- Use ASCII `...` as the truncation suffix.
+- If fixed name/path lines alone exceed 8,000 characters, keep them, truncate all descriptions to empty, and log `skill metadata fixed fields exceeded budget`; this should be unreachable with the 5-skill MVP cap but avoids dropping identity fields.
+
+Sketch:
+
+```swift
+private static let maxSkillMetadataCharacters = 8_000
+
+private static func skillMetadataBlock(boundSkills: [Skill]) -> String {
+    // 先预留 name/path 固定行，再把剩余预算分配给 description。
+}
+```
 
 - [ ] **Step 6: Handle pseudo-tool calls before MCP gate**
 
@@ -1203,13 +1516,23 @@ Behavior:
 - Yield `.toolCallResult` summary `Loaded skill: <name>`.
 - Return tool message containing frontmatter summary and instructions.
 
-In `processOneToolCall`, branch before MCP ref lookup:
+In `AgentToolCatalog.ref(forToolName:)`, return `AgentBuiltInTool.loadSkillRef` when `name == AgentBuiltInTool.loadSkillName`.
+
+In `processOneToolCall`, keep the existing lifecycle order: create `context`, resolve `ref`, yield `.toolCallProposed`, parse arguments, then branch to the pseudo-tool before MCP allowlist / policy / permission gate:
 
 ```swift
+let context = AgentToolCallContext(uiId: UUID(), call: call, continuation: continuation)
+let ref = catalog.ref(forToolName: call.name)
+continuation.yield(.toolCallProposed(id: context.uiId, ref: ref, argsDescription: describeArguments(call)))
+guard let args = call.arguments else {
+    return failToolCall(context, summary: "invalid tool arguments", content: "invalid tool arguments")
+}
 if call.name == AgentBuiltInTool.loadSkillName {
     return await handleLoadSkill(context, catalog: catalog, toolCallState: &toolCallState)
 }
 ```
+
+Do not call `catalog.isAllowed`, `gateMCP`, or `mcpClient.call` for `AgentBuiltInTool.loadSkillName`. Add a test assertion that `.toolCallProposed` appears before `.toolCallApproved` for the pseudo-tool.
 
 - [ ] **Step 7: Run Orchestration tests**
 
@@ -1251,10 +1574,7 @@ import Capabilities
 @MainActor
 final class SkillsViewModelTests: XCTestCase {
     func test_addSourceAppendsEnabledRootAndSavesConfiguration() async throws {
-        let settings = SettingsViewModel(
-            store: ConfigurationStore.inMemory(initial: DefaultConfiguration.initial()),
-            keychain: MockKeychainStore()
-        )
+        let settings = try await makeSettingsViewModel()
         let viewModel = SkillsViewModel(settingsViewModel: settings, registry: MockSkillRegistry())
 
         await viewModel.addSource(path: "/Users/test/.agents/skills")
@@ -1264,10 +1584,7 @@ final class SkillsViewModelTests: XCTestCase {
     }
 
     func test_setOverrideUpdatesConfiguration() async throws {
-        let settings = SettingsViewModel(
-            store: ConfigurationStore.inMemory(initial: DefaultConfiguration.initial()),
-            keychain: MockKeychainStore()
-        )
+        let settings = try await makeSettingsViewModel()
         let viewModel = SkillsViewModel(settingsViewModel: settings, registry: MockSkillRegistry())
 
         await viewModel.setOverride(.off, for: "writing")
@@ -1277,7 +1594,27 @@ final class SkillsViewModelTests: XCTestCase {
 }
 ```
 
-If `ConfigurationStore.inMemory` does not exist, add a tiny test helper in `SettingsUITests` instead of changing production store.
+Add tiny test helpers in `SkillsViewModelTests.swift`; do not change production `ConfigurationStore` just to support tests:
+
+```swift
+private func makeSettingsViewModel(
+    initial: Configuration = DefaultConfiguration.initial()
+) async throws -> SettingsViewModel {
+    let fileURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sliceai-settings-\(UUID().uuidString)/config-v2.json")
+    let store = ConfigurationStore(fileURL: fileURL, legacyFileURL: nil)
+    try await store.update(initial)
+    let viewModel = SettingsViewModel(store: store, keychain: SettingsUITestKeychain())
+    await viewModel.reload()
+    return viewModel
+}
+
+private struct SettingsUITestKeychain: KeychainAccessing {
+    func readAPIKey(providerId: String) async throws -> String? { nil }
+    func writeAPIKey(_ value: String, providerId: String) async throws {}
+    func deleteAPIKey(providerId: String) async throws {}
+}
+```
 
 - [ ] **Step 2: Run tests to verify red**
 
@@ -1345,10 +1682,19 @@ Keep UI dense and settings-like; do not add marketing text or large hero cards.
 
 In `SettingsScene.swift`:
 
-1. Add `case skills` to `SidebarItem`.
-2. Place `SidebarRow(item: .skills)` after `.tools`.
-3. Add detail branch `SkillsPage(viewModel: viewModel)`.
-4. Add label/icon:
+1. Import `Capabilities`.
+2. Add `private let skillRegistry: any SkillRegistryProtocol`.
+3. Update `SettingsScene.init` to accept `skillRegistry: any SkillRegistryProtocol = MockSkillRegistry()` and assign it. The default keeps tests and previews compiling before AppContainer wiring in Task 7.
+4. Add `case skills` to `SidebarItem`.
+5. Place `SidebarRow(item: .skills)` after `.tools`.
+6. Add detail branch:
+
+```swift
+case .skills:
+    SkillsPage(viewModel: SkillsViewModel(settingsViewModel: viewModel, registry: skillRegistry))
+```
+
+7. Add label/icon:
 
 ```swift
 case .skills: return "Skills"

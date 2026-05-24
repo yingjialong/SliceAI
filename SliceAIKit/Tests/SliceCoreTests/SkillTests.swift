@@ -3,17 +3,61 @@ import XCTest
 
 final class SkillTests: XCTestCase {
 
-    func test_skillManifest_codable() throws {
-        let m = SkillManifest(
-            name: "English Tutor",
-            description: "Grammar + rewrite",
-            version: "1.0.0",
-            triggers: ["selection.language == en"],
-            requiredCapabilities: [.toolCalling, .vision]
+    func test_skillSettings_defaultsRoundTrip() throws {
+        let settings = SkillSettings(
+            sources: [
+                SkillSource(
+                    id: "source-home",
+                    displayName: "Home Skills",
+                    rootPath: "/Users/test/.agents/skills",
+                    isEnabled: true,
+                    order: 0
+                )
+            ],
+            overrides: ["writing": .off]
         )
-        let data = try JSONEncoder().encode(m)
+
+        let data = try JSONEncoder().encode(settings)
+        let decoded = try JSONDecoder().decode(SkillSettings.self, from: data)
+
+        XCTAssertEqual(decoded, settings)
+        XCTAssertEqual(decoded.overrides["writing"], .off)
+    }
+
+    func test_skillManifest_minimalCodableFields() throws {
+        let manifest = SkillManifest(
+            name: "writing",
+            description: "Use when editing long-form text.",
+            disableModelInvocation: false,
+            allowedTools: ["Bash", "Read"],
+            userInvocable: true,
+            rawFrontmatter: "name: writing",
+            instructionsCharacterCount: 120
+        )
+
+        let data = try JSONEncoder().encode(manifest)
         let decoded = try JSONDecoder().decode(SkillManifest.self, from: data)
-        XCTAssertEqual(m, decoded)
+
+        XCTAssertEqual(decoded, manifest)
+    }
+
+    func test_skillManifest_decodesMissingPhase2FieldsWithDefaults() throws {
+        let json = Data(#"""
+        {
+          "name": "legacy",
+          "description": "Legacy manifest."
+        }
+        """#.utf8)
+
+        let decoded = try JSONDecoder().decode(SkillManifest.self, from: json)
+
+        XCTAssertEqual(decoded.name, "legacy")
+        XCTAssertEqual(decoded.description, "Legacy manifest.")
+        XCTAssertFalse(decoded.disableModelInvocation)
+        XCTAssertEqual(decoded.allowedTools, [])
+        XCTAssertNil(decoded.userInvocable)
+        XCTAssertEqual(decoded.rawFrontmatter, "")
+        XCTAssertEqual(decoded.instructionsCharacterCount, 0)
     }
 
     func test_skillReference_codable() throws {
@@ -30,41 +74,47 @@ final class SkillTests: XCTestCase {
         XCTAssertEqual(r, decoded)
     }
 
-    func test_skill_carriesProvenance_andRoundtrips() throws {
-        let url = URL(fileURLWithPath: "/tmp/english-tutor")
-        let s = Skill(
-            id: "english-tutor@1.0.0",
-            path: url,
-            manifest: SkillManifest(name: "t", description: "d", version: "1.0.0", triggers: [], requiredCapabilities: []),
+    func test_skill_carriesSourceStateAndRoundtrips() throws {
+        let root = URL(fileURLWithPath: "/tmp/english-tutor")
+        let skill = Skill(
+            id: "english-tutor",
+            canonicalName: "english-tutor",
+            path: root,
+            skillFile: root.appendingPathComponent("SKILL.md"),
+            manifest: SkillManifest(name: "English Tutor", description: "Grammar"),
             resources: [SkillResource(relativePath: "assets/chart.png", mimeType: "image/png")],
-            provenance: .firstParty
+            provenance: .firstParty,
+            source: SkillSourceRef(sourceId: "source-home", rootPath: "/tmp"),
+            state: .enabled
         )
-        XCTAssertEqual(s.provenance, .firstParty)
+        XCTAssertEqual(skill.provenance, .firstParty)
+        XCTAssertEqual(skill.source.sourceId, "source-home")
+        XCTAssertEqual(skill.state, .enabled)
 
-        // round-trip：包含 resources 非空 + provenance 已填
-        let data = try JSONEncoder().encode(s)
+        let data = try JSONEncoder().encode(skill)
         let decoded = try JSONDecoder().decode(Skill.self, from: data)
-        XCTAssertEqual(s, decoded)
+        XCTAssertEqual(skill, decoded)
         XCTAssertEqual(decoded.provenance, .firstParty)
         XCTAssertEqual(decoded.resources.count, 1)
     }
 
-    // MARK: - Golden JSON shape（锁定 struct 线上形状；防止 M3 rename / 字段重命名静默破坏 config 兼容）
+    // MARK: - Golden JSON shape（锁定 struct 线上形状；防止字段重命名静默破坏 config 兼容）
 
     func test_skillManifest_goldenJSON_fieldOrder() throws {
         let enc = JSONEncoder(); enc.outputFormatting = [.sortedKeys]
-        let m = SkillManifest(
-            name: "English Tutor",
+        let manifest = SkillManifest(
+            name: "writing",
             description: "Grammar",
-            version: "1.0.0",
-            triggers: ["en"],
-            requiredCapabilities: [.toolCalling]
+            disableModelInvocation: true,
+            allowedTools: ["Read"],
+            userInvocable: false,
+            rawFrontmatter: "name: writing",
+            instructionsCharacterCount: 10
         )
-        let json = try XCTUnwrap(String(data: try enc.encode(m), encoding: .utf8))
-        // sortedKeys：description < name < requiredCapabilities < triggers < version（字母序）
+        let json = try XCTUnwrap(String(data: try enc.encode(manifest), encoding: .utf8))
         XCTAssertEqual(
             json,
-            #"{"description":"Grammar","name":"English Tutor","requiredCapabilities":["toolCalling"],"triggers":["en"],"version":"1.0.0"}"#
+            #"{"allowedTools":["Read"],"description":"Grammar","disableModelInvocation":true,"instructionsCharacterCount":10,"name":"writing","rawFrontmatter":"name: writing","userInvocable":false}"#
         )
     }
 

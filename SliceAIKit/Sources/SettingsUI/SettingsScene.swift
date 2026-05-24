@@ -1,4 +1,5 @@
 // SliceAIKit/Sources/SettingsUI/SettingsScene.swift
+import Capabilities
 import DesignSystem
 import SliceCore
 import SwiftUI
@@ -16,13 +17,20 @@ public struct SettingsScene: View {
     /// 设置视图模型；由宿主创建并注入，生命周期与窗口一致
     @ObservedObject var viewModel: SettingsViewModel
 
+    /// Skill registry；传给 SkillsPage，由页面内 StateObject 持有 VM 状态。
+    private let skillRegistry: any SkillRegistryProtocol
+
     /// 当前选中的 sidebar 条目；nil 表示未选中（首次打开时自动选第一项）
     @State private var selectedItem: SidebarItem? = .appearance
 
     /// 构造设置主视图
     /// - Parameter viewModel: 由宿主创建的设置视图模型
-    public init(viewModel: SettingsViewModel) {
+    public init(
+        viewModel: SettingsViewModel,
+        skillRegistry: any SkillRegistryProtocol = MockSkillRegistry()
+    ) {
         self.viewModel = viewModel
+        self.skillRegistry = skillRegistry
     }
 
     public var body: some View {
@@ -49,6 +57,7 @@ public struct SettingsScene: View {
             Section {
                 SidebarRow(item: .providers)
                 SidebarRow(item: .tools)
+                SidebarRow(item: .skills)
                 SidebarRow(item: .mcpServers)
                 SidebarRow(item: .appearance)
             } header: {
@@ -88,6 +97,8 @@ public struct SettingsScene: View {
             ProvidersSettingsPage(viewModel: viewModel)
         case .tools:
             ToolsSettingsPage(viewModel: viewModel)
+        case .skills:
+            SkillsPage(settingsViewModel: viewModel, skillRegistry: skillRegistry)
         case .mcpServers:
             MCPServersPage()
         case .appearance:
@@ -118,6 +129,7 @@ public struct SettingsScene: View {
 private enum SidebarItem: Hashable, CaseIterable {
     case providers
     case tools
+    case skills
     case mcpServers
     case appearance
     case hotkey
@@ -130,6 +142,7 @@ private enum SidebarItem: Hashable, CaseIterable {
         switch self {
         case .providers:   return "Providers"
         case .tools:       return "Tools"
+        case .skills:      return "Skills"
         case .mcpServers:  return "MCP Servers"
         case .appearance:  return "外观"
         case .hotkey:      return "快捷键"
@@ -144,6 +157,7 @@ private enum SidebarItem: Hashable, CaseIterable {
         switch self {
         case .providers:   return "network"
         case .tools:       return "hammer"
+        case .skills:      return "sparkles"
         case .mcpServers:  return "server.rack"
         case .appearance:  return "paintbrush"
         case .hotkey:      return "keyboard"

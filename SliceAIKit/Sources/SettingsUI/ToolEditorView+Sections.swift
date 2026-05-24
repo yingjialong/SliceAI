@@ -269,6 +269,84 @@ extension ToolEditorView {
         }
     }
 
+    /// Agent Skills 绑定分组。
+    var agentSkillsCard: some View {
+        SectionCard("Agent Skills") {
+            if availableSkills.isEmpty {
+                Text("暂无可用 Skills")
+                    .font(SliceFont.body)
+                    .foregroundColor(SliceColor.textTertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, SliceSpacing.sm)
+            } else {
+                if selectedAgentSkillIDs.isEmpty {
+                    Text("未绑定 Skill")
+                        .font(SliceFont.body)
+                        .foregroundColor(SliceColor.textTertiary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, SliceSpacing.sm)
+                }
+
+                ForEach(selectedAgentSkillIDs.indices, id: \.self) { index in
+                    agentSkillRow(index: index)
+                }
+            }
+
+            HStack(spacing: SliceSpacing.sm) {
+                IconButton(
+                    systemName: "plus",
+                    help: "添加 Skill",
+                    action: addAgentSkillBinding
+                )
+                .disabled(!canAddAgentSkillBinding)
+
+                Text("已绑定 \(selectedAgentSkillIDs.count)/5")
+                    .font(SliceFont.caption)
+                    .foregroundColor(SliceColor.textTertiary)
+
+                Spacer(minLength: 0)
+            }
+            .padding(.top, SliceSpacing.xs)
+        }
+    }
+
+    /// 单条 Agent skill 绑定行。
+    /// - Parameter index: skill binding 下标。
+    /// - Returns: 绑定行视图。
+    @ViewBuilder
+    func agentSkillRow(index: Int) -> some View {
+        let selectedID = selectedAgentSkillIDs[index]
+        VStack(alignment: .leading, spacing: SliceSpacing.xs) {
+            SettingsRow("Skill \(index + 1)") {
+                HStack(spacing: SliceSpacing.sm) {
+                    Picker("", selection: agentSkillSelectionBinding(forRow: index)) {
+                        ForEach(selectableAgentSkillIDs(forRow: index), id: \.self) { skillID in
+                            Text(availableSkill(id: skillID)?.canonicalName ?? skillID).tag(skillID)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .frame(minWidth: 180, maxWidth: 260)
+
+                    IconButton(
+                        systemName: "minus",
+                        help: "删除 Skill",
+                        action: { removeAgentSkill(at: index) }
+                    )
+                }
+            }
+
+            if let description = availableSkill(id: selectedID)?.manifest.description,
+               !description.isEmpty {
+                Text(description)
+                    .font(SliceFont.caption)
+                    .foregroundColor(SliceColor.textTertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.bottom, SliceSpacing.xs)
+            }
+        }
+    }
+
     /// Agent MCP allowlist 分组。
     var agentMCPAllowlistCard: some View {
         SectionCard("MCP Allowlist") {

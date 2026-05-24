@@ -30,6 +30,7 @@ struct AgentToolCallRunState: Sendable {
     private(set) var currentTurnExecuted = 0
     private var perToolExecuted: [MCPToolRef: Int] = [:]
     private var seenFingerprints: Set<String> = []
+    private(set) var loadedSkillNames: Set<String> = []
     private(set) var rateLimitActive = false
 
     /// 构造单次 Agent 运行的 MCP 调用状态。
@@ -80,6 +81,12 @@ struct AgentToolCallRunState: Sendable {
         currentTurnExecuted += 1
         perToolExecuted[ref, default: 0] += 1
         seenFingerprints.insert(Self.fingerprint(ref: ref, args: args))
+    }
+
+    /// 标记 skill 已在本次 Agent 运行中加载。
+    /// - Parameter name: skill canonical name。
+    mutating func recordLoadedSkill(name: String) {
+        loadedSkillNames.insert(name)
     }
 
     /// 记录 MCP 返回内容，用于识别 rate limit。
@@ -170,7 +177,6 @@ private extension AgentToolCallPolicy {
 }
 
 extension AgentExecutor {
-    private static let modelToolMessageMaxCharacters = 16 * 1024
 
     /// 生成执行器实际使用的工具调用策略。
     ///
@@ -256,6 +262,13 @@ extension AgentExecutor {
             ref: ref,
             argsDescription: describeArguments(call)
         ))
+        if call.name == AgentBuiltInTool.loadSkillName {
+            return await handleLoadSkill(
+                context,
+                catalog: catalog,
+                toolCallState: &toolCallState
+            )
+        }
         guard catalog.isAllowed(ref) else { return denyToolCall(context) }
         guard let args = call.arguments else {
             return failToolCall(context, summary: "invalid tool arguments", content: "invalid tool arguments")
@@ -268,6 +281,67 @@ extension AgentExecutor {
         let message = await callAllowedTool(context, ref: ref, args: args, tool: tool)
         toolCallState.recordToolMessageContent(message.content)
         return message
+    }
+
+    /// 本地处理 `sliceai_load_skill` pseudo-tool，不进入 MCP allowlist、权限 gate 或 MCP client。
+    /// - Parameters:
+    ///   - context: 当前 provider tool call 上下文。
+    ///   - catalog: 当前 Agent 可用工具 catalog。
+    ///   - toolCallState: 当前运行状态，用于去重已加载 skill。
+    /// - Returns: 回填给 provider 的 tool message。
+    func handleLoadSkill(
+        _ context: AgentToolCallContext,
+        catalog: AgentToolCatalog,
+        toolCallState: inout AgentToolCallRunState
+    ) async -> ChatMessage {
+        context.continuation.yield(.toolCallApproved(id: context.uiId))
+        guard let args = context.call.arguments,
+              case .string(let name) = args["name"],
+              !name.isEmpty else {
+            return failToolCall(
+                context,
+                summary: "invalid skill load arguments",
+                content: "Use {\"name\":\"<skill name>\"} to load a bound skill"
+            )
+        }
+        guard let skill = catalog.skillByName[name] else {
+            return failToolCall(
+                context,
+                summary: "Skill not bound: \(Redaction.scrub(name))",
+                content: "Skill not bound to this Agent Tool: \(Redaction.scrub(name))"
+            )
+        }
+        if toolCallState.loadedSkillNames.contains(name) {
+            let summary = "Skill already loaded: \(Redaction.scrub(name))"
+            context.continuation.yield(.toolCallResult(id: context.uiId, summary: summary))
+            return toolMessage(call: context.call, content: summary)
+        }
+        do {
+            let payload = try await skillRegistry.loadSkillInstructions(id: skill.id)
+            toolCallState.recordLoadedSkill(name: name)
+            let summary = "Loaded skill: \(Redaction.scrub(name))"
+            context.continuation.yield(.toolCallResult(id: context.uiId, summary: summary))
+            logger.debug("loaded SliceAI skill \(name, privacy: .public)")
+            return toolMessage(call: context.call, content: skillToolMessage(payload))
+        } catch {
+            let summary = summarize(error: error)
+            return failToolCall(context, summary: summary, content: summary)
+        }
+    }
+
+    /// 构造回填给模型的 skill 指令内容。
+    /// - Parameter payload: registry 加载出的 SKILL.md payload。
+    /// - Returns: 包含 frontmatter 摘要和完整 instructions 的 tool message。
+    func skillToolMessage(_ payload: SkillInstructionPayload) -> String {
+        let content = """
+        Loaded SliceAI skill: \(payload.canonicalName)
+        Path: \(payload.skillFile.path)
+        Description: \(payload.frontmatterSummary.description)
+
+        Instructions:
+        \(payload.instructions)
+        """
+        return sanitizeToolMessageContent(content)
     }
 
     /// 按策略跳过工具调用时，回填 provider 要求的 tool message，但不再执行 MCP。
@@ -414,72 +488,3 @@ extension AgentExecutor {
 
 /// Tool call timeout 哨兵错误。
 struct AgentToolCallTimeout: Error, Sendable {}
-
-extension AgentExecutor {
-
-    /// 将 MCP result 转成脱敏摘要。
-    func summarize(result: MCPCallResult) -> String {
-        if let structured = result.structuredContent {
-            return Redaction.scrub(structured.redactedSummary(maxCharacters: Redaction.maxLength))
-        }
-        let text = result.content.map(summarize(content:)).joined(separator: "\n")
-        return text.isEmpty ? "Tool completed" : Redaction.scrub(text)
-    }
-
-    /// 将 MCP content item 转成短摘要。
-    func summarize(content: MCPContentItem) -> String {
-        switch content {
-        case .text(let text):
-            return text
-        case .image(_, let mimeType):
-            return "<image \(mimeType)>"
-        case .resourceLink(let uri, let name, let mimeType):
-            return "<resource \(name ?? uri) \(mimeType ?? "")>"
-        case .embeddedResource(let uri, let text, let blob, let mimeType):
-            return text ?? "<resource \(uri) \(mimeType ?? "") \(blob == nil ? "" : "blob")>"
-        }
-    }
-
-    /// 将错误转成脱敏摘要。
-    func summarize(error: any Error) -> String {
-        if let sliceError = error as? SliceError {
-            return sliceError.developerContext
-        }
-        if let mcpError = error as? MCPClientError {
-            return mcpError.developerContext
-        }
-        return "tool call failed"
-    }
-
-    /// 将 MCP result 转成回填给模型的工具内容。
-    ///
-    /// 该路径只做敏感信息脱敏，并保留足够长的前缀内容供模型推理；UI / 日志使用
-    /// `summarize(result:)` 的短摘要，避免 ResultPanel 和 audit payload 过大。
-    /// - Parameter result: MCP tool call 返回值。
-    /// - Returns: 可安全回填给 LLM 的 tool role content。
-    func toolMessageContent(result: MCPCallResult) -> String {
-        if let structured = result.structuredContent {
-            let summary = structured.redactedSummary(
-                maxCharacters: Self.modelToolMessageMaxCharacters
-            )
-            return sanitizeToolMessageContent(summary)
-        }
-        let text = result.content.map(summarize(content:)).joined(separator: "\n")
-        return text.isEmpty ? "Tool completed" : sanitizeToolMessageContent(text)
-    }
-
-    /// 清洗回填给模型的工具内容。
-    ///
-    /// 与 `Redaction.scrub` 不同，本方法不会把长内容整体替换为 `<truncated:N>`；
-    /// 它会保留前缀上下文并追加长度提示，使搜索结果、数据库查询等 MCP 输出仍可被模型使用。
-    /// - Parameter content: 原始工具内容。
-    /// - Returns: 脱敏并按模型消息预算裁剪后的内容。
-    func sanitizeToolMessageContent(_ content: String) -> String {
-        let redacted = Redaction.scrubSecrets(content)
-        guard redacted.count > Self.modelToolMessageMaxCharacters else {
-            return redacted
-        }
-        let prefix = String(redacted.prefix(Self.modelToolMessageMaxCharacters))
-        return "\(prefix)\n<truncated:\(redacted.count)>"
-    }
-}

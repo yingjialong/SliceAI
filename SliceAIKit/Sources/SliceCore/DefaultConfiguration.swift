@@ -127,7 +127,7 @@ public enum DefaultConfiguration {
                 )
             ],
             provider: .capability(requires: [.toolCalling], prefer: []),
-            skill: nil,
+            skills: [],
             mcpAllowlist: [MCPToolRef(server: "brave-search", tool: "brave_web_search")],
             builtinCapabilities: [],
             maxSteps: 4,

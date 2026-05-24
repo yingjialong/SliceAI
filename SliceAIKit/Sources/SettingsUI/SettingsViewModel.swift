@@ -1,4 +1,4 @@
-// SliceAIKit/Sources/SettingsUI/SettingsViewModel.swift
+import Capabilities
 import Foundation
 import LLMProviders
 import SliceCore
@@ -29,11 +29,17 @@ public final class SettingsViewModel: ObservableObject {
     /// 最近一次 reload 失败的配置错误；非 nil 时禁止把默认占位配置覆盖写盘
     @Published public var loadError: SliceError?
 
+    /// 当前 registry 中可绑定到 Agent Tool 的 enabled skills。
+    @Published public private(set) var availableAgentSkills: [SliceCore.Skill] = []
+
     /// v2 配置持久化 actor，生产环境注入 AppContainer 启动时创建的实例
     private let store: ConfigurationStore
 
     /// Keychain 抽象，生产环境注入 `KeychainStore`
     private let keychain: any KeychainAccessing
+
+    /// Skill registry 抽象，生产环境由 AppContainer 注入本地扫描实现。
+    private let skillRegistry: any SkillRegistryProtocol
 
     /// 热键配置持久化成功后的外部回调；生产环境由 `AppDelegate` 注入"重新注册热键"逻辑
     ///
@@ -49,9 +55,14 @@ public final class SettingsViewModel: ObservableObject {
     ///
     /// 初始化时先塞入内存态的默认配置占位，随后异步 reload 真实磁盘值。
     /// 这样可避免首次渲染出现空白，也无需在调用方处理 async init。
-    public init(store: ConfigurationStore, keychain: any KeychainAccessing) {
+    public init(
+        store: ConfigurationStore,
+        keychain: any KeychainAccessing,
+        skillRegistry: any SkillRegistryProtocol = MockSkillRegistry()
+    ) {
         self.store = store
         self.keychain = keychain
+        self.skillRegistry = skillRegistry
         // 先用默认值占位，reload() 异步完成后更新为真实磁盘值
         let initial = DefaultConfiguration.initial()
         self.configuration = initial
@@ -93,6 +104,7 @@ public final class SettingsViewModel: ObservableObject {
             // 同步独立的 appearance 发布属性，使 AppearanceSettingsPage 刷新
             self.appearance = cfg.appearance
             self.loadError = nil
+            await reloadSkills()
             print("[SettingsViewModel] reload: loaded v2 configuration")
         } catch let error as SliceError {
             self.loadError = error
@@ -109,6 +121,23 @@ public final class SettingsViewModel: ObservableObject {
     public func save() async throws {
         try ensureCanPersist(operation: "save")
         try await store.update(configuration)
+    }
+
+    /// 重新加载可用于 Agent Tool 绑定的 enabled skills。
+    ///
+    /// 该列表只暴露 registry snapshot 中 `.enabled` 的 skill，避免 ToolEditor 绑定已禁用、
+    /// 解析失败或被 shadow 的 skill。加载失败时保留当前配置，仅清空可选列表并打印日志。
+    public func reloadSkills() async {
+        do {
+            let snapshot = try await skillRegistry.snapshot()
+            availableAgentSkills = snapshot.skills
+                .filter { $0.state == .enabled }
+                .sorted { $0.canonicalName.localizedCaseInsensitiveCompare($1.canonicalName) == .orderedAscending }
+            print("[SettingsViewModel] reloadSkills: loaded \(availableAgentSkills.count) enabled skills")
+        } catch {
+            availableAgentSkills = []
+            print("[SettingsViewModel] reloadSkills: failed – \(error.localizedDescription)")
+        }
     }
 
     /// 将当前 configuration.triggers 写回磁盘，供触发行为页 onChange 立即持久化

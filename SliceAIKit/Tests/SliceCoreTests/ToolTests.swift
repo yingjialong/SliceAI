@@ -44,7 +44,7 @@ final class ToolTests: XCTestCase {
                 systemPrompt: "agentSys", initialUserPrompt: "{{selection}}",
                 contexts: [],
                 provider: .capability(requires: [.toolCalling], prefer: ["claude"]),
-                skill: nil, mcpAllowlist: [], builtinCapabilities: [],
+                skills: [], mcpAllowlist: [], builtinCapabilities: [],
                 maxSteps: 6, stopCondition: .finalAnswerProvided
             )),
             visibleWhen: nil, displayMode: .window, outputBinding: nil,
@@ -82,7 +82,7 @@ final class ToolTests: XCTestCase {
                 systemPrompt: nil, initialUserPrompt: "x",
                 contexts: [],
                 provider: .fixed(providerId: "p", modelId: nil),
-                skill: nil, mcpAllowlist: [], builtinCapabilities: [],
+                skills: [], mcpAllowlist: [], builtinCapabilities: [],
                 maxSteps: 3, stopCondition: .finalAnswerProvided
             )),
             visibleWhen: nil, displayMode: .window, outputBinding: nil,
@@ -280,6 +280,46 @@ final class ToolTests: XCTestCase {
             budget: nil, hotkey: nil, labelStyle: .icon, tags: []
         )
         XCTAssertNoThrow(try nilBinding.validate())
+    }
+
+    /// Agent Tool 绑定超过 5 个 skill 时，validate() 必须在写入边界拒绝
+    func test_validate_throwsForAgentToolWithMoreThanFiveSkills() {
+        let skills = (1...6).map { SkillReference(id: "skill-\($0)", pinVersion: nil) }
+        let tool = Tool(
+            id: "too-many-skills",
+            name: "Too Many Skills",
+            icon: "i",
+            description: nil,
+            kind: .agent(AgentTool(
+                systemPrompt: nil,
+                initialUserPrompt: "{{selection}}",
+                contexts: [],
+                provider: .fixed(providerId: "p", modelId: nil),
+                skills: skills,
+                mcpAllowlist: [],
+                builtinCapabilities: [],
+                maxSteps: 3,
+                stopCondition: .finalAnswerProvided
+            )),
+            visibleWhen: nil,
+            displayMode: .window,
+            outputBinding: nil,
+            permissions: [],
+            provenance: .firstParty,
+            budget: nil,
+            hotkey: nil,
+            labelStyle: .icon,
+            tags: []
+        )
+
+        XCTAssertThrowsError(try tool.validate()) { error in
+            guard case SliceError.configuration(.validationFailed(let msg)) = error else {
+                XCTFail("expected .configuration(.validationFailed), got \(error)")
+                return
+            }
+            XCTAssertTrue(msg.contains("too-many-skills"), "msg missing tool id; got: \(msg)")
+            XCTAssertTrue(msg.contains("5 skills"), "msg missing limit; got: \(msg)")
+        }
     }
 
     /// encode → decode 对称：displayMode=replace + outputBinding 非 nil 的 Tool 必须 round-trip 相等

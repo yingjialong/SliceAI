@@ -80,6 +80,11 @@ public struct Tool: Identifiable, Sendable, Codable, Equatable {
                 + "must equal displayMode (\(displayMode.rawValue))"
             ))
         }
+        if case .agent(let agent) = kind, agent.skills.count > 5 {
+            throw SliceError.configuration(.validationFailed(
+                "Tool '\(id)': Agent tools can bind at most 5 skills"
+            ))
+        }
     }
 
     // MARK: - Codable（手写 init/encode；除了保持字段 round-trip，额外校验 displayMode / outputBinding.primary 一致性）

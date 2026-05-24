@@ -6,15 +6,21 @@ import SliceCore
 /// 本类型只做纯字符串渲染，不触碰 LLM / MCP / 权限。把 prompt 组装从
 /// `AgentExecutor` 主 loop 拆出，可以让 ReAct loop 保持在"请求-执行-回填"的核心流程上。
 enum AgentPromptBuilder {
+    /// marker 后 metadata block 的最大字符预算。
+    private static let maxSkillMetadataCharacters = 8_000
+    /// Skill metadata block 固定 marker，测试和 prompt contract 依赖此文本。
+    private static let skillMetadataMarker = "Available SliceAI skills for this tool:"
 
     /// 构造 AgentExecutor 第一轮 ChatMessage。
     /// - Parameters:
     ///   - agent: AgentTool 配置。
     ///   - resolved: ContextCollector 已解析的上下文。
+    ///   - boundSkills: 当前 Agent 绑定且已解析为 enabled 的 skills。
     /// - Returns: system/user 初始消息。
     static func buildInitialMessages(
         agent: AgentTool,
-        resolved: ResolvedExecutionContext
+        resolved: ResolvedExecutionContext,
+        boundSkills: [Skill] = []
     ) -> [ChatMessage] {
         let variables = makeVariables(resolved: resolved)
         var messages: [ChatMessage] = []
@@ -25,7 +31,11 @@ enum AgentPromptBuilder {
             ))
         }
         let userPrompt = PromptTemplate.render(agent.initialUserPrompt, variables: variables)
-        messages.append(ChatMessage(role: .user, content: appendContextBag(userPrompt, resolved: resolved)))
+        let promptWithContext = appendContextBag(userPrompt, resolved: resolved)
+        messages.append(ChatMessage(
+            role: .user,
+            content: appendSkillMetadata(promptWithContext, boundSkills: boundSkills)
+        ))
         return messages
     }
 
@@ -54,6 +64,66 @@ enum AgentPromptBuilder {
         let summaries = contextSummaries(resolved: resolved)
         guard !summaries.isEmpty else { return prompt }
         return prompt + "\n\nContext:\n" + summaries.joined(separator: "\n")
+    }
+
+    /// 把当前工具绑定的 skill metadata 附加到 user prompt。
+    /// - Parameters:
+    ///   - prompt: 已渲染并追加 ContextBag 的 user prompt。
+    ///   - boundSkills: 当前 Agent 绑定的 enabled skills。
+    /// - Returns: 包含 skill metadata block 的 prompt。
+    private static func appendSkillMetadata(_ prompt: String, boundSkills: [Skill]) -> String {
+        guard !boundSkills.isEmpty else { return prompt }
+        return prompt + "\n\n" + skillMetadataMarker + skillMetadataBody(boundSkills: boundSkills)
+    }
+
+    /// 构造 marker 之后的受限 metadata body。
+    ///
+    /// name/path 是 identity 字段，永远保留；description 使用剩余预算并用 ASCII `...` 截断。
+    /// - Parameter boundSkills: 当前 Agent 绑定的 enabled skills。
+    /// - Returns: marker 后的 metadata body，正常情况下不超过 8,000 字符。
+    private static func skillMetadataBody(boundSkills: [Skill]) -> String {
+        let footer = """
+
+
+Use sliceai_load_skill with the exact skill name when a skill is relevant.
+Do not assume instructions from a skill until you load it.
+"""
+        let fixedEntries = boundSkills.map { skill in
+            "- name: \(skill.canonicalName)\n  description: \n  path: \(skill.skillFile.path)"
+        }
+        let fixedBody = "\n" + fixedEntries.joined(separator: "\n") + footer
+        var remaining = maxSkillMetadataCharacters - fixedBody.count
+        if remaining <= 0 {
+            // 5 个 skill 的 MVP 上限下通常不会触发；触发时仍保留 name/path 供模型精确调用。
+            print("skill metadata fixed fields exceeded budget")
+            return fixedBody
+        }
+
+        let entries = boundSkills.map { skill in
+            let description = budgetedDescription(skill.manifest.description, remaining: &remaining)
+            return "- name: \(skill.canonicalName)\n  description: \(description)\n  path: \(skill.skillFile.path)"
+        }
+        return "\n" + entries.joined(separator: "\n") + footer
+    }
+
+    /// 从剩余预算中切出 description 文本。
+    /// - Parameters:
+    ///   - description: 原始描述。
+    ///   - remaining: 可消耗预算；本函数会原地扣减。
+    /// - Returns: 原文或带 ASCII `...` 后缀的截断文本。
+    private static func budgetedDescription(_ description: String, remaining: inout Int) -> String {
+        guard remaining > 0 else { return "" }
+        guard description.count <= remaining else {
+            if remaining <= 3 {
+                remaining = 0
+                return ""
+            }
+            let prefixCount = remaining - 3
+            remaining = 0
+            return String(description.prefix(prefixCount)) + "..."
+        }
+        remaining -= description.count
+        return description
     }
 
     /// 生成稳定顺序的上下文摘要。

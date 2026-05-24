@@ -1,97 +1,104 @@
 import XCTest
+import SliceCore
 @testable import Capabilities
 
 /// `SkillRegistryProtocol` 契约 + `MockSkillRegistry` 行为测试。
-///
-/// 覆盖矩阵（与 plan §2003 对齐）：
-/// 1. empty-registry        —— 空 registry → findSkill(...) = nil；allSkills() = []
-/// 2. populated-find-happy  —— 注入 [s1, s2] → findSkill(id: s1.id) 返回 s1
-/// 3. populated-find-miss   —— 注入 [s1] → findSkill(id: "ghost") = nil
-/// 4. allSkills-order       —— allSkills() 保留注入顺序
-/// 5. skill-codable         —— Skill Codable round-trip
 final class SkillRegistryProtocolTests: XCTestCase {
 
-    // MARK: - Fixtures
-
-    private let skillEcho = Skill(
-        id: "skill.echo",
-        name: "Echo",
-        manifestPath: "/tmp/sliceai-mock/echo.yml"
-    )
-    private let skillSummary = Skill(
-        id: "skill.summary",
-        name: "Summarize",
-        manifestPath: "/tmp/sliceai-mock/summary.yml"
-    )
-
-    // MARK: - 1. empty registry
-
-    /// 空 registry → findSkill(任意 id) 必须返回 nil；allSkills() 必须返回空数组
-    /// （契约：空 registry 是合法状态，绝不能 throw）
-    func test_emptyRegistry_findReturnsNil_allReturnsEmpty() async throws {
+    /// 空 registry 的 snapshot 必须是合法空状态。
+    func test_emptyRegistrySnapshotHasNoSkillsOrDiagnostics() async throws {
         let registry = MockSkillRegistry()
 
-        let found = try await registry.findSkill(id: "skill.anything")
-        let all = try await registry.allSkills()
+        let snapshot = try await registry.snapshot()
+        let found = try await registry.findSkill(id: "missing")
 
-        XCTAssertNil(found)
-        XCTAssertEqual(all, [])
-    }
-
-    // MARK: - 2. populated find happy
-
-    /// 注入 [echo, summary] → 按 id 能查到对应 skill
-    func test_findSkill_happyPath_returnsMatchingSkill() async throws {
-        let registry = MockSkillRegistry(skills: [skillEcho, skillSummary])
-
-        let found = try await registry.findSkill(id: "skill.summary")
-
-        XCTAssertEqual(found, skillSummary)
-    }
-
-    // MARK: - 3. populated find miss
-
-    /// 注入 [echo] → 查不存在的 id 应返回 nil（不 throw）
-    func test_findSkill_miss_returnsNil() async throws {
-        let registry = MockSkillRegistry(skills: [skillEcho])
-
-        let found = try await registry.findSkill(id: "skill.ghost")
-
+        XCTAssertTrue(snapshot.sources.isEmpty)
+        XCTAssertTrue(snapshot.skills.isEmpty)
+        XCTAssertTrue(snapshot.diagnostics.isEmpty)
         XCTAssertNil(found)
     }
 
-    // MARK: - 4. allSkills order
+    /// Mock 只返回 enabled skill；其他状态不应被 AgentExecutor 加载。
+    func test_findSkillReturnsOnlyEnabledSkill() async throws {
+        let enabled = makeSkill(name: "writing", state: .enabled)
+        let disabled = makeSkill(name: "summary", state: .disabled)
+        let registry = MockSkillRegistry(skills: [enabled, disabled])
 
-    /// allSkills() 返回顺序应与注入顺序一致（契约：方便 UI 按"管理员注册顺序"渲染）
-    func test_allSkills_preservesInjectionOrder() async throws {
-        let registry = MockSkillRegistry(skills: [skillEcho, skillSummary])
+        let foundEnabled = try await registry.findSkill(id: "writing")
+        let foundDisabled = try await registry.findSkill(id: "summary")
 
-        let all = try await registry.allSkills()
-
-        XCTAssertEqual(all, [skillEcho, skillSummary], "allSkills 必须保留注入顺序")
-        // 反向注入再验一次，避免上面一条用例只是巧合通过
-        let reversed = MockSkillRegistry(skills: [skillSummary, skillEcho])
-        let reversedAll = try await reversed.allSkills()
-        XCTAssertEqual(reversedAll, [skillSummary, skillEcho])
+        XCTAssertEqual(foundEnabled, enabled)
+        XCTAssertNil(foundDisabled)
     }
 
-    // MARK: - 5. Skill Codable round-trip
+    /// loadSkillInstructions 返回注入 payload，缺失 payload 时必须抛错。
+    func test_loadSkillInstructionsReturnsInjectedPayloadAndThrowsForMissing() async throws {
+        let skill = makeSkill(name: "writing", state: .enabled)
+        let payload = makePayload(for: skill, instructions: "Write clearly.")
+        let registry = MockSkillRegistry(skills: [skill], instructions: ["writing": payload])
+        let loaded = try await registry.loadSkillInstructions(id: "writing")
 
-    /// Skill 全部 3 字段必须能 encode → decode 等价
-    /// （Codable 是给 Phase 2 fs scan 把 manifest 序列化到磁盘的前置能力）
-    func test_skill_codable_roundTrips() throws {
-        let original = Skill(
-            id: "skill.translate",
-            name: "Translate",
-            manifestPath: "/Users/test/Library/Application Support/SliceAI/skills/translate.yml"
+        XCTAssertEqual(loaded, payload)
+        do {
+            _ = try await registry.loadSkillInstructions(id: "missing")
+            XCTFail("expected missing payload to throw")
+        } catch {
+            // Expected.
+        }
+    }
+
+    /// Snapshot 与 payload 必须能 Codable round-trip，供 UI 状态和测试 fixture 复用。
+    func test_snapshotAndInstructionPayloadRoundTrip() throws {
+        let skill = makeSkill(name: "writing", state: .enabled)
+        let diagnostic = SkillRegistryDiagnostic(
+            code: .missingDescription,
+            sourceId: "source",
+            path: "/tmp/writing/SKILL.md",
+            message: "缺少 description。"
+        )
+        let snapshot = SkillRegistrySnapshot(
+            sources: [SkillSource(id: "source", displayName: "Source", rootPath: "/tmp", isEnabled: true, order: 0)],
+            skills: [skill],
+            diagnostics: [diagnostic],
+            generatedAt: Date(timeIntervalSinceReferenceDate: 123)
+        )
+        let payload = makePayload(for: skill, instructions: "Follow writing rules.")
+
+        let decodedSnapshot = try JSONDecoder().decode(
+            SkillRegistrySnapshot.self,
+            from: JSONEncoder().encode(snapshot)
+        )
+        let decodedPayload = try JSONDecoder().decode(
+            SkillInstructionPayload.self,
+            from: JSONEncoder().encode(payload)
         )
 
-        let data = try JSONEncoder().encode(original)
-        let decoded = try JSONDecoder().decode(Skill.self, from: data)
-
-        XCTAssertEqual(decoded, original)
-        XCTAssertEqual(decoded.id, "skill.translate")
-        XCTAssertEqual(decoded.name, "Translate")
-        XCTAssertEqual(decoded.manifestPath, original.manifestPath)
+        XCTAssertEqual(decodedSnapshot, snapshot)
+        XCTAssertEqual(decodedPayload, payload)
     }
+}
+
+private func makeSkill(name: String, state: SkillRegistryState) -> Skill {
+    let directory = URL(fileURLWithPath: "/tmp/\(name)", isDirectory: true)
+    return Skill(
+        id: name,
+        canonicalName: name,
+        path: directory,
+        skillFile: directory.appendingPathComponent("SKILL.md"),
+        manifest: SkillManifest(name: name, description: "\(name) description"),
+        resources: [],
+        provenance: .selfManaged(userAcknowledgedAt: Date(timeIntervalSinceReferenceDate: 0)),
+        source: SkillSourceRef(sourceId: "source", rootPath: "/tmp"),
+        state: state
+    )
+}
+
+private func makePayload(for skill: Skill, instructions: String) -> SkillInstructionPayload {
+    SkillInstructionPayload(
+        id: skill.id,
+        canonicalName: skill.canonicalName,
+        skillFile: skill.skillFile,
+        frontmatterSummary: skill.manifest,
+        instructions: instructions
+    )
 }

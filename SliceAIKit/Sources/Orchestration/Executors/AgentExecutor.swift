@@ -29,6 +29,8 @@ public actor AgentExecutor {
     let mcpDescriptors: @Sendable () async throws -> [MCPDescriptor]
     /// 单个 MCP tool call 超时。
     let toolCallTimeoutNanoseconds: UInt64
+    /// Skill registry，供内置 sliceai.load_skill pseudo-tool 按需加载 SKILL.md。
+    let skillRegistry: any SkillRegistryProtocol
 
     /// 构造 AgentExecutor。
     /// - Parameters:
@@ -39,6 +41,7 @@ public actor AgentExecutor {
     ///   - llmProviderFactory: LLM provider 工厂。
     ///   - mcpDescriptors: MCP descriptor snapshot provider。
     ///   - toolCallTimeoutNanoseconds: 单个 MCP tool call 超时。
+    ///   - skillRegistry: Skill registry，用于解析当前 Agent 绑定 skills。
     public init(
         providerResolver: any ProviderResolverProtocol,
         mcpClient: any MCPClientProtocol,
@@ -46,7 +49,8 @@ public actor AgentExecutor {
         keychain: any KeychainAccessing,
         llmProviderFactory: any LLMProviderFactory,
         mcpDescriptors: @escaping @Sendable () async throws -> [MCPDescriptor],
-        toolCallTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
+        toolCallTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000,
+        skillRegistry: any SkillRegistryProtocol = MockSkillRegistry()
     ) {
         self.providerResolver = providerResolver
         self.mcpClient = mcpClient
@@ -55,6 +59,7 @@ public actor AgentExecutor {
         self.llmProviderFactory = llmProviderFactory
         self.mcpDescriptors = mcpDescriptors
         self.toolCallTimeoutNanoseconds = toolCallTimeoutNanoseconds
+        self.skillRegistry = skillRegistry
     }
 
     /// 执行一次 AgentTool ReAct loop。
@@ -128,12 +133,10 @@ public actor AgentExecutor {
         try validateSupportedStopCondition(agent.stopCondition, toolId: tool.id)
         let llm = try await makeLLMProvider(provider: provider)
         let catalog = try await makeToolCatalog(tool: tool, agent: agent)
-        var messages = AgentPromptBuilder.buildInitialMessages(agent: agent, resolved: resolved)
+        var messages = makeInitialMessages(agent: agent, resolved: resolved, catalog: catalog)
         let model = resolveModel(selection: agent.provider, fallback: provider.defaultModel)
         let maxSteps = max(1, agent.maxSteps)
-        var toolCallState = AgentToolCallRunState(
-            policy: effectiveToolCallPolicy(agent: agent, catalog: catalog, maxSteps: maxSteps)
-        )
+        var toolCallState = makeToolCallRunState(agent: agent, catalog: catalog, maxSteps: maxSteps)
 
         for step in 0..<maxSteps {
             logger.debug("agent step \(step, privacy: .public) started")
@@ -143,15 +146,12 @@ public actor AgentExecutor {
                 continuation: continuation
             )
             guard !turn.toolCalls.isEmpty else { return }
+            let turnContext = AgentToolTurnProcessingContext(catalog: catalog, tool: tool, continuation: continuation)
             let isBudgetExhausted = await appendToolTurnResult(
                 turn,
                 messages: &messages,
-                context: AgentToolTurnProcessingContext(
-                    catalog: catalog,
-                    tool: tool,
-                    continuation: continuation
-                ),
-                toolCallState: &toolCallState,
+                context: turnContext,
+                toolCallState: &toolCallState
             )
             if isBudgetExhausted {
                 logger.debug("agent tool call policy stopped further tool use")
@@ -225,55 +225,6 @@ public actor AgentExecutor {
         return try llmProviderFactory.make(for: provider, apiKey: apiKey)
     }
 
-    /// 构造一轮 tool-chat 请求。
-    private nonisolated func makeChatToolRequest(
-        model: String,
-        messages: [ChatMessage],
-        catalog: AgentToolCatalog,
-        toolChoice: ChatToolChoice
-    ) -> ChatToolRequest {
-        ChatToolRequest(
-            model: model,
-            messages: messages,
-            tools: catalog.chatTools,
-            toolChoice: toolChoice
-        )
-    }
-
-    /// 构造禁用工具后的最终答案请求。
-    ///
-    /// 这里刻意不传 tools schema，也不传 `tool_choice`。部分 OpenAI-compatible provider 在
-    /// `tool_choice=none` 但仍收到 tools schema 时，会把内部工具调用标记当普通文本输出。
-    private nonisolated func makeFinalAnswerRequest(model: String, messages: [ChatMessage]) -> ChatToolRequest {
-        ChatToolRequest(
-            model: model,
-            messages: messages + [finalAnswerInstructionMessage()],
-            tools: [],
-            toolChoice: nil
-        )
-    }
-
-    /// 构造最终答案指令消息。
-    private nonisolated func finalAnswerInstructionMessage() -> ChatMessage {
-        ChatMessage(
-            role: .user,
-            content: """
-            No more tool calls are available. Based only on the tool results already provided, write the final \
-            answer for the user. Do not output tool-call markup, XML, JSON, or internal protocol tokens.
-            """
-        )
-    }
-
-    /// 判断 provider 是否把内部工具调用协议误作为普通文本返回。
-    private nonisolated func containsToolCallMarkup(_ text: String) -> Bool {
-        let normalized = text.lowercased()
-        let hasToolCalls = normalized.contains("tool_calls")
-        let hasMarkupToken = normalized.contains("dsml")
-            || normalized.contains("invoke name=")
-            || normalized.contains("parameter name=")
-        return hasToolCalls && hasMarkupToken
-    }
-
     /// 跑一轮 LLM tool chat stream。
     private func runLLMTurn(
         llm: any LLMProvider,
@@ -308,11 +259,4 @@ public actor AgentExecutor {
         )
     }
 
-    /// 解析工具级 model override。
-    private nonisolated func resolveModel(selection: ProviderSelection, fallback: String) -> String {
-        if case .fixed(_, let modelId) = selection, let modelId {
-            return modelId
-        }
-        return fallback
-    }
 }

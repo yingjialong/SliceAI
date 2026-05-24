@@ -11,6 +11,7 @@ extension AgentExecutor {
         var allowlistedByName: [String: MCPToolRef] = [:]
         var availableRefs = Set<MCPToolRef>()
         var chatTools: [ChatTool] = []
+        let boundSkills = try await resolveBoundSkills(tool: tool, agent: agent)
 
         for serverId in Set(agent.mcpAllowlist.map(\.server)) {
             guard let descriptor = descriptorById[serverId] else {
@@ -26,7 +27,62 @@ extension AgentExecutor {
             )
         }
         try validateAllAllowedToolsExist(tool: tool, allowlist: allowlist, availableRefs: availableRefs)
-        return AgentToolCatalog(allowlist: allowlist, allowlistedByName: allowlistedByName, chatTools: chatTools)
+        if !boundSkills.isEmpty {
+            chatTools.append(Self.loadSkillChatTool())
+        }
+        return AgentToolCatalog(
+            allowlist: allowlist,
+            allowlistedByName: allowlistedByName,
+            chatTools: chatTools,
+            boundSkills: boundSkills,
+            skillByName: Dictionary(uniqueKeysWithValues: boundSkills.map { ($0.canonicalName, $0) })
+        )
+    }
+
+    /// 解析当前 Agent 绑定的 enabled skills。
+    /// - Parameters:
+    ///   - tool: 顶层 Tool，用于构造配置错误。
+    ///   - agent: AgentTool 配置。
+    /// - Returns: 按绑定顺序返回的 Skill 数组。
+    func resolveBoundSkills(tool: Tool, agent: AgentTool) async throws -> [Skill] {
+        var skills: [Skill] = []
+        var seenNames = Set<String>()
+        for reference in agent.skills {
+            guard let skill = try await skillRegistry.findSkill(id: reference.id) else {
+                throw SliceError.configuration(.invalidTool(
+                    id: tool.id,
+                    reason: "Skill not configured or disabled: <redacted>"
+                ))
+            }
+            guard seenNames.insert(skill.canonicalName).inserted else {
+                throw SliceError.configuration(.invalidTool(
+                    id: tool.id,
+                    reason: "Duplicate bound skill name: <redacted>"
+                ))
+            }
+            skills.append(skill)
+        }
+        return skills
+    }
+
+    /// 构造 provider 可见的本地 skill 加载 pseudo-tool schema。
+    /// - Returns: OpenAI-compatible function tool。
+    static func loadSkillChatTool() -> ChatTool {
+        ChatTool(
+            name: AgentBuiltInTool.loadSkillName,
+            description: "Load the full SKILL.md instructions for a bound SliceAI skill.",
+            inputSchema: [
+                "type": .string("object"),
+                "properties": .object([
+                    "name": .object([
+                        "type": .string("string"),
+                        "description": .string("Exact skill name from the metadata block")
+                    ])
+                ]),
+                "required": .array([.string("name")]),
+                "additionalProperties": .bool(false)
+            ]
+        )
     }
 
     /// 构造 server id 查找表；重复 id 必须走可恢复配置错误，避免字典初始化 trap。
@@ -84,15 +140,28 @@ extension AgentExecutor {
     }
 }
 
+/// AgentExecutor 内置 pseudo-tool 常量。
+enum AgentBuiltInTool {
+    /// Provider-visible function name；OpenAI-compatible function name 不能使用点号。
+    static let loadSkillName = "sliceai_load_skill"
+    /// UI/lifecycle synthetic ref；表达概念上的 `sliceai.load_skill`。
+    static let loadSkillRef = MCPToolRef(server: "sliceai", tool: "load_skill")
+}
+
 /// Agent 可调用 MCP tool catalog。
 struct AgentToolCatalog: Sendable {
     let allowlist: Set<MCPToolRef>
     let allowlistedByName: [String: MCPToolRef]
     let chatTools: [ChatTool]
+    let boundSkills: [Skill]
+    let skillByName: [String: Skill]
 
     /// 按 function name 找 MCP ref；未知 tool 走 redacted synthetic ref，供 UI 事件显示固定形状。
     func ref(forToolName name: String) -> MCPToolRef {
-        allowlistedByName[name] ?? MCPToolRef(server: "<redacted>", tool: name)
+        if name == AgentBuiltInTool.loadSkillName {
+            return AgentBuiltInTool.loadSkillRef
+        }
+        return allowlistedByName[name] ?? MCPToolRef(server: "<redacted>", tool: name)
     }
 
     /// 判断 ref 是否在 Agent allowlist 中。

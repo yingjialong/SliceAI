@@ -19,7 +19,7 @@ final class ConfigMigratorV1ToV2Tests: XCTestCase {
         let v1 = try JSONDecoder().decode(LegacyConfigV1.self, from: data)
         let v2 = try ConfigMigratorV1ToV2.migrate(v1)
 
-        XCTAssertEqual(v2.schemaVersion, 2)
+        XCTAssertEqual(v2.schemaVersion, 3)
         XCTAssertEqual(v2.providers.count, 1)
         XCTAssertEqual(v2.providers[0].id, "openai-official")
         XCTAssertEqual(v2.providers[0].kind, .openAICompatible)
@@ -77,7 +77,7 @@ final class ConfigMigratorV1ToV2Tests: XCTestCase {
         let v1 = try JSONDecoder().decode(LegacyConfigV1.self, from: data)
         let v2 = try ConfigMigratorV1ToV2.migrate(v1)
 
-        XCTAssertEqual(v2.schemaVersion, 2)
+        XCTAssertEqual(v2.schemaVersion, 3)
         XCTAssertEqual(v2.appearance, .dark)
         XCTAssertEqual(v2.providers.count, 2)
         XCTAssertEqual(v2.tools.count, 2)

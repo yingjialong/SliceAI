@@ -51,8 +51,9 @@ public actor ConfigurationStore {
 
     /// 更新并持久化到 v2 路径
     public func update(_ configuration: Configuration) async throws {
-        try await save(configuration)
-        cached = configuration
+        let normalized = normalizeSchemaVersion(configuration)
+        try await save(normalized)
+        cached = normalized
     }
 
     /// 加载配置（按 §3.7 规则；全新安装时会创建默认 v2 配置文件）
@@ -79,8 +80,9 @@ public actor ConfigurationStore {
     /// `update()` 是 `try await save(...); cached = configuration`，因此 validate 失败时
     /// 缓存也不会被更新——天然符合"非法对象不入磁盘、不入内存"的不变量。
     public func save(_ configuration: Configuration) async throws {
-        try validate(configuration)
-        try writeV2(configuration)
+        let normalized = normalizeSchemaVersion(configuration)
+        try validate(normalized)
+        try writeV2(normalized)
     }
 
     /// 在落盘前逐个 validate providers / tools；首个违规立即抛出
@@ -141,7 +143,7 @@ public actor ConfigurationStore {
         if cfg.schemaVersion > Configuration.currentSchemaVersion {
             throw SliceError.configuration(.schemaVersionTooNew(cfg.schemaVersion))
         }
-        return cfg
+        return normalizeSchemaVersion(cfg)
     }
 
     /// 读 v1 原文 → LegacyConfigV1 → Configuration
@@ -174,5 +176,23 @@ public actor ConfigurationStore {
         )
         try data.write(to: fileURL, options: .atomic)
         v2ConfigLog.debug("writeV2: wrote \(data.count, privacy: .public) bytes")
+    }
+
+    /// 将旧 v2 schema 归一化为当前版本，避免新增字段写回时仍保留旧 schemaVersion。
+    private func normalizeSchemaVersion(_ configuration: Configuration) -> Configuration {
+        guard configuration.schemaVersion != Configuration.currentSchemaVersion else {
+            return configuration
+        }
+        return Configuration(
+            schemaVersion: Configuration.currentSchemaVersion,
+            providers: configuration.providers,
+            tools: configuration.tools,
+            hotkeys: configuration.hotkeys,
+            triggers: configuration.triggers,
+            telemetry: configuration.telemetry,
+            appBlocklist: configuration.appBlocklist,
+            appearance: configuration.appearance,
+            skillSettings: configuration.skillSettings
+        )
     }
 }

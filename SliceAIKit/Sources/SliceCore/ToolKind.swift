@@ -85,7 +85,7 @@ public struct AgentTool: Sendable, Codable, Equatable {
     public var initialUserPrompt: String
     public var contexts: [ContextRequest]
     public var provider: ProviderSelection
-    public var skill: SkillReference?
+    public var skills: [SkillReference]
     public var mcpAllowlist: [MCPToolRef]
     public var builtinCapabilities: [BuiltinCapability]
     public var maxSteps: Int
@@ -98,7 +98,7 @@ public struct AgentTool: Sendable, Codable, Equatable {
         initialUserPrompt: String,
         contexts: [ContextRequest],
         provider: ProviderSelection,
-        skill: SkillReference?,
+        skills: [SkillReference],
         mcpAllowlist: [MCPToolRef],
         builtinCapabilities: [BuiltinCapability],
         maxSteps: Int,
@@ -109,12 +109,54 @@ public struct AgentTool: Sendable, Codable, Equatable {
         self.initialUserPrompt = initialUserPrompt
         self.contexts = contexts
         self.provider = provider
-        self.skill = skill
+        self.skills = skills
         self.mcpAllowlist = mcpAllowlist
         self.builtinCapabilities = builtinCapabilities
         self.maxSteps = maxSteps
         self.stopCondition = stopCondition
         self.toolCallPolicy = toolCallPolicy
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case systemPrompt, initialUserPrompt, contexts, provider, skill, skills,
+             mcpAllowlist, builtinCapabilities, maxSteps, stopCondition, toolCallPolicy
+    }
+
+    /// 兼容旧配置中的单个 `skill` 字段。
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        systemPrompt = try c.decodeIfPresent(String.self, forKey: .systemPrompt)
+        initialUserPrompt = try c.decode(String.self, forKey: .initialUserPrompt)
+        contexts = try c.decode([ContextRequest].self, forKey: .contexts)
+        provider = try c.decode(ProviderSelection.self, forKey: .provider)
+        let newSkills = try c.decodeIfPresent([SkillReference].self, forKey: .skills)
+        let legacySkill = try c.decodeIfPresent(SkillReference.self, forKey: .skill)
+        skills = newSkills ?? legacySkill.map { [$0] } ?? []
+        if skills.count > 5 {
+            throw DecodingError.dataCorrupted(.init(
+                codingPath: c.codingPath + [CodingKeys.skills],
+                debugDescription: "AgentTool.skills can contain at most 5 skills"
+            ))
+        }
+        mcpAllowlist = try c.decode([MCPToolRef].self, forKey: .mcpAllowlist)
+        builtinCapabilities = try c.decode([BuiltinCapability].self, forKey: .builtinCapabilities)
+        maxSteps = try c.decode(Int.self, forKey: .maxSteps)
+        stopCondition = try c.decode(StopCondition.self, forKey: .stopCondition)
+        toolCallPolicy = try c.decodeIfPresent(AgentToolCallPolicy.self, forKey: .toolCallPolicy)
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(systemPrompt, forKey: .systemPrompt)
+        try c.encode(initialUserPrompt, forKey: .initialUserPrompt)
+        try c.encode(contexts, forKey: .contexts)
+        try c.encode(provider, forKey: .provider)
+        try c.encode(skills, forKey: .skills)
+        try c.encode(mcpAllowlist, forKey: .mcpAllowlist)
+        try c.encode(builtinCapabilities, forKey: .builtinCapabilities)
+        try c.encode(maxSteps, forKey: .maxSteps)
+        try c.encode(stopCondition, forKey: .stopCondition)
+        try c.encodeIfPresent(toolCallPolicy, forKey: .toolCallPolicy)
     }
 }
 

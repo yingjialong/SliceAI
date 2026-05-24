@@ -1,55 +1,94 @@
 import Foundation
+import SliceCore
 
-/// Skill 注册表协议：抽象 Phase 2 的真实 fs scan，让 ExecutionEngine 在 M2 阶段就能注入 Mock 跑通主流程。
-///
-/// 设计要点（KISS）：
-/// - 只暴露两个查询：按 ID 查单个、列出全部。Phase 2 真实 registry 落地时再加 fs scan / hot reload /
-///   manifest 校验等能力。
-/// - protocol + 类型集中在同一文件，作为对外契约的单点入口。
+/// Skill 注册表协议：提供 snapshot 查询和 SKILL.md 按需加载。
 public protocol SkillRegistryProtocol: Sendable {
-    /// 按 skill id 查找单个 skill；不存在返回 nil（区别于 throw——"找不到"是合法状态）。
-    /// - Parameter id: skill 的稳定 ID。
-    /// - Returns: 对应的 `Skill`；未注册返回 `nil`。
-    /// - Throws: 仅在 Phase 2 真实 registry 的 fs scan 失败时使用；M2 Mock 不抛错。
+    /// 返回当前 registry 快照。
+    func snapshot() async throws -> SkillRegistrySnapshot
+
+    /// 按 canonical skill id 查找可加载的 active skill。
+    /// - Parameter id: skill 稳定 id，MVP 中等于 canonicalName。
+    /// - Returns: enabled skill；未注册、禁用或被 shadow 时返回 nil。
     func findSkill(id: String) async throws -> Skill?
 
-    /// 列出全部已注册的 skill。
-    /// - Returns: 当前注册的 `Skill` 数组（顺序由实现决定；Mock 保持注入顺序）。
-    /// - Throws: 仅在 Phase 2 真实 registry 的 fs scan 失败时使用；M2 Mock 不抛错。
-    func allSkills() async throws -> [Skill]
+    /// 加载完整 SKILL.md 指令正文。
+    /// - Parameter id: skill 稳定 id，MVP 中等于 canonicalName。
+    /// - Returns: 指令 payload；不可加载时抛出配置错误。
+    func loadSkillInstructions(id: String) async throws -> SkillInstructionPayload
 }
 
-// MARK: - Skill
+/// Registry 当前快照，供 Settings 和运行时读取。
+public struct SkillRegistrySnapshot: Sendable, Codable, Equatable {
+    public let sources: [SkillSource]
+    public let skills: [Skill]
+    public let diagnostics: [SkillRegistryDiagnostic]
+    public let generatedAt: Date
 
-/// Skill 描述（最小 KISS 版本）。
-///
-/// 字段语义：
-/// - `id`: 全局稳定 ID（如 `"skill.echo"` / `"skill.summary"`），跨 session / 升级保持不变；
-/// - `name`: 用户可读名（中文/英文，多语言由上层 i18n 决定，M2 直接用 manifest 里的字段）；
-/// - `manifestPath`: skill manifest 文件绝对路径。Phase 2 fs scan 时由 registry 填入；M2 Mock
-///   场景下测试可以塞 `"/tmp/mock"` 之类的占位串——`Skill` 类型不校验路径合法性，那是 Phase 2
-///   真实 registry 的责任。
-///
-/// `Identifiable` 是为了让未来 SwiftUI `List` / `ForEach` 能直接渲染——`id` 字段已满足约束，
-/// 不需要额外引入 UUID。
-public struct Skill: Sendable, Equatable, Hashable, Codable, Identifiable {
-    /// skill 的稳定 ID。
-    public let id: String
-
-    /// 用户可读名。
-    public let name: String
-
-    /// skill manifest 文件绝对路径（Phase 2 fs scan 时填入）。
-    public let manifestPath: String
-
-    /// 构造一个 skill 描述。
-    /// - Parameters:
-    ///   - id: 稳定 ID。
-    ///   - name: 用户可读名。
-    ///   - manifestPath: manifest 文件绝对路径。
-    public init(id: String, name: String, manifestPath: String) {
-        self.id = id
-        self.name = name
-        self.manifestPath = manifestPath
+    /// 构造 SkillRegistrySnapshot。
+    public init(
+        sources: [SkillSource],
+        skills: [Skill],
+        diagnostics: [SkillRegistryDiagnostic],
+        generatedAt: Date
+    ) {
+        self.sources = sources
+        self.skills = skills
+        self.diagnostics = diagnostics
+        self.generatedAt = generatedAt
     }
+}
+
+/// 按需加载 SKILL.md 后返回给 AgentExecutor 的正文 payload。
+public struct SkillInstructionPayload: Sendable, Codable, Equatable {
+    public let id: String
+    public let canonicalName: String
+    public let skillFile: URL
+    public let frontmatterSummary: SkillManifest
+    public let instructions: String
+
+    /// 构造 SkillInstructionPayload。
+    public init(
+        id: String,
+        canonicalName: String,
+        skillFile: URL,
+        frontmatterSummary: SkillManifest,
+        instructions: String
+    ) {
+        self.id = id
+        self.canonicalName = canonicalName
+        self.skillFile = skillFile
+        self.frontmatterSummary = frontmatterSummary
+        self.instructions = instructions
+    }
+}
+
+/// Registry 诊断，message 面向 UI 展示，底层错误仅进入脱敏日志。
+public struct SkillRegistryDiagnostic: Sendable, Codable, Equatable {
+    public let code: SkillRegistryDiagnosticCode
+    public let sourceId: String?
+    public let path: String?
+    public let message: String
+
+    /// 构造 SkillRegistryDiagnostic。
+    public init(
+        code: SkillRegistryDiagnosticCode,
+        sourceId: String?,
+        path: String?,
+        message: String
+    ) {
+        self.code = code
+        self.sourceId = sourceId
+        self.path = path
+        self.message = message
+    }
+}
+
+/// MVP registry 诊断码。
+public enum SkillRegistryDiagnosticCode: String, Sendable, Codable, Equatable {
+    case sourceUnreadable
+    case parseError
+    case missingDescription
+    case tooLarge
+    case duplicateName
+    case symlinkEscape
 }

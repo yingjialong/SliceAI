@@ -293,10 +293,10 @@ MVP 实现一个小型 frontmatter parser：
 
 ### 8.1 Tool catalog 扩展
 
-现有 AgentExecutor 从 MCP allowlist 构造 `ChatTool` catalog。MVP 在 catalog 中追加一个内置 pseudo-tool：
+现有 AgentExecutor 从 MCP allowlist 构造 `ChatTool` catalog。MVP 在 catalog 中追加一个内置 pseudo-tool。用户可见概念名是 `sliceai.load_skill`；发送给 OpenAI-compatible provider 的 function name 使用 `sliceai_load_skill`，因为 function name 只能包含字母、数字、下划线和短横线：
 
 ```text
-name: sliceai.load_skill
+name: sliceai_load_skill
 description: Load the full instructions for one of the skills bound to this Agent Tool.
 input_schema:
   type: object
@@ -330,7 +330,7 @@ Available SliceAI skills for this tool:
   description: ...
   path: ...
 
-Use sliceai.load_skill with the exact skill name when a skill is relevant.
+Use sliceai_load_skill with the exact skill name when a skill is relevant.
 Do not assume instructions from a skill until you load it.
 ```
 
@@ -373,8 +373,10 @@ Settings 页面不执行 skill 脚本，不读取 references 内容。
 
 `ToolEditorView` 的 Agent 分支新增 “Skills” 分组：
 
-- 从 enabled active skills 中多选。
+- 不一次性列出全部 enabled active skills；用户点击加号新增一条 skill 绑定行。
+- 每条绑定行使用下拉菜单选择 skill，并提供减号删除该绑定。
 - 最多选择 5 个。
+- 下拉菜单排除其它行已选择的 skill，避免重复绑定。
 - 显示 description 和来源路径摘要。
 - 选中 shadowed / disabled / parse-error skill 不允许保存。
 - Prompt Tool 不显示该分组。
@@ -448,11 +450,13 @@ MVP 的安全原则是 “读取本地文本指令，不执行任何代码”：
 本 MVP 故意留下以下债务，必须在任务文档中记录：
 
 1. **supporting files 渐进式读取**：MVP 不实现 `references/`、`assets/`、`scripts/` 的按需读取。后续需要 `list_skill_resources/read_skill_resource`，并定义路径沙箱、MIME、大小、UI lifecycle 和权限策略。
-2. **完整 YAML frontmatter**：MVP 使用小型 parser。若真实 skills 依赖复杂 YAML，需要引入或移植 parser。
-3. **SwiftSkill 复用评估**：当 SliceAI 基线升级到 Swift 6.2 / macOS 15+，或 SwiftSkill 支持 Swift 6.0 / macOS 14 时，重新评估替换自研 parser。
-4. **Codex duplicate name 完整语义**：MVP 对同名 skill 使用 root precedence + shadowing；Codex 允许同名 skill 同时出现 selector。后续如果需要完全兼容，应改为 path-scoped binding。
-5. **Codex `agents/openai.yaml`**：MVP 不解析 UI metadata、dependencies 和 `allow_implicit_invocation`。后续可用于更好的 Settings 展示和 MCP dependency 提示。
-6. **Skill provenance / signing**：MVP 将用户添加 root 视为 self-managed，本轮不做签名校验和 community trust。
+2. **Skill 脚本执行 runtime**：MVP 不执行 `scripts/`、不安装依赖、不启动后台任务。后续若要支持，需要先设计 sandbox、进程生命周期、日志、权限确认、超时和依赖缓存策略。
+3. **Marketplace / 远端安装分发**：MVP 只扫描用户显式添加的本地目录。后续若要支持 marketplace、GitHub 拉取、自动更新或社区分发，需要先补 trust model、签名/校验、版本 pinning、回滚和 UI 审核流程。
+4. **完整 YAML frontmatter**：MVP 使用小型 parser。若真实 skills 依赖复杂 YAML，需要引入或移植 parser。
+5. **SwiftSkill 复用评估**：当 SliceAI 基线升级到 Swift 6.2 / macOS 15+，或 SwiftSkill 支持 Swift 6.0 / macOS 14 时，重新评估替换自研 parser。
+6. **Codex duplicate name 完整语义**：MVP 对同名 skill 使用 root precedence + shadowing；Codex 允许同名 skill 同时出现 selector。后续如果需要完全兼容，应改为 path-scoped binding。
+7. **Codex `agents/openai.yaml`**：MVP 不解析 UI metadata、dependencies 和 `allow_implicit_invocation`。后续可用于更好的 Settings 展示和 MCP dependency 提示。
+8. **Skill provenance / signing**：MVP 将用户添加 root 视为 self-managed，本轮不做签名校验和 community trust。
 
 ## 14. 测试策略
 
@@ -490,7 +494,8 @@ MVP 的安全原则是 “读取本地文本指令，不执行任何代码”：
 
 - Skills ViewModel 添加 / 删除 / 排序 source roots。
 - 解析错误在列表中可见。
-- Agent Tool skills 多选最多 5 个。
+- Agent Tool skills 通过加号逐条新增，最多 5 个。
+- 绑定行下拉菜单排除其它行已选择的 skill，减号删除后写回 `AgentTool.skills`。
 - Prompt Tool 不显示 Skills 分组。
 - 保存 Agent Tool 时写入 `AgentTool.skills`。
 

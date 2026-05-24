@@ -34,6 +34,8 @@ final class AppContainer {
 
     /// v2 配置文件读写 actor；路径固定为 config-v2.json，保留 legacy config.json 迁移入口
     let configStore: ConfigurationStore
+    /// 生产 SkillRegistry；Settings、AgentExecutor 和 ExecutionEngine 共用同一个实例
+    let skillRegistry: any SkillRegistryProtocol
     /// v2 执行引擎；AppDelegate 触发链通过它消费 ExecutionEvent stream
     let executionEngine: ExecutionEngine
     /// chunk 路由 dispatcher；window 模式最终投递到 ResultPanel adapter
@@ -68,6 +70,7 @@ final class AppContainer {
     /// 参数较多是 composition root 的合理成本：依赖在这里集中显式注入，避免在业务层隐藏创建逻辑。
     private init(
         configStore: ConfigurationStore,
+        skillRegistry: any SkillRegistryProtocol,
         keychain: KeychainStore,
         selectionService: SelectionService,
         hotkeyRegistrar: HotkeyRegistrar,
@@ -83,6 +86,7 @@ final class AppContainer {
         resultPanelAdapter: ResultPanelWindowSinkAdapter
     ) {
         self.configStore = configStore
+        self.skillRegistry = skillRegistry
         self.keychain = keychain
         self.selectionService = selectionService
         self.hotkeyRegistrar = hotkeyRegistrar
@@ -119,6 +123,16 @@ final class AppContainer {
         let resultPanelAdapter: ResultPanelWindowSinkAdapter
     }
 
+    /// 创建 v2 runtime 所需的输入依赖集合，避免 helper 参数列表持续膨胀。
+    private struct V2RuntimeDependencyInputs {
+        let appSupport: URL
+        let configStore: ConfigurationStore
+        let keychain: KeychainStore
+        let llmProviderFactory: any LLMProviderFactory
+        let resultPanel: ResultPanel
+        let skillRegistry: any SkillRegistryProtocol
+    }
+
     /// 创建 `ExecutionEngine` 所需的内部依赖集合，避免 helper 参数列表继续膨胀。
     private struct ExecutionEngineDependencies {
         let providerRegistry: ContextProviderRegistry
@@ -127,6 +141,7 @@ final class AppContainer {
         let promptExecutor: PromptExecutor
         let agentExecutor: AgentExecutor
         let mcpClient: any MCPClientProtocol
+        let skillRegistry: any SkillRegistryProtocol
         let costAccounting: CostAccounting
         let auditLog: any AuditLogProtocol
         let outputDispatcher: any OutputDispatcherProtocol
@@ -147,20 +162,24 @@ final class AppContainer {
 
         let keychain = KeychainStore()
         let llmProviderFactory: any LLMProviderFactory = OpenAIProviderFactory()
+        let skillRegistry = makeSkillRegistry(configStore: configStore)
         let ui = makeUIDependencies(
             configStore: configStore,
-            keychain: keychain
+            keychain: keychain,
+            skillRegistry: skillRegistry
         )
-        let v2Runtime = try await makeV2RuntimeDependencies(
+        let v2Runtime = try await makeV2RuntimeDependencies(inputs: V2RuntimeDependencyInputs(
             appSupport: appSupport,
             configStore: configStore,
             keychain: keychain,
             llmProviderFactory: llmProviderFactory,
-            resultPanel: ui.resultPanel
-        )
+            resultPanel: ui.resultPanel,
+            skillRegistry: skillRegistry
+        ))
 
         return AppContainer(
             configStore: configStore,
+            skillRegistry: skillRegistry,
             keychain: keychain,
             selectionService: ui.selectionService,
             hotkeyRegistrar: ui.hotkeyRegistrar,
@@ -185,7 +204,8 @@ final class AppContainer {
     /// - Returns: `AppDelegate` 使用的 UI dependency bundle。
     private static func makeUIDependencies(
         configStore: ConfigurationStore,
-        keychain: KeychainStore
+        keychain: KeychainStore,
+        skillRegistry: any SkillRegistryProtocol
     ) -> UIDependencies {
         UIDependencies(
             keychain: keychain,
@@ -195,49 +215,55 @@ final class AppContainer {
             commandPalette: CommandPalettePanel(),
             resultPanel: ResultPanel(),
             accessibilityMonitor: AccessibilityMonitor(),
-            settingsViewModel: SettingsViewModel(store: configStore, keychain: keychain),
+            settingsViewModel: SettingsViewModel(
+                store: configStore,
+                keychain: keychain,
+                skillRegistry: skillRegistry
+            ),
             themeManager: makeThemeManager(configStore: configStore)
         )
     }
 
+    /// 创建生产 SkillRegistry，并从配置存储读取最新 skill settings。
+    private static func makeSkillRegistry(configStore: ConfigurationStore) -> any SkillRegistryProtocol {
+        LocalSkillRegistry(settingsProvider: { [configStore] in
+            do {
+                return try await configStore.current().skillSettings
+            } catch {
+                print("[AppContainer] skill settings load failed - \(error.localizedDescription)")
+                return .empty
+            }
+        })
+    }
+
     /// 创建 v2 additive runtime，并触发 v2 配置首次加载。
     ///
-    /// - Parameters:
-    ///   - appSupport: app support 目录，用于持久化 v2 config、audit 和 cost 数据。
-    ///   - configStore: 已完成首次加载的 v2 配置存储。
-    ///   - keychain: v1/v2 共用的 Keychain 访问器。
-    ///   - llmProviderFactory: v1/v2 共用的 LLM provider 工厂。
-    ///   - resultPanel: 既有结果面板，作为 v2 window sink 的最终承载。
+    /// - Parameter inputs: v2 runtime 装配所需的输入依赖集合。
     /// - Returns: v2 runtime dependency bundle。
     /// - Throws: v2 配置、cost sqlite 或 audit jsonl 初始化失败时上抛。
     private static func makeV2RuntimeDependencies(
-        appSupport: URL,
-        configStore: ConfigurationStore,
-        keychain: KeychainStore,
-        llmProviderFactory: any LLMProviderFactory,
-        resultPanel: ResultPanel
+        inputs: V2RuntimeDependencyInputs
     ) async throws -> RuntimeDependencies {
         let providerRegistry = makeContextProviderRegistry()
-        let permissionBroker = makePermissionBroker(appSupport: appSupport)
-        let mcpRuntime = makeMCPRuntime(appSupport: appSupport)
-        let providerResolver: any ProviderResolverProtocol = DefaultProviderResolver(
-            configurationProvider: { [configStore] in try await configStore.current() }
+        let permissionBroker = makePermissionBroker(appSupport: inputs.appSupport)
+        let mcpRuntime = makeMCPRuntime(appSupport: inputs.appSupport)
+        let providerResolver = makeProviderResolver(configStore: inputs.configStore)
+        let promptExecutor = PromptExecutor(
+            keychain: inputs.keychain,
+            llmProviderFactory: inputs.llmProviderFactory
         )
-        let promptExecutor = PromptExecutor(keychain: keychain, llmProviderFactory: llmProviderFactory)
-        let agentExecutor = AgentExecutor(
+        let agentExecutor = makeAgentExecutor(
             providerResolver: providerResolver,
-            mcpClient: mcpRuntime.client,
+            mcpRuntime: mcpRuntime,
             permissionBroker: permissionBroker,
-            keychain: keychain,
-            llmProviderFactory: llmProviderFactory,
-            mcpDescriptors: mcpRuntime.descriptorsProvider
+            inputs: inputs
         )
-        let costAccounting = try CostAccounting(dbURL: appSupport.appendingPathComponent("cost.sqlite"))
+        let costAccounting = try CostAccounting(dbURL: inputs.appSupport.appendingPathComponent("cost.sqlite"))
         let auditLog: any AuditLogProtocol = try JSONLAuditLog(
-            fileURL: appSupport.appendingPathComponent("audit.jsonl")
+            fileURL: inputs.appSupport.appendingPathComponent("audit.jsonl")
         )
         let invocationGate = InvocationGate()
-        let resultPanelAdapter = ResultPanelWindowSinkAdapter(panel: resultPanel, gate: invocationGate)
+        let resultPanelAdapter = ResultPanelWindowSinkAdapter(panel: inputs.resultPanel, gate: invocationGate)
         let outputDispatcher: any OutputDispatcherProtocol = OutputDispatcher(windowSink: resultPanelAdapter)
         let engineDependencies = ExecutionEngineDependencies(
             providerRegistry: providerRegistry,
@@ -246,6 +272,7 @@ final class AppContainer {
             promptExecutor: promptExecutor,
             agentExecutor: agentExecutor,
             mcpClient: mcpRuntime.client,
+            skillRegistry: inputs.skillRegistry,
             costAccounting: costAccounting,
             auditLog: auditLog,
             outputDispatcher: outputDispatcher
@@ -257,6 +284,24 @@ final class AppContainer {
             outputDispatcher: outputDispatcher,
             invocationGate: invocationGate,
             resultPanelAdapter: resultPanelAdapter
+        )
+    }
+
+    /// 创建生产 AgentExecutor，并注入 MCP runtime 与 SkillRegistry。
+    private static func makeAgentExecutor(
+        providerResolver: any ProviderResolverProtocol,
+        mcpRuntime: AppMCPRuntimeDependencies,
+        permissionBroker: any PermissionBrokerProtocol,
+        inputs: V2RuntimeDependencyInputs
+    ) -> AgentExecutor {
+        AgentExecutor(
+            providerResolver: providerResolver,
+            mcpClient: mcpRuntime.client,
+            permissionBroker: permissionBroker,
+            keychain: inputs.keychain,
+            llmProviderFactory: inputs.llmProviderFactory,
+            mcpDescriptors: mcpRuntime.descriptorsProvider,
+            skillRegistry: inputs.skillRegistry
         )
     }
 
@@ -272,7 +317,7 @@ final class AppContainer {
             providerResolver: dependencies.providerResolver,
             promptExecutor: dependencies.promptExecutor,
             mcpClient: dependencies.mcpClient,
-            skillRegistry: MockSkillRegistry(),
+            skillRegistry: dependencies.skillRegistry,
             costAccounting: dependencies.costAccounting,
             auditLog: dependencies.auditLog,
             output: dependencies.outputDispatcher,
@@ -318,6 +363,15 @@ private extension AppContainer {
             streamableHTTP: streamableHTTPMCPClient
         )
         return AppMCPRuntimeDependencies(descriptorsProvider: descriptorsProvider, client: routingMCPClient)
+    }
+
+    /// 创建生产 ProviderResolver。
+    /// - Parameter configStore: v2 配置存储。
+    /// - Returns: 使用最新配置快照解析 ProviderSelection 的 resolver。
+    static func makeProviderResolver(configStore: ConfigurationStore) -> any ProviderResolverProtocol {
+        DefaultProviderResolver(
+            configurationProvider: { [configStore] in try await configStore.current() }
+        )
     }
 
     /// 创建生产上下文 provider 注册表。

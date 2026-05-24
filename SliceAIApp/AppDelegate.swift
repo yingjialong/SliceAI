@@ -407,7 +407,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let container else { return }
         // NSHostingController 承载 SwiftUI 设置视图；ViewModel 由容器复用
         // 注入 themeManager 使设置页内的 @Environment(ThemeManager.self) 可用
-        let rootView = SettingsScene(viewModel: container.settingsViewModel)
+        let rootView = SettingsScene(
+            viewModel: container.settingsViewModel,
+            skillRegistry: container.skillRegistry
+        )
             .environment(container.themeManager)
         let hosting = NSHostingController(rootView: rootView)
         let win = NSWindow(contentViewController: hosting)

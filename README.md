@@ -8,7 +8,7 @@ SliceAI 让你在任何 Mac 应用里选中文字后，通过快捷工具栏或 
 
 v0.2.0 Phase 0 底层重构已正式发布：v2 数据模型、Orchestration 执行引擎、Capabilities 能力边界已接入真实 App 触发链。Release: <https://github.com/yingjialong/SliceAI/releases/tag/v0.2.0>。
 
-Phase 1 MCP + Context 主干已完成 `v0.3` release prep：stdio / Streamable HTTP MCP client、MCP Servers 设置页、五个核心 ContextProvider、PermissionBroker UI gate、AgentExecutor tool calling、ResultPanel tool-call lifecycle、`web-search-summarize`、per-tool hotkey 和基础自定义 Agent Tool 配置均已落地。Task 17 已完成真实 release E2E 主体验证；filesystem / postgres / brave-search / git / sqlite 五项本地 MCP server 已完成直接 JSON-RPC `tools/list` 与安全只读 / 低风险 `tools/call`，用户已基本复测 App 场景且未反馈阻塞问题。最终 Claude review loop Round 2 approve；review 中发现并修复了两项发布阻塞：长 MCP tool result 不再以 `<truncated:N>` 回填给 LLM，stdio MCP server 在 command / args / env 变化后会重启旧 session。最终 gate 已通过 SwiftPM 758 tests、SwiftLint strict、`git diff --check`、App Debug build、本地 unsigned DMG 构建和 DMG 挂载结构校验。`v0.3.0` tag 已推送，GitHub Actions Release run `26168050987` 已成功生成 draft release；CI DMG SHA256 为 `cf63e4e50b8eeda63e38f04c85ff485d11cdfa939038d7555b72ae61ad96f0e0`。用户已明确暂缓人工发布，draft release 保持草稿；Phase 2 Skill Registry MVP spec 和 implementation plan 已产出，下一步选择执行方式。参见 [docs/v2-refactor-master-todolist.md](docs/v2-refactor-master-todolist.md) 跟踪后续 Phase。
+Phase 1 MCP + Context 主干已完成 `v0.3` release prep：stdio / Streamable HTTP MCP client、MCP Servers 设置页、五个核心 ContextProvider、PermissionBroker UI gate、AgentExecutor tool calling、ResultPanel tool-call lifecycle、`web-search-summarize`、per-tool hotkey 和基础自定义 Agent Tool 配置均已落地。Task 17 已完成真实 release E2E 主体验证；filesystem / postgres / brave-search / git / sqlite 五项本地 MCP server 已完成直接 JSON-RPC `tools/list` 与安全只读 / 低风险 `tools/call`，用户已基本复测 App 场景且未反馈阻塞问题。最终 Claude review loop Round 2 approve；review 中发现并修复了两项发布阻塞：长 MCP tool result 不再以 `<truncated:N>` 回填给 LLM，stdio MCP server 在 command / args / env 变化后会重启旧 session。最终 gate 已通过 SwiftPM 758 tests、SwiftLint strict、`git diff --check`、App Debug build、本地 unsigned DMG 构建和 DMG 挂载结构校验。`v0.3.0` tag 已推送，GitHub Actions Release run `26168050987` 已成功生成 draft release；CI DMG SHA256 为 `cf63e4e50b8eeda63e38f04c85ff485d11cdfa939038d7555b72ae61ad96f0e0`。用户已明确暂缓人工发布，draft release 保持草稿；Phase 2 Skill Registry MVP 已完成本地实现并进入最终 gate：支持本地 skill roots、`SKILL.md` parser/scanner、Settings Skills 页面、Agent Tool 最多 5 个 skill 绑定，以及 `sliceai.load_skill` 渐进式加载。参见 [docs/v2-refactor-master-todolist.md](docs/v2-refactor-master-todolist.md) 跟踪后续 Phase。
 
 ## Features (MVP v0.2)
 
@@ -43,7 +43,7 @@ open SliceAI.xcodeproj
 | `SliceAIApp` | macOS App 薄壳：菜单栏、Onboarding、全局触发监听、Composition Root、ResultPanel 生命周期。 |
 | `SliceCore` | 领域模型与配置：`Tool` / `Provider` / `Configuration` / `ExecutionSeed` / `ResolvedExecutionContext` / 权限 / 输出绑定。 |
 | `Orchestration` | v2 执行引擎：`ExecutionEngine`、上下文采集、权限闭环、PromptExecutor、OutputDispatcher、成本记账、审计日志。 |
-| `Capabilities` | Phase 1+ 能力边界：`PathSandbox`、MCP server store/importer、MCP client 协议、stdio / Streamable HTTP client、Skill registry 协议和生产侧 mock。 |
+| `Capabilities` | Phase 1+ 能力边界：`PathSandbox`、MCP server store/importer、MCP client 协议、stdio / Streamable HTTP client、Skill registry parser/scanner/local actor。 |
 | `LLMProviders` | OpenAI 兼容协议实现与 provider factory，负责 Chat Completions / SSE 流式解析。 |
 | `SelectionCapture` | 选区捕获：AX 主路径 + Cmd+C fallback，统一产出 `SelectionPayload`。 |
 | `HotkeyManager` | Carbon `RegisterEventHotKey` 全局快捷键注册与解析。 |
@@ -52,6 +52,19 @@ open SliceAI.xcodeproj
 | `DesignSystem` / `Permissions` | 设计 token、主题管理、共享控件与 Accessibility onboarding / monitor。 |
 
 ## 项目修改变动记录
+
+### 2026-05-21 · Phase 2 Skill Registry MVP Implementation
+
+**范围**：`codex/phase-2-skill-registry-mvp`，本地 Skill Registry MVP 实现
+
+**当前状态**：
+- SliceCore schema 已新增 `SkillSettings`、canonical `Skill`、`AgentTool.skills` 和旧 `skill` JSON 兼容解码；每个 Agent Tool 最多 5 个 skills。
+- Capabilities 已新增 `SkillMarkdownParser`、`SkillDirectoryScanner`、`LocalSkillRegistry`、snapshot / diagnostics / instruction payload。
+- Settings 已新增 Skills 页面；Agent Tool skill 绑定 UI 采用加号逐条添加、每行下拉选择、减号删除的方式，不再一次性列出全部 skills。
+- AgentExecutor 已新增 provider-visible `sliceai_load_skill` pseudo-tool；ResultPanel 继续复用现有 tool-call 生命周期。
+- AppContainer 已用同一个 `LocalSkillRegistry` 注入 Settings、AgentExecutor 和 ExecutionEngine。
+
+**验证状态**：已通过 focused tests、全量 SwiftPM 795 tests、SwiftLint strict、`git diff --check` 和 App Debug build。
 
 ### 2026-05-20 · Phase 2 Skill Registry MVP Spec Kickoff
 
@@ -62,7 +75,7 @@ open SliceAI.xcodeproj
 - Phase 2 原始 scope 仍是 Directional Outline，不能直接进入实现。
 - Skill Registry MVP spec 已写入 `docs/superpowers/specs/2026-05-20-phase-2-skill-registry-mvp.md`，implementation plan 已写入 `docs/superpowers/plans/2026-05-21-phase-2-skill-registry-mvp.md`：采用自研最小 loader，支持用户配置多个 skill roots、Agent Tool 绑定最多 5 个 enabled skills，并通过内置 `sliceai.load_skill` pseudo-tool 渐进式加载完整 `SKILL.md`。
 
-**下一步**：用户选择 execution approach：Subagent-Driven（推荐）或 Inline Execution。执行方式确认前不改业务代码。
+**下一步**：已选择 Subagent-Driven 并进入实现；实现状态见 2026-05-21 记录。
 
 ### 2026-05-19 · v0.3 Release Prep
 

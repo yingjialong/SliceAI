@@ -24,6 +24,9 @@ public struct ToolEditorView: View {
     /// 全局热键配置绑定，工具热键通过 `hotkeys.tools[tool.id]` 集中保存
     @Binding public var hotkeys: HotkeyBindings
 
+    /// 当前 registry 中可绑定到 Agent Tool 的 enabled skills
+    public let availableSkills: [SliceCore.Skill]
+
     /// 工具热键录制完成后的回调，用于立即持久化并触发 App 重新注册热键
     let onHotkeyCommit: (() -> Void)?
 
@@ -48,12 +51,14 @@ public struct ToolEditorView: View {
         providers: [Provider],
         tools: [Tool],
         hotkeys: Binding<HotkeyBindings>,
+        availableSkills: [SliceCore.Skill] = [],
         onHotkeyCommit: (() -> Void)? = nil
     ) {
         self._tool = tool
         self.providers = providers
         self.tools = tools
         self._hotkeys = hotkeys
+        self.availableSkills = availableSkills
         self.onHotkeyCommit = onHotkeyCommit
     }
 
@@ -77,6 +82,9 @@ public struct ToolEditorView: View {
 
                 // Agent Provider 与 ReAct 轮数分组
                 agentProviderCard
+
+                // Agent Skill 绑定分组
+                agentSkillsCard
 
                 // MCP allowlist 文本编辑分组
                 agentMCPAllowlistCard

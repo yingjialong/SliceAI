@@ -28,7 +28,7 @@ final class ToolKindTests: XCTestCase {
             initialUserPrompt: "{{selection}}",
             contexts: [],
             provider: .capability(requires: [.toolCalling], prefer: ["claude"]),
-            skill: SkillReference(id: "english-tutor@1", pinVersion: nil),
+            skills: [SkillReference(id: "english-tutor@1", pinVersion: nil)],
             mcpAllowlist: [MCPToolRef(server: "anki", tool: "createNote")],
             builtinCapabilities: [.tts],
             maxSteps: 6,
@@ -46,6 +46,78 @@ final class ToolKindTests: XCTestCase {
         let data = try JSONEncoder().encode(at)
         let decoded = try JSONDecoder().decode(AgentTool.self, from: data)
         XCTAssertEqual(at, decoded)
+    }
+
+    func test_agentTool_decodesLegacySingleSkillIntoSkillsArray() throws {
+        let json = Data(#"""
+        {
+          "systemPrompt": "agent sys",
+          "initialUserPrompt": "{{selection}}",
+          "contexts": [],
+          "provider": { "fixed": { "providerId": "openai", "modelId": null } },
+          "skill": { "id": "writing", "pinVersion": null },
+          "mcpAllowlist": [],
+          "builtinCapabilities": [],
+          "maxSteps": 3,
+          "stopCondition": "finalAnswerProvided"
+        }
+        """#.utf8)
+
+        let decoded = try JSONDecoder().decode(AgentTool.self, from: json)
+
+        XCTAssertEqual(decoded.skills, [SkillReference(id: "writing", pinVersion: nil)])
+    }
+
+    func test_agentTool_encodesOnlySkillsArray() throws {
+        let agent = AgentTool(
+            systemPrompt: nil,
+            initialUserPrompt: "{{selection}}",
+            contexts: [],
+            provider: .fixed(providerId: "openai", modelId: nil),
+            skills: [SkillReference(id: "writing", pinVersion: nil)],
+            mcpAllowlist: [],
+            builtinCapabilities: [],
+            maxSteps: 3,
+            stopCondition: .finalAnswerProvided,
+            toolCallPolicy: nil
+        )
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let json = try XCTUnwrap(String(data: try encoder.encode(agent), encoding: .utf8))
+
+        XCTAssertTrue(json.contains(#""skills":[{"id":"writing"}]"#), json)
+        XCTAssertFalse(json.contains(#""skill":"#), json)
+    }
+
+    func test_agentTool_decodingRejectsMoreThanFiveSkills() {
+        let json = Data(#"""
+        {
+          "systemPrompt": "agent sys",
+          "initialUserPrompt": "{{selection}}",
+          "contexts": [],
+          "provider": { "fixed": { "providerId": "openai", "modelId": null } },
+          "skills": [
+            { "id": "s1", "pinVersion": null },
+            { "id": "s2", "pinVersion": null },
+            { "id": "s3", "pinVersion": null },
+            { "id": "s4", "pinVersion": null },
+            { "id": "s5", "pinVersion": null },
+            { "id": "s6", "pinVersion": null }
+          ],
+          "mcpAllowlist": [],
+          "builtinCapabilities": [],
+          "maxSteps": 3,
+          "stopCondition": "finalAnswerProvided"
+        }
+        """#.utf8)
+
+        XCTAssertThrowsError(try JSONDecoder().decode(AgentTool.self, from: json)) { error in
+            guard case DecodingError.dataCorrupted = error else {
+                XCTFail("expected DecodingError.dataCorrupted, got \(error)")
+                return
+            }
+        }
     }
 
     func test_agentTool_decodesLegacyJSONWithoutToolCallPolicy() throws {
@@ -67,6 +139,7 @@ final class ToolKindTests: XCTestCase {
 
         XCTAssertNil(decoded.toolCallPolicy)
         XCTAssertEqual(decoded.maxSteps, 3)
+        XCTAssertEqual(decoded.skills, [])
     }
 
     func test_agentToolCallPolicy_codable_roundtrip() throws {
@@ -123,7 +196,7 @@ final class ToolKindTests: XCTestCase {
         let kind = ToolKind.agent(AgentTool(
             systemPrompt: nil, initialUserPrompt: "t",
             contexts: [], provider: .fixed(providerId: "p", modelId: nil),
-            skill: nil, mcpAllowlist: [], builtinCapabilities: [],
+            skills: [], mcpAllowlist: [], builtinCapabilities: [],
             maxSteps: 3, stopCondition: .finalAnswerProvided,
             toolCallPolicy: nil
         ))
@@ -190,7 +263,7 @@ final class ToolKindTests: XCTestCase {
         let kind = ToolKind.agent(AgentTool(
             systemPrompt: nil, initialUserPrompt: "x",
             contexts: [], provider: .fixed(providerId: "p", modelId: nil),
-            skill: nil, mcpAllowlist: [], builtinCapabilities: [],
+            skills: [], mcpAllowlist: [], builtinCapabilities: [],
             maxSteps: 3, stopCondition: .finalAnswerProvided,
             toolCallPolicy: nil
         ))

@@ -2,7 +2,7 @@
 
 ## 模块定位
 
-`Capabilities` 是 v2 能力边界模块，承载 Phase 1+ 会接入的 MCP、Skill、ContextProvider、本地安全能力和跨启动能力状态。Phase 0 提供协议、mock 和纯函数安全基础设施；Phase 1 M1 已接入本地 MCP server store、Claude Desktop stdio importer、真实 stdio MCP JSON-RPC client，并暴露给 SettingsUI 的 MCP Servers 设置页使用。Phase 1 M2 Task 7 已补齐五个核心 ContextProvider；Task 8 新增 persistent permission grant store；Task 9 已由 AppContainer 把真实 provider registry、persistent grant store 和 routing MCP client 接入生产启动路径。当前仍不实现 Streamable HTTP / WebSocket 远程 transport，也不做真实 skill 文件扫描；旧 HTTP+SSE 明确弃用，不再支持。
+`Capabilities` 是 v2 能力边界模块，承载 Phase 1+ 会接入的 MCP、Skill、ContextProvider、本地安全能力和跨启动能力状态。Phase 0 提供协议、mock 和纯函数安全基础设施；Phase 1 M1 已接入本地 MCP server store、Claude Desktop stdio importer、真实 stdio MCP JSON-RPC client，并暴露给 SettingsUI 的 MCP Servers 设置页使用。Phase 1 M2 Task 7 已补齐五个核心 ContextProvider；Task 8 新增 persistent permission grant store；Task 9 已由 AppContainer 把真实 provider registry、persistent grant store 和 routing MCP client 接入生产启动路径。Phase 2 Skill Registry MVP 已新增本地 `SKILL.md` parser、directory scanner 和 `LocalSkillRegistry` actor。当前仍不实现 WebSocket 远程 transport；旧 HTTP+SSE 明确弃用，不再支持。
 
 ## 功能范围
 
@@ -10,7 +10,7 @@
 - ContextProviders：`SelectionContextProvider`、`AppWindowTitleContextProvider`、`AppURLContextProvider`、`ClipboardCurrentContextProvider`、`FileReadContextProvider`。
 - Permissions：`PersistentPermissionGrantStore`。
 - MCP：`MCPClientProtocol`、`MockMCPClient`、`StdioMCPClient`、`RoutingMCPClient`、`MCPDiagnosticLog`、`MCPClientError`、`MCPServerStore`、`MCPServerValidation`、`ClaudeDesktopMCPImporter`；server descriptor、tool descriptor、工具引用、结构化参数与调用结果均复用 SliceCore 的 canonical 类型。
-- Skills：`SkillRegistryProtocol`、`MockSkillRegistry`、`Skill`。
+- Skills：`SkillRegistryProtocol`、`MockSkillRegistry`、`SkillMarkdownParser`、`SkillDirectoryScanner`、`LocalSkillRegistry`；canonical `Skill` 类型位于 `SliceCore`。
 
 ## 技术实现
 
@@ -22,7 +22,7 @@
 4. 硬禁止前缀优先拦截，如 Keychains、`.ssh`、Cookies、`/private/etc`。
 5. 按 `.read` / `.write` 角色匹配默认白名单和用户白名单。
 
-MCP 与 Skill 当前以 protocol + mock 的形式存在，目的是让 `Orchestration.ExecutionEngine` 在 Phase 0 就能稳定装配 10 个依赖，并为 Phase 1 / Phase 2 保留清晰替换点。M1 Task 2 已将 `MCPClientProtocol` 收敛到 SliceCore canonical contract：`tools(for:)` 返回 `MCPToolDescriptor`，`call(ref:args:)` 接收 `MCPJSONValue.Object`。
+MCP 当前以 protocol + routing client 的形式存在；Skill 以 `SkillRegistryProtocol` 抽象，生产实现为 `LocalSkillRegistry`。M1 Task 2 已将 `MCPClientProtocol` 收敛到 SliceCore canonical contract：`tools(for:)` 返回 `MCPToolDescriptor`，`call(ref:args:)` 接收 `MCPJSONValue.Object`。
 
 M1 Task 3 新增本地 MCP server 配置入口：`MCPServerStore` 默认读写 `~/Library/Application Support/SliceAI/mcp.json`，`save/load/snapshot` 都通过 `MCPServerValidation` 做 fail-closed 校验。当前只允许本地 stdio：不支持的 schemaVersion、重复 server id、`.unknown` provenance、空 command、相对 command、未知 bare command、未确认 allowlisted runner、`env` / shell wrapper command、远程 transport 和 websocket 新建写入都会被拒绝；allowlisted runner 即使以绝对路径出现，也会按大小写无关的 basename 归一到 runner 家族后要求 typed confirmation，覆盖 `python3.11`、`node22` 这类版本化解释器路径。`ClaudeDesktopMCPImporter` 只解析 Claude Desktop `mcpServers` stdio 配置并应用调用方传入 provenance；M4 前远程 URL 配置不导入。
 
@@ -60,17 +60,20 @@ M2 Task 8 新增 `PersistentPermissionGrantStore`，默认路径为 `~/Library/A
 | `MCPServerStore.snapshot()` | 读取、校验并按 `id` 排序返回 runtime wiring 使用的 descriptors。 |
 | `MCPServerValidation.validate(_:)` | 对 MCP server 配置执行 fail-closed 校验。 |
 | `ClaudeDesktopMCPImporter.importDescriptors(from:provenance:)` | 导入 Claude Desktop stdio `mcpServers` 配置。 |
-| `SkillRegistryProtocol.findSkill(id:)` | 按 id 查询 skill。 |
-| `SkillRegistryProtocol.allSkills()` | 列出全部已注册 skill。 |
+| `SkillMarkdownParser.parse(_:directoryName:)` | 解析最小 `SKILL.md` frontmatter / body，并返回可恢复 warning。 |
+| `SkillDirectoryScanner.scan(in:)` | 按一层扫描规则发现候选 skill，并拒绝 symlink escape。 |
+| `SkillRegistryProtocol.snapshot()` | 返回 sources、skills 和 diagnostics 快照。 |
+| `SkillRegistryProtocol.findSkill(id:)` | 按 id 查询 enabled skill。 |
+| `SkillRegistryProtocol.loadSkillInstructions(id:)` | 按需加载 enabled skill 的完整 `SKILL.md` body。 |
 
 ## 运行逻辑
 
-当前生产 App 已创建 `MCPServerStore(fileURL: appSupport/mcp.json)`、`StdioMCPClient` 和 `RoutingMCPClient`，并把 routing client 注入 `ExecutionEngine`。由于 `AgentExecutor` 仍属于后续 M3，`.agent` / `.pipeline` 工具在执行引擎中仍返回 not implemented，不会触发真实 MCP 或 Skill 调用。M1 的 stdio client 已用于 Settings MCP Servers 页面测试连接，并作为后续 AgentExecutor wiring 的底层 transport。
+当前生产 App 已创建 `MCPServerStore(fileURL: appSupport/mcp.json)`、`StdioMCPClient`、`RoutingMCPClient` 和 `LocalSkillRegistry`，并把 routing client 与同一个 skill registry 注入 `ExecutionEngine` / `AgentExecutor` / Settings。M1 的 stdio client 已用于 Settings MCP Servers 页面测试连接，也作为 AgentExecutor tool calling 的底层 transport。
 
-runtime 通过 `MCPServerStore.snapshot()` 获取已校验 descriptors，并把 `RoutingMCPClient` 作为唯一 MCP facade 注入执行链路。Phase 2 接入 Skill 文件扫描时，同样替换 `SkillRegistryProtocol` 实现。`PathSandbox` 已作为 `file.read` 的真实读取入口，后续也会作为文件写入和 MCP/Skill 本地路径访问的统一安全入口。
+runtime 通过 `MCPServerStore.snapshot()` 获取已校验 descriptors，并把 `RoutingMCPClient` 作为唯一 MCP facade 注入执行链路。Skill runtime 通过 `Configuration.skillSettings` 获取用户 roots，扫描和解析 `SKILL.md` 后供 Settings 与 AgentExecutor 消费。`PathSandbox` 已作为 `file.read` 的真实读取入口，后续也会作为文件写入和 MCP/Skill supporting files 访问的统一安全入口。
 
 `PersistentPermissionGrantStore` 是 Settings-only 的持久授权后端。运行时 `PermissionBroker` 读取 `permission-grants.json` 命中的 persistent grant，但不会在执行过程中写入 `.persistent`；Task 9 已接入真实 AppKit 运行期确认 UI，Settings 写入入口仍留给后续任务。
 
 ## 代码实现说明
 
-核心源码位于 `SliceAIKit/Sources/Capabilities/`。测试位于 `SliceAIKit/Tests/CapabilitiesTests/`，重点覆盖路径 symlink 展开、硬禁止前缀、读写白名单、核心 ContextProvider、mock MCP 和 mock skill registry 行为。
+核心源码位于 `SliceAIKit/Sources/Capabilities/`。测试位于 `SliceAIKit/Tests/CapabilitiesTests/`，重点覆盖路径 symlink 展开、硬禁止前缀、读写白名单、核心 ContextProvider、mock MCP、`SKILL.md` parser、directory scanner 和 local skill registry 行为。

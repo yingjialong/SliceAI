@@ -24,15 +24,22 @@
 - [x] 产出 `docs/superpowers/specs/2026-05-20-phase-2-skill-registry-mvp.md`。
 - [x] 用户 review spec 并确认进入 implementation plan。
 - [x] 使用 `superpowers:writing-plans` 产出 `docs/superpowers/plans/2026-05-21-phase-2-skill-registry-mvp.md`。
-- [ ] 用户选择执行方式：Subagent-Driven 或 Inline Execution。
+- [x] 用户选择执行方式：Subagent-Driven。
+- [x] 完成 SliceCore skill schema 与配置迁移。
+- [x] 完成 Capabilities `SKILL.md` parser / scanner / `LocalSkillRegistry`。
+- [x] 完成 AgentExecutor `sliceai.load_skill` pseudo-tool 和 metadata 注入。
+- [x] 完成 Settings Skills 页面与 Agent Tool skill 绑定 UI。
+- [x] 按用户反馈将 Agent Tool skill 绑定 UI 从全量列表改为逐条添加：加号新增一行，每行用下拉菜单选择 skill，减号删除该行。
+- [x] 完成 AppContainer 真实 `LocalSkillRegistry` 注入。
+- [x] 完成 full gate。
 
 ## 当前状态
 
-- 当前分支：`main`。
-- 当前工作不改业务代码，只修正文档和交接状态。
+- 当前分支：`codex/phase-2-skill-registry-mvp`。
+- 当前工作已完成 Skill Registry MVP 实现与 final gate；Agent Tool skill 绑定 UI 已改为逐条添加 / 下拉选择 / 减号删除，不再一次性列出全部 skills。
 - `v0.3.0` draft release 保持草稿；除非用户重新明确要求，不发布、不删 draft、不重打 tag。
 - Phase 2 推荐首个切片为 Skill Registry MVP；DisplayMode、English Tutor、远端 skill 安装、marketplace 和复杂运行时能力先不进入第一轮 spec。
-- 已完成 Skill Registry MVP 范围对齐、正式 spec 写入、spec 自检和 implementation plan：`docs/superpowers/specs/2026-05-20-phase-2-skill-registry-mvp.md`、`docs/superpowers/plans/2026-05-21-phase-2-skill-registry-mvp.md`。当前等待用户选择执行方式，未改业务代码。
+- 已完成 Skill Registry MVP 范围对齐、正式 spec、implementation plan、Claude review loop approve、Subagent-Driven 实施和最终验证。当前等待用户决定是否提交/PR/继续后续 Phase 2 切片。
 
 ## 推荐 MVP 边界
 
@@ -45,8 +52,9 @@
 ## 暂不进入本轮的内容
 
 - Marketplace、远端安装、GitHub 拉取或自动更新。
-- Skill 内脚本执行、依赖安装、沙箱运行和长期后台任务。
 - Supporting files（`references/`、`assets/`、`scripts/`）按需读取；本轮只读取 `SKILL.md`，并把资源读取列为技术债务。
+- Skill 内脚本执行、依赖安装、沙箱运行和长期后台任务；本轮不做，后续作为 runtime 技术债务单独设计。
+- Marketplace、远端安装、GitHub 拉取或自动更新；本轮不做，后续作为分发与 trust model 技术债务单独设计。
 - English Tutor 全流程。
 - `replace / bubble / structured / silent` DisplayMode 的完整 UI 实现。
 - TTS、复杂 structured form schema、跨 App `setSelectedText` 兼容矩阵。
@@ -69,19 +77,36 @@
 - `docs/Task-detail/2026-05-20-phase-2-skill-registry-mvp-spec.md`：新增本任务文档。
 - `docs/handoffs/2026-05-20-phase-2-skill-registry-mvp.md`：新增下一会话交接。
 - `docs/superpowers/specs/2026-05-20-phase-2-skill-registry-mvp.md`：新增 Skill Registry MVP 正式规格，记录 Claude/Codex 兼容、渐进式加载、pseudo-tool、配置、UI、错误模型、测试策略和技术债务。
-- `docs/superpowers/plans/2026-05-21-phase-2-skill-registry-mvp.md`：新增 implementation plan，按 TDD 拆分 SliceCore schema、parser/scanner、registry、AgentExecutor pseudo-tool、Settings UI、AppContainer wiring、文档和最终 gate。
+- `docs/superpowers/plans/2026-05-21-phase-2-skill-registry-mvp.md`：implementation plan，按 TDD 拆分 SliceCore schema、parser/scanner、registry、AgentExecutor pseudo-tool、Settings UI、AppContainer wiring、文档和最终 gate。
+- `docs/Module/SkillRegistry.md`：新增 SkillRegistry 模块文档。
+- `docs/Module/Capabilities.md`：更新 Capabilities 的 SkillRegistry 口径。
+- `SliceAIKit/Sources/SliceCore/*`：新增 canonical skill schema、`SkillSettings`、`AgentTool.skills`、schema version 3 与兼容解码。
+- `SliceAIKit/Sources/Capabilities/Skills/*`：新增 parser、scanner、registry、snapshot 和 mock registry。
+- `SliceAIKit/Sources/Orchestration/Executors/*`：新增 skill metadata prompt 和 `sliceai_load_skill` pseudo-tool 本地处理。
+- `SliceAIKit/Sources/SettingsUI/*`：新增 Skills 页面、SkillsViewModel 和 Agent Tool skill 绑定 UI；`ToolEditorView+AgentSkills.swift` 封装逐条添加、下拉选择、重复排除和删除逻辑。
+- `SliceAIApp/AppContainer.swift`、`SliceAIApp/AppDelegate.swift`：注入单例 `LocalSkillRegistry`。
 
 ## 代码修改逻辑
 
-本任务目前没有业务代码修改。文档修改逻辑是把“v0.3 发布动作”与“Phase 2 开发启动”拆开：`v0.3.0` draft release 技术上已准备好，但人工发布是显式暂缓的产品决策；后续开发不应围绕发布 checklist 继续，而应先对 Directional 的 Phase 2 重新做 spec。
+最初文档修改逻辑是把“v0.3 发布动作”与“Phase 2 开发启动”拆开：`v0.3.0` draft release 技术上已准备好，但人工发布是显式暂缓的产品决策；后续开发不应围绕发布 checklist 继续，而应先对 Directional 的 Phase 2 重新做 spec。
 
-Skill Registry MVP 的 spec 修改逻辑是把原 roadmap 中“执行前直接拼接完整 `SKILL.md`”修正为更接近 Claude/Codex 的 progressive disclosure：Agent Tool 先绑定候选 skills，模型初始只看到 `name / description / path` 元数据，真正需要时通过内置 `sliceai.load_skill` 读取完整 `SKILL.md`。同时明确本轮只支持 Agent Tool，不支持 Prompt Tool；只读取 `SKILL.md`，不执行脚本、不读取 supporting files，并把后续资源读取列为技术债务。
+Skill Registry MVP 的 spec 修改逻辑是把原 roadmap 中“执行前直接拼接完整 `SKILL.md`”修正为更接近 Claude/Codex 的 progressive disclosure：Agent Tool 先绑定候选 skills，模型初始只看到 `name / description / path` 元数据，真正需要时通过内置 `sliceai.load_skill` 读取完整 `SKILL.md`。同时明确本轮只支持 Agent Tool，不支持 Prompt Tool；只读取 `SKILL.md`，不执行脚本、不读取 supporting files、不做 marketplace，并把这些后续能力列为技术债务。
 
 Implementation plan 的修改逻辑是把 spec 拆为 8 个可 TDD 执行的任务：先稳定 SliceCore schema，再落 parser / scanner / registry，再接 AgentExecutor 渐进式加载，最后接 Settings UI 和 AppContainer wiring。这样可以避免 UI 先行或执行链先行导致模型边界反复重写。
 
+实现修改逻辑是保持 KISS：canonical skill 数据只放 `SliceCore`，`Capabilities` 只负责文件系统扫描、最小 frontmatter 解析和 registry snapshot；`Orchestration` 不读取目录，只消费当前 Agent Tool 已绑定的 enabled skills；`SettingsUI` 只写 `Configuration.skillSettings` 和 `AgentTool.skills`；`SliceAIApp` 只负责把同一个 `LocalSkillRegistry` 注入 UI 和运行时。这样能避免 registry、UI 和执行链各自扫描或缓存出不同真相。
+
+Agent Tool skill 绑定 UI 的二次修改逻辑是减少配置噪音：原全量列表会把所有 enabled skills 一次性铺开，skill 数量上来后会影响 Agent 编辑器可读性。新实现只展示已绑定行；用户通过加号一次新增一个绑定，行内 Picker 只显示当前行 skill 和其它未绑定 skills，避免重复选择；减号删除当前绑定。添加时默认选中第一个未绑定 skill，保持配置模型只保存有效 `SkillReference`，避免引入 UI-only 空行状态。
+
+final gate 前的 lint 修复只做结构性小拆分：`SkillDirectoryScanner` 改为私有累加器，`LocalSkillRegistry` 把候选读取/解析/构造拆成小 helper，`AgentExecutor` 把请求构造和 tool message 摘要拆到独立扩展文件，`AppContainer` 用输入结构体收口 runtime 参数。拆分不改变业务语义，主要目的是让实现继续符合仓库 SwiftLint 阈值。
+
 ## 测试结果
 
-- 已通过：`git diff --check`，确认文档 patch 无 whitespace 问题。
+- 已通过：`git diff --check`，确认最终 diff 无 whitespace 问题。
 - 已通过：spec 完整性扫描，未发现未完成标记或未替换日期模板。
 - 已通过：plan 完整性扫描，未发现未完成标记或未替换日期模板。
-- 未执行 Swift 测试：本任务未修改业务代码。
+- 已通过：`swift test --package-path SliceAIKit --filter ToolEditorSkillsBindingTests`（5 tests），覆盖加号新增、下拉候选去重、行内替换和减号删除。
+- 已通过：`swift test --package-path SliceAIKit --filter 'AgentExecutorTests|SettingsUITests|SkillMarkdownParserTests|SkillDirectoryScannerTests|SkillRegistryProtocolTests|LocalSkillRegistryTests'`（76 tests）。
+- 已通过：`swift test --package-path SliceAIKit`（795 tests，0 failures）。
+- 已通过：`swiftlint lint --strict`（0 violations，0 serious）。
+- 已通过：`xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`（`BUILD SUCCEEDED`）。

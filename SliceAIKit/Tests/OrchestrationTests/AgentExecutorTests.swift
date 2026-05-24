@@ -32,7 +32,8 @@ final class AgentExecutorTests: XCTestCase {
         broker: MockPermissionBroker = MockPermissionBroker(),
         mcpClient: any MCPClientProtocol,
         descriptors: [MCPDescriptor]? = nil,
-        timeout: UInt64 = 1_000_000_000
+        timeout: UInt64 = 1_000_000_000,
+        skillRegistry: any SkillRegistryProtocol = MockSkillRegistry()
     ) -> AgentExecutor {
         AgentExecutor(
             providerResolver: MockProviderResolver(),
@@ -41,7 +42,8 @@ final class AgentExecutorTests: XCTestCase {
             keychain: MockKeychain(["openai-stub": "fake-key"]),
             llmProviderFactory: MockLLMProviderFactory(provider: llm),
             mcpDescriptors: { descriptors ?? [Self.fsDescriptor] },
-            toolCallTimeoutNanoseconds: timeout
+            toolCallTimeoutNanoseconds: timeout,
+            skillRegistry: skillRegistry
         )
     }
 
@@ -54,14 +56,15 @@ final class AgentExecutorTests: XCTestCase {
         allowlist: [MCPToolRef]? = nil,
         maxSteps: Int = 4,
         stopCondition: StopCondition = .finalAnswerProvided,
-        toolCallPolicy: AgentToolCallPolicy? = nil
+        toolCallPolicy: AgentToolCallPolicy? = nil,
+        skills: [SkillReference] = []
     ) -> AgentTool {
         AgentTool(
             systemPrompt: "You are an agent.",
             initialUserPrompt: "Read {{selection}}",
             contexts: [],
             provider: .fixed(providerId: "openai-stub", modelId: nil),
-            skill: nil,
+            skills: skills,
             mcpAllowlist: allowlist ?? [readRef],
             builtinCapabilities: [],
             maxSteps: maxSteps,
@@ -255,7 +258,217 @@ final class AgentExecutorTests: XCTestCase {
         )
     }
 
+    /// 构造 enabled skill fixture。
+    /// - Parameters:
+    ///   - name: skill canonical name。
+    ///   - description: manifest description。
+    ///   - skillFile: SKILL.md 文件路径。
+    /// - Returns: 测试用 Skill。
+    private func makeSkill(
+        name: String,
+        description: String = "Use when editing prose.",
+        skillFile: URL? = nil
+    ) -> Skill {
+        let actualSkillFile = skillFile ?? URL(fileURLWithPath: "/tmp/skills/\(name)/SKILL.md")
+        return Skill(
+            id: name,
+            canonicalName: name,
+            path: actualSkillFile.deletingLastPathComponent(),
+            skillFile: actualSkillFile,
+            manifest: SkillManifest(
+                name: name,
+                description: description,
+                instructionsCharacterCount: 120
+            ),
+            resources: [],
+            provenance: .selfManaged(userAcknowledgedAt: Date(timeIntervalSince1970: 0)),
+            source: SkillSourceRef(sourceId: "source-test", rootPath: "/tmp/skills"),
+            state: .enabled
+        )
+    }
+
+    /// 构造按需加载 SKILL.md 后的 payload fixture。
+    /// - Parameters:
+    ///   - name: skill canonical name。
+    ///   - instructions: 完整指令正文。
+    /// - Returns: 测试用 SkillInstructionPayload。
+    private func makeSkillPayload(
+        name: String,
+        instructions: String = "Follow the skill instructions."
+    ) -> SkillInstructionPayload {
+        SkillInstructionPayload(
+            id: name,
+            canonicalName: name,
+            skillFile: URL(fileURLWithPath: "/tmp/skills/\(name)/SKILL.md"),
+            frontmatterSummary: SkillManifest(
+                name: name,
+                description: "Use when editing prose.",
+                rawFrontmatter: "name: \(name)",
+                instructionsCharacterCount: instructions.count
+            ),
+            instructions: instructions
+        )
+    }
+
     // MARK: - Tests
+
+    /// 绑定 skill 的 Agent 应暴露本地 load_skill pseudo-tool，并在 prompt 中包含 metadata。
+    func test_agentWithBoundSkillExposesLoadSkillToolAndMetadata() async throws {
+        let skill = makeSkill(name: "writing")
+        let payload = makeSkillPayload(name: "writing", instructions: "Follow writing rules.")
+        let registry = MockSkillRegistry(skills: [skill], instructions: ["writing": payload])
+        let llm = MockToolCallingLLMProvider(turns: [
+            toolCallTurn(id: "skill-1", name: "sliceai_load_skill", arguments: "{\"name\":\"writing\"}"),
+            finalAnswerTurn("Done")
+        ])
+        let executor = makeExecutor(llm: llm, mcpClient: makeMCPClient(), skillRegistry: registry)
+        let agent = makeAgent(allowlist: [], skills: [SkillReference(id: "writing", pinVersion: nil)])
+
+        let events = await collectEvents(from: await executor.run(
+            tool: makeTool(agent: agent),
+            agent: agent,
+            resolved: makeResolvedContext(),
+            provider: MockProvider.openAIStub()
+        ))
+
+        guard let proposedIndex = events.firstIndex(where: { event in
+            if case .toolCallProposed(_, AgentBuiltInTool.loadSkillRef, _) = event { return true }
+            return false
+        }) else {
+            XCTFail("expected sliceai.load_skill proposed event, got \(events)")
+            return
+        }
+        guard let approvedIndex = events.firstIndex(where: { event in
+            if case .toolCallApproved = event { return true }
+            return false
+        }) else {
+            XCTFail("expected sliceai.load_skill approved event, got \(events)")
+            return
+        }
+        XCTAssertLessThan(proposedIndex, approvedIndex)
+        XCTAssertTrue(events.contains { event in
+            if case .toolCallResult(_, let summary) = event { return summary.contains("writing") }
+            return false
+        })
+        XCTAssertTrue(llm.capturedToolRequests.first?.tools.contains {
+            $0.name == AgentBuiltInTool.loadSkillName
+        } ?? false)
+        let prompt = llm.capturedToolRequests.first?.messages.compactMap(\.content).joined(separator: "\n")
+        XCTAssertTrue(prompt?.contains("Available SliceAI skills for this tool:") ?? false)
+    }
+
+    /// 未绑定的 skill 名称必须本地拒绝，且不能走 MCP allowlist/gate/call。
+    func test_loadSkillRejectsUnboundSkillWithoutCallingMCP() async throws {
+        let skill = makeSkill(name: "writing")
+        let registry = MockSkillRegistry(
+            skills: [skill],
+            instructions: ["writing": makeSkillPayload(name: "writing")]
+        )
+        let mcp = makeMCPClient()
+        let llm = MockToolCallingLLMProvider(turns: [
+            toolCallTurn(id: "skill-1", name: "sliceai_load_skill", arguments: "{\"name\":\"writing\"}"),
+            finalAnswerTurn("Done")
+        ])
+        let executor = makeExecutor(llm: llm, mcpClient: mcp, skillRegistry: registry)
+        let agent = makeAgent(allowlist: [], skills: [])
+
+        let events = await collectEvents(from: await executor.run(
+            tool: makeTool(agent: agent),
+            agent: agent,
+            resolved: makeResolvedContext(),
+            provider: MockProvider.openAIStub()
+        ))
+
+        XCTAssertTrue(events.contains { event in
+            if case .toolCallError(_, let summary) = event { return summary.contains("not bound") }
+            return false
+        })
+        let mcpCallCount = await mcp.callCount
+        XCTAssertEqual(mcpCallCount, 0)
+    }
+
+    /// 没有绑定 skill 时，不应向 provider 暴露 pseudo-tool 或 metadata block。
+    func test_agentWithoutBoundSkillsHidesLoadSkillToolAndMetadata() async throws {
+        let llm = MockToolCallingLLMProvider(turns: [finalAnswerTurn("Done")])
+        let executor = makeExecutor(llm: llm, mcpClient: makeMCPClient())
+        let agent = makeAgent(allowlist: [], skills: [])
+
+        _ = await collectEvents(from: await executor.run(
+            tool: makeTool(agent: agent),
+            agent: agent,
+            resolved: makeResolvedContext(),
+            provider: MockProvider.openAIStub()
+        ))
+
+        let request = try XCTUnwrap(llm.capturedToolRequests.first)
+        XCTAssertFalse(request.tools.contains { $0.name == AgentBuiltInTool.loadSkillName })
+        XCTAssertFalse(request.messages.compactMap(\.content).joined(separator: "\n").contains(
+            "Available SliceAI skills for this tool:"
+        ))
+    }
+
+    /// 同一轮运行重复加载同名 skill 时，registry 只能被调用一次。
+    func test_duplicateLoadSkillReturnsAlreadyLoadedAndDoesNotReload() async throws {
+        let skill = makeSkill(name: "writing")
+        let registry = CountingSkillRegistry(skill: skill, payload: makeSkillPayload(name: "writing"))
+        let llm = MockToolCallingLLMProvider(turns: [
+            toolCallTurn(id: "skill-1", name: "sliceai_load_skill", arguments: "{\"name\":\"writing\"}"),
+            toolCallTurn(id: "skill-2", name: "sliceai_load_skill", arguments: "{\"name\":\"writing\"}"),
+            finalAnswerTurn("Done")
+        ])
+        let executor = makeExecutor(llm: llm, mcpClient: makeMCPClient(), skillRegistry: registry)
+        let agent = makeAgent(allowlist: [], skills: [SkillReference(id: "writing", pinVersion: nil)])
+
+        let events = await collectEvents(from: await executor.run(
+            tool: makeTool(agent: agent),
+            agent: agent,
+            resolved: makeResolvedContext(),
+            provider: MockProvider.openAIStub()
+        ))
+
+        let loadCount = await registry.loadCount
+        XCTAssertEqual(loadCount, 1)
+        XCTAssertTrue(events.contains { event in
+            if case .toolCallResult(_, let summary) = event { return summary.contains("already loaded") }
+            return false
+        })
+    }
+
+    /// Skill metadata 的 description 可被裁剪，但 name/path 必须全部保留。
+    func test_skillMetadataTruncatesDescriptionWhenOverBudget() async throws {
+        let skills = (0..<5).map { index in
+            makeSkill(
+                name: "skill-\(index)",
+                description: String(repeating: "d", count: 3_000),
+                skillFile: URL(fileURLWithPath: "/tmp/skills/skill-\(index)/SKILL.md")
+            )
+        }
+        let registry = MockSkillRegistry(skills: skills)
+        let llm = MockToolCallingLLMProvider(turns: [finalAnswerTurn("Done")])
+        let executor = makeExecutor(llm: llm, mcpClient: makeMCPClient(), skillRegistry: registry)
+        let refs = skills.map { SkillReference(id: $0.id, pinVersion: nil) }
+        let agent = makeAgent(allowlist: [], skills: refs)
+
+        _ = await collectEvents(from: await executor.run(
+            tool: makeTool(agent: agent),
+            agent: agent,
+            resolved: makeResolvedContext(),
+            provider: MockProvider.openAIStub()
+        ))
+
+        let content = try XCTUnwrap(
+            llm.capturedToolRequests.first?.messages.compactMap(\.content).joined(separator: "\n")
+        )
+        let parts = content.components(separatedBy: "Available SliceAI skills for this tool:")
+        XCTAssertEqual(parts.count, 2)
+        let block = parts[1]
+        XCTAssertLessThanOrEqual(block.count, 8_000)
+        for skill in skills {
+            XCTAssertTrue(block.contains("name: \(skill.canonicalName)"))
+            XCTAssertTrue(block.contains("path: \(skill.skillFile.path)"))
+        }
+        XCTAssertTrue(block.contains("..."))
+    }
 
     /// 成功路径：allowed MCP tool → broker approved → MCP result → 模型最终答案。
     func test_agentExecutor_callsAllowedMCPToolAndReturnsFinalAnswer() async throws {
@@ -1203,5 +1416,41 @@ private final actor HangingMCPClient: MCPClientProtocol {
     func call(ref: MCPToolRef, args: MCPJSONValue.Object) async throws -> MCPCallResult {
         try await Task.sleep(nanoseconds: 60_000_000_000)
         return MCPCallResult(content: [], structuredContent: nil, isError: false, meta: nil)
+    }
+}
+
+/// 统计 `loadSkillInstructions` 调用次数的 SkillRegistry。
+private actor CountingSkillRegistry: SkillRegistryProtocol {
+    private let skill: Skill
+    private let payload: SkillInstructionPayload
+    private(set) var loadCount = 0
+
+    /// 构造 CountingSkillRegistry。
+    /// - Parameters:
+    ///   - skill: 可解析的 enabled skill。
+    ///   - payload: 加载时返回的正文 payload。
+    init(skill: Skill, payload: SkillInstructionPayload) {
+        self.skill = skill
+        self.payload = payload
+    }
+
+    /// 返回只包含测试 skill 的 snapshot。
+    func snapshot() async throws -> SkillRegistrySnapshot {
+        SkillRegistrySnapshot(sources: [], skills: [skill], diagnostics: [], generatedAt: Date())
+    }
+
+    /// 按 id 查找 enabled skill。
+    /// - Parameter id: skill id。
+    /// - Returns: 匹配且 enabled 时返回 skill，否则 nil。
+    func findSkill(id: String) async throws -> Skill? {
+        skill.id == id && skill.state == .enabled ? skill : nil
+    }
+
+    /// 统计并返回测试 payload。
+    /// - Parameter id: skill id。
+    /// - Returns: 测试 payload。
+    func loadSkillInstructions(id: String) async throws -> SkillInstructionPayload {
+        loadCount += 1
+        return payload
     }
 }

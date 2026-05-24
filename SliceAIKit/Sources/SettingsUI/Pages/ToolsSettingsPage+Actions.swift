@@ -52,7 +52,7 @@ extension ToolsSettingsPage {
             initialUserPrompt: "Use the available tools when useful for:\n\n{{selection}}",
             contexts: [selectionContextRequest()],
             provider: .fixed(providerId: providerId, modelId: nil),
-            skill: nil,
+            skills: [],
             mcpAllowlist: [],
             builtinCapabilities: [],
             maxSteps: 4,

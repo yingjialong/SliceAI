@@ -265,6 +265,7 @@ public struct ToolsSettingsPage: View {
                 providers: viewModel.configuration.providers,
                 tools: viewModel.configuration.tools,
                 hotkeys: $viewModel.configuration.hotkeys,
+                availableSkills: viewModel.availableAgentSkills,
                 onHotkeyCommit: {
                     Task {
                         await viewModel.saveHotkeys()

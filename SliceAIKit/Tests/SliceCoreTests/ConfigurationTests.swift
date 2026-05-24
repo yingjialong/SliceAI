@@ -3,13 +3,14 @@ import XCTest
 
 final class ConfigurationTests: XCTestCase {
 
-    func test_configuration_currentSchemaVersion_is2() {
-        XCTAssertEqual(Configuration.currentSchemaVersion, 2)
+    func test_configuration_currentSchemaVersion_is3() {
+        XCTAssertEqual(Configuration.currentSchemaVersion, 3)
     }
 
-    func test_defaultConfiguration_usesSchemaVersion2() {
+    func test_defaultConfiguration_usesSchemaVersion3() {
         let cfg = DefaultConfiguration.initial()
-        XCTAssertEqual(cfg.schemaVersion, 2)
+        XCTAssertEqual(cfg.schemaVersion, 3)
+        XCTAssertEqual(cfg.skillSettings, .empty)
     }
 
     func test_defaultConfiguration_hasFiveFirstPartyToolsAndLegacyPromptsRemainPrompt() {
@@ -55,6 +56,7 @@ final class ConfigurationTests: XCTestCase {
         XCTAssertEqual(agent.mcpAllowlist, [
             MCPToolRef(server: "brave-search", tool: "brave_web_search")
         ])
+        XCTAssertEqual(agent.skills, [])
         XCTAssertEqual(agent.maxSteps, 4)
         XCTAssertEqual(agent.stopCondition, .finalAnswerProvided)
         XCTAssertEqual(agent.toolCallPolicy?.maxTotalCalls, 2)
@@ -64,6 +66,30 @@ final class ConfigurationTests: XCTestCase {
         ])
         XCTAssertEqual(agent.toolCallPolicy?.duplicateArgumentStrategy, .skipExactArguments)
         XCTAssertEqual(agent.toolCallPolicy?.stopOnRateLimit, true)
+    }
+
+    func test_configurationDefaultsSkillSettingsWhenMissing() throws {
+        let json = Data(#"""
+        {
+          "schemaVersion": 3,
+          "providers": [],
+          "tools": [],
+          "hotkeys": { "toggleCommandPalette": "option+space" },
+          "triggers": {
+            "floatingToolbarEnabled": true,
+            "commandPaletteEnabled": true,
+            "triggerDelayMs": 120,
+            "minimumSelectionLength": 1
+          },
+          "telemetry": { "enabled": false },
+          "appBlocklist": [],
+          "appearance": "auto"
+        }
+        """#.utf8)
+
+        let decoded = try JSONDecoder().decode(Configuration.self, from: json)
+
+        XCTAssertEqual(decoded.skillSettings, .empty)
     }
 
     /// Web Search Summarize 必须声明 Brave Search MCP 权限，否则 PermissionGraph 会 fail-closed。

@@ -44,7 +44,7 @@ final class ConfigurationStoreTests: XCTestCase {
         let store = ConfigurationStore(fileURL: v2URL, legacyFileURL: v1URL)
         let cfg = try await store.load()
 
-        XCTAssertEqual(cfg.schemaVersion, 2)
+        XCTAssertEqual(cfg.schemaVersion, 3)
         XCTAssertEqual(cfg.tools.count, 1)
 
         // v2 文件已被写入
@@ -83,6 +83,44 @@ final class ConfigurationStoreTests: XCTestCase {
         XCTAssertEqual(cfg.tools.count, 0)
     }
 
+    func test_load_withExistingSchema2_normalizesToCurrentVersionBeforeWriteBack() async throws {
+        let v2URL = tempDir.appendingPathComponent("config-v2.json")
+        let template = DefaultConfiguration.initial()
+        let existing = Configuration(
+            schemaVersion: 2,
+            providers: template.providers,
+            tools: template.tools,
+            hotkeys: template.hotkeys,
+            triggers: template.triggers,
+            telemetry: template.telemetry,
+            appBlocklist: template.appBlocklist,
+            appearance: template.appearance,
+            skillSettings: template.skillSettings
+        )
+        try JSONEncoder().encode(existing).write(to: v2URL, options: .atomic)
+
+        let store = ConfigurationStore(fileURL: v2URL, legacyFileURL: nil)
+        var loaded = try await store.current()
+        loaded.skillSettings = SkillSettings(
+            sources: [
+                SkillSource(
+                    id: "source",
+                    displayName: "Source",
+                    rootPath: "/tmp/skills",
+                    isEnabled: true,
+                    order: 0
+                )
+            ],
+            overrides: [:]
+        )
+        try await store.update(loaded)
+
+        let written = try JSONDecoder().decode(Configuration.self, from: Data(contentsOf: v2URL))
+        XCTAssertEqual(loaded.schemaVersion, 3)
+        XCTAssertEqual(written.schemaVersion, 3)
+        XCTAssertEqual(written.skillSettings.sources.first?.id, "source")
+    }
+
     func test_load_withNeither_returnsDefaultV2() async throws {
         let v1URL = tempDir.appendingPathComponent("config.json")
         let v2URL = tempDir.appendingPathComponent("config-v2.json")
@@ -90,7 +128,7 @@ final class ConfigurationStoreTests: XCTestCase {
         let store = ConfigurationStore(fileURL: v2URL, legacyFileURL: v1URL)
         let cfg = try await store.load()
 
-        XCTAssertEqual(cfg.schemaVersion, 2)
+        XCTAssertEqual(cfg.schemaVersion, 3)
         XCTAssertEqual(cfg.tools.count, 5)  // 4 个 prompt 工具 + 1 个 Agent 工具（DefaultConfiguration）
     }
 
