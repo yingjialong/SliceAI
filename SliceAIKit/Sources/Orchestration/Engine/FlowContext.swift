@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import SliceCore
 
@@ -18,6 +19,8 @@ final class FlowContext {
     let declared: Set<Permission>
     /// 主流程启动时刻；finishSuccess / finishFailure 写 InvocationReport.startedAt 时使用
     let startedAt: Date
+    /// 触发时的屏幕锚点，供 output lifecycle sink 定位。
+    let screenAnchor: CGPoint
     /// 事件流 continuation；helper 通过 `context.continuation.yield(...)` 派发事件
     let continuation: AsyncThrowingStream<ExecutionEvent, any Error>.Continuation
     /// PermissionGraph 计算后的 effective union（Step 2 写入，后续 step 只读）
@@ -37,12 +40,14 @@ final class FlowContext {
         toolId: String,
         declared: Set<Permission>,
         startedAt: Date,
+        screenAnchor: CGPoint,
         continuation: AsyncThrowingStream<ExecutionEvent, any Error>.Continuation
     ) {
         self.invocationId = invocationId
         self.toolId = toolId
         self.declared = declared
         self.startedAt = startedAt
+        self.screenAnchor = screenAnchor
         self.continuation = continuation
         self.effective = []
         self.flags = []

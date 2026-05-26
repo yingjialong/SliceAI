@@ -195,44 +195,37 @@ extension ExecutionEngine {
     ) async -> UsageStats? {
         var promptUsage: UsageStats = .zero
         var notImplementedYielded = false
-        let stream = await promptExecutor.run(
-            promptTool: promptTool, resolved: resolved, provider: provider
-        )
+        var finalText = ""
+        let outputContext = makeOutputContext(tool: tool, context: context)
+        let stream = await promptExecutor.run(promptTool: promptTool, resolved: resolved, provider: provider)
         do {
+            try await output.begin(context: outputContext)
             for try await element in stream {
                 switch element {
                 case .chunk(let chunk):
-                    if Task.isCancelled { return nil }
-                    // 捕获 yield 结果：consumer 已 drop iterator 时 .terminated；不进 OutputDispatcher
-                    let yieldResult = context.continuation.yield(.llmChunk(delta: chunk))
-                    if case .terminated = yieldResult { return nil }
-                    let dispatchOutcome = try await output.handle(
-                        chunk: chunk, mode: tool.displayMode, invocationId: context.invocationId
-                    )
-                    if Task.isCancelled { return nil }
-                    if case .notImplemented(let reason) = dispatchOutcome, !notImplementedYielded {
-                        context.continuation.yield(.notImplemented(reason: reason))
-                        notImplementedYielded = true
-                    }
+                    guard try await dispatchPromptChunk(
+                        chunk,
+                        outputContext: outputContext,
+                        context: context,
+                        finalText: &finalText,
+                        notImplementedYielded: &notImplementedYielded
+                    ) else { return nil }
                 case .completed(let stats):
                     promptUsage = stats
                 }
             }
+            try await output.finish(finalText: finalText, context: outputContext)
         } catch is CancellationError {
             // 静默取消：consumer drop iterator 已触发 onTermination → 外层 continuation 已 drain；
             // 不写 audit、不 yield .failed（避免 audit 出现"用户取消但记 .failed"的歧义）。
             return nil
         } catch let error as SliceError {
-            await finishFailure(
-                error: error, effective: context.effective, context: context
-            )
+            await failPromptStream(error: error, outputContext: outputContext, context: context)
             return nil
         } catch {
             // 非 SliceError —— 包装为 provider.invalidResponse；payload 不携带任何用户文本
-            await finishFailure(
-                error: .provider(.invalidResponse("PromptExecutor stream failed (non-SliceError)")),
-                effective: context.effective, context: context
-            )
+            let wrapped = SliceError.provider(.invalidResponse("PromptExecutor stream failed (non-SliceError)"))
+            await failPromptStream(error: wrapped, outputContext: outputContext, context: context)
             return nil
         }
         return promptUsage

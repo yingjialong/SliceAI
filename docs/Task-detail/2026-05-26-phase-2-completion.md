@@ -30,7 +30,7 @@ Task 58-62 已完成 Phase 2 前半段：Skill Registry MVP、真实本地 skill
 - [x] 创建 Phase 2 completion spec。
 - [x] 创建 Phase 2 completion implementation plan。
 - [x] 更新 Task_history、README、AGENTS 和 master todolist 的任务口径。
-- [ ] 按 TDD 实施 Output lifecycle foundation。
+- [x] 按 TDD 实施 Output lifecycle foundation。
 - [ ] 按 TDD 实施 SideEffect executor。
 - [ ] 按 TDD 实施 `.silent` 与 `.file`。
 - [ ] 按 TDD 实施 `.replace`。
@@ -60,8 +60,15 @@ Task 58-62 已完成 Phase 2 前半段：Skill Registry MVP、真实本地 skill
   - `git diff --check`
   - `swift test --package-path SliceAIKit --filter CapabilitiesTests.LocalSkillRegistryTests`
   - `swift test --package-path SliceAIKit --filter OrchestrationTests.AgentExecutorTests`
+- Output lifecycle foundation：
+  - 红灯：`swift test --package-path SliceAIKit --filter OrchestrationTests.OutputLifecycleTests` 首次因 lifecycle API / `lifecycleCalls` 缺失编译失败。
+  - 红灯：Prompt lifecycle 变绿后，Agent lifecycle 测试因 lifecycle calls 为空失败，证明 Agent 路径仍未接入。
+  - 绿灯：`swift test --package-path SliceAIKit --filter OrchestrationTests.OutputLifecycleTests`，2 tests，0 failures。
+  - 绿灯：`swift test --package-path SliceAIKit --filter 'OrchestrationTests.OutputLifecycleTests|OrchestrationTests.ExecutionEngineTests|OrchestrationTests.AgentExecutorTests'`，56 tests，0 failures。
+  - 绿灯：`swift test --package-path SliceAIKit --filter 'OrchestrationTests.OutputDispatcherTests|OrchestrationTests.OutputDispatcherFallbackTests|OrchestrationTests.OutputLifecycleTests'`，18 tests，0 failures。
+  - 绿灯：touched Swift files `swiftlint lint --strict ...`，0 violations。
+  - 绿灯：`git diff --check`，passed。
 
 ## 下一步
 
-进入 plan Task 1：先写 Output lifecycle failing tests，再修改协议和执行链实现。
-
+提交 Output lifecycle foundation 后进入 plan Task 2：SideEffect executor。

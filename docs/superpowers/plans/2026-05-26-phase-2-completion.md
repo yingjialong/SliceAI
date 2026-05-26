@@ -38,7 +38,7 @@
 
 ## Task 1: Output Lifecycle Foundation
 
-- [ ] **Step 1: Write failing lifecycle protocol tests**
+- [x] **Step 1: Write failing lifecycle protocol tests**
 
 Add tests to `SliceAIKit/Tests/OrchestrationTests/Output/OutputLifecycleTests.swift`:
 
@@ -57,13 +57,13 @@ func test_promptStream_callsBeginChunkAndFinishWithFinalText() async throws {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `swift test --package-path SliceAIKit --filter OrchestrationTests.OutputLifecycleTests`
 
 Expected: compile failure because `OutputInvocationContext`, lifecycle methods and `lifecycleCalls` do not exist.
 
-- [ ] **Step 3: Add lifecycle API**
+- [x] **Step 3: Add lifecycle API**
 
 Implement in `OutputDispatcherProtocol.swift`:
 
@@ -88,7 +88,7 @@ func fail(error: SliceError, context: OutputInvocationContext) async
 
 Keep the old chunk method only as a temporary default wrapper if needed to reduce one-step churn, then remove direct callers inside this task.
 
-- [ ] **Step 4: Update ExecutionEngine stream consumption**
+- [x] **Step 4: Update ExecutionEngine stream consumption**
 
 In `runPromptStream` and `forwardLLMChunk`, create the context from `tool`, `seed.screenAnchor`, and `context.invocationId`. Accumulate `finalText` while streaming chunks. Call:
 
@@ -100,13 +100,13 @@ try await output.finish(finalText: finalText, context: outputContext)
 
 On failure paths that occur after begin, call `await output.fail(error: error, context: outputContext)`.
 
-- [ ] **Step 5: Run focused tests**
+- [x] **Step 5: Run focused tests**
 
 Run: `swift test --package-path SliceAIKit --filter 'OrchestrationTests.OutputLifecycleTests|OrchestrationTests.ExecutionEngineTests|OrchestrationTests.AgentExecutorTests'`
 
 Expected: pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add SliceAIKit/Sources/Orchestration SliceAIKit/Tests/OrchestrationTests
@@ -545,7 +545,17 @@ git commit -m "docs: complete phase 2 status"
 
 ## Verification Results
 
-No Phase 2 completion implementation tests have been run yet for this plan. Current pre-plan baseline from Task 62 was:
+Task 1 current verification:
+
+- Red: `swift test --package-path SliceAIKit --filter OrchestrationTests.OutputLifecycleTests` failed before implementation because `MockOutputDispatcher.lifecycleCalls` did not exist.
+- Red: after prompt lifecycle implementation, the Agent lifecycle test failed with empty lifecycle calls, proving the agent path still used chunk-only output.
+- Green: `swift test --package-path SliceAIKit --filter OrchestrationTests.OutputLifecycleTests`: 2 tests, 0 failures.
+- Green: `swift test --package-path SliceAIKit --filter 'OrchestrationTests.OutputLifecycleTests|OrchestrationTests.ExecutionEngineTests|OrchestrationTests.AgentExecutorTests'`: 56 tests, 0 failures.
+- Green: `swift test --package-path SliceAIKit --filter 'OrchestrationTests.OutputDispatcherTests|OrchestrationTests.OutputDispatcherFallbackTests|OrchestrationTests.OutputLifecycleTests'`: 18 tests, 0 failures.
+- Green: touched Swift files `swiftlint lint --strict ...`: 0 violations.
+- Green: `git diff --check`: passed.
+
+Pre-plan baseline from Task 62 was:
 
 - `swift test --package-path SliceAIKit`: 803 tests, 1 skipped, 0 failures.
 - `swiftlint lint --strict`: 0 violations.

@@ -1,6 +1,12 @@
 import Foundation
 import SliceCore
 
+/// Agent 输出累积状态，避免事件转发 helper 参数膨胀。
+private struct AgentOutputAccumulator {
+    var finalText = ""
+    var outputCharacters = 0
+}
+
 extension ExecutionEngine {
 
     /// Step 6/7：跑 AgentExecutor stream，转发工具生命周期事件，并把 `.llmChunk` 走同一 OutputDispatcher。
@@ -15,10 +21,26 @@ extension ExecutionEngine {
         context: FlowContext
     ) async -> UsageStats? {
         guard let agentExecutor else { return nil }
+        let outputContext = makeOutputContext(tool: tool, context: context)
         let stream = await agentExecutor.run(
             tool: tool, agent: agent, resolved: resolved, provider: provider
         )
-        return await consumeAgentStream(stream, tool: tool, context: context)
+        do {
+            try await output.begin(context: outputContext)
+        } catch {
+            await finishFailure(
+                error: .execution(.unknown("OutputDispatcher failed")),
+                effective: context.effective,
+                context: context
+            )
+            return nil
+        }
+        return await consumeAgentStream(
+            stream,
+            tool: tool,
+            context: context,
+            outputContext: outputContext
+        )
     }
 
     /// 消费 AgentExecutor 事件流并估算输出 token。
@@ -30,18 +52,30 @@ extension ExecutionEngine {
     private func consumeAgentStream(
         _ stream: AsyncThrowingStream<ExecutionEvent, any Error>,
         tool: Tool,
-        context: FlowContext
+        context: FlowContext,
+        outputContext: OutputInvocationContext
     ) async -> UsageStats? {
-        var outputCharacters = 0
+        var accumulator = AgentOutputAccumulator()
         do {
             for try await event in stream {
                 if Task.isCancelled { return nil }
-                guard await forwardAgentEvent(event, tool: tool, context: context, outputCharacters: &outputCharacters)
+                guard await forwardAgentEvent(
+                    event,
+                    tool: tool,
+                    context: context,
+                    outputContext: outputContext,
+                    accumulator: &accumulator
+                )
                 else { return nil }
             }
+            try await output.finish(finalText: accumulator.finalText, context: outputContext)
         } catch is CancellationError {
             return nil
         } catch {
+            await output.fail(
+                error: .execution(.unknown("AgentExecutor stream failed")),
+                context: outputContext
+            )
             await finishFailure(
                 error: .execution(.unknown("AgentExecutor stream failed")),
                 effective: context.effective,
@@ -49,7 +83,7 @@ extension ExecutionEngine {
             )
             return nil
         }
-        return UsageStats(inputTokens: 0, outputTokens: max(0, outputCharacters / 4))
+        return UsageStats(inputTokens: 0, outputTokens: max(0, accumulator.outputCharacters / 4))
     }
 
     /// 转发一个 AgentExecutor 事件。
@@ -57,14 +91,22 @@ extension ExecutionEngine {
         _ event: ExecutionEvent,
         tool: Tool,
         context: FlowContext,
-        outputCharacters: inout Int
+        outputContext: OutputInvocationContext,
+        accumulator: inout AgentOutputAccumulator
     ) async -> Bool {
         switch event {
         case .llmChunk(let chunk):
-            guard await forwardLLMChunk(chunk, tool: tool, context: context) else { return false }
-            outputCharacters += chunk.count
+            guard await forwardLLMChunk(
+                chunk,
+                tool: tool,
+                context: context,
+                outputContext: outputContext
+            ) else { return false }
+            accumulator.finalText += chunk
+            accumulator.outputCharacters += chunk.count
             return true
         case .failed(let error):
+            await output.fail(error: error, context: outputContext)
             await finishFailure(error: error, effective: context.effective, context: context)
             return false
         default:
@@ -82,17 +124,21 @@ extension ExecutionEngine {
     private func forwardLLMChunk(
         _ chunk: String,
         tool: Tool,
-        context: FlowContext
+        context: FlowContext,
+        outputContext: OutputInvocationContext
     ) async -> Bool {
         if case .terminated = context.continuation.yield(.llmChunk(delta: chunk)) { return false }
         do {
             _ = try await output.handle(
                 chunk: chunk,
-                mode: tool.displayMode,
-                invocationId: context.invocationId
+                context: outputContext
             )
             return !Task.isCancelled
         } catch {
+            await output.fail(
+                error: .execution(.unknown("OutputDispatcher failed")),
+                context: outputContext
+            )
             await finishFailure(
                 error: .execution(.unknown("OutputDispatcher failed")),
                 effective: context.effective,

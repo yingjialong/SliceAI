@@ -160,6 +160,7 @@ public actor ExecutionEngine {
             toolId: tool.id,
             declared: Set(tool.permissions),
             startedAt: Date(),
+            screenAnchor: seed.screenAnchor,
             continuation: continuation
         )
         continuation.yield(.started(invocationId: context.invocationId))

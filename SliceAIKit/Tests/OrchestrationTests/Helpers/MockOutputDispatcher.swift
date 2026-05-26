@@ -2,6 +2,22 @@ import Foundation
 import SliceCore
 @testable import Orchestration
 
+/// 测试用 output lifecycle 事件类型。
+enum MockOutputLifecycleKind: Sendable, Equatable {
+    case begin
+    case chunk
+    case finish
+    case fail
+}
+
+/// 测试用 output lifecycle 调用记录。
+struct MockOutputLifecycleCall: Sendable, Equatable {
+    let kind: MockOutputLifecycleKind
+    let chunk: String?
+    let finalText: String?
+    let context: OutputInvocationContext
+}
+
 /// In-memory `OutputDispatcherProtocol` mock for unit tests.
 ///
 /// 设计要点：
@@ -19,6 +35,9 @@ final actor MockOutputDispatcher: OutputDispatcherProtocol {
 
     /// 每次调用的 `(chunk, mode, invocationId)` 三元组，顺序保留
     private(set) var calls: [(chunk: String, mode: DisplayMode, invocationId: UUID)] = []
+
+    /// lifecycle API 调用记录，供新 DisplayMode / final text 测试断言。
+    private(set) var lifecycleCalls: [MockOutputLifecycleCall] = []
 
     /// 注入特定模式应返回的 `DispatchOutcome`；nil 时默认 `.delivered`
     /// `@Sendable` 是 actor field 存储跨边界闭包的硬性要求
@@ -43,6 +62,54 @@ final actor MockOutputDispatcher: OutputDispatcherProtocol {
         return .delivered
     }
 
+    /// 记录 lifecycle begin。
+    func begin(context: OutputInvocationContext) async throws {
+        lifecycleCalls.append(MockOutputLifecycleCall(
+            kind: .begin,
+            chunk: nil,
+            finalText: nil,
+            context: context
+        ))
+    }
+
+    /// 记录 lifecycle chunk，并复用旧 handle 记录。
+    func handle(
+        chunk: String,
+        context: OutputInvocationContext
+    ) async throws -> DispatchOutcome {
+        lifecycleCalls.append(MockOutputLifecycleCall(
+            kind: .chunk,
+            chunk: chunk,
+            finalText: nil,
+            context: context
+        ))
+        return try await handle(
+            chunk: chunk,
+            mode: context.mode,
+            invocationId: context.invocationId
+        )
+    }
+
+    /// 记录 lifecycle finish。
+    func finish(finalText: String, context: OutputInvocationContext) async throws {
+        lifecycleCalls.append(MockOutputLifecycleCall(
+            kind: .finish,
+            chunk: nil,
+            finalText: finalText,
+            context: context
+        ))
+    }
+
+    /// 记录 lifecycle fail。
+    func fail(error: SliceError, context: OutputInvocationContext) async {
+        lifecycleCalls.append(MockOutputLifecycleCall(
+            kind: .fail,
+            chunk: nil,
+            finalText: nil,
+            context: context
+        ))
+    }
+
     /// 测试用：在 mock 构造之后再注入 / 替换 `outcomeOverride`
     func setOutcomeOverride(_ override: @escaping @Sendable (DisplayMode) -> DispatchOutcome) {
         self.outcomeOverride = override
@@ -52,5 +119,6 @@ final actor MockOutputDispatcher: OutputDispatcherProtocol {
     func reset() {
         handleCallCount = 0
         calls.removeAll()
+        lifecycleCalls.removeAll()
     }
 }
