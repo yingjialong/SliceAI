@@ -68,6 +68,7 @@ extension ExecutionEngine {
                 )
                 else { return nil }
             }
+            context.finalText = accumulator.finalText
             try await output.finish(finalText: accumulator.finalText, context: outputContext)
         } catch is CancellationError {
             return nil

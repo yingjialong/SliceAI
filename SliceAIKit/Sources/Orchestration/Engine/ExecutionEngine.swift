@@ -51,6 +51,8 @@ public actor ExecutionEngine {
     let auditLog: any AuditLogProtocol
     /// 结果派发器（protocol）
     let output: any OutputDispatcherProtocol
+    /// SideEffect 实执行器；nil 时保留旧测试路径的事件/audit-only 行为
+    let sideEffectExecutor: (any SideEffectExecutorProtocol)?
 
     // MARK: - Init
 
@@ -67,6 +69,8 @@ public actor ExecutionEngine {
     ///   - costAccounting: Token cost 记账器（actor）
     ///   - auditLog: 审计日志追加器（protocol）
     ///   - output: 结果派发器（protocol）
+    ///   - agentExecutor: Agent ReAct loop 执行器。
+    ///   - sideEffectExecutor: SideEffect 实执行器。
     public init(
         contextCollector: ContextCollector,
         permissionBroker: any PermissionBrokerProtocol,
@@ -78,7 +82,8 @@ public actor ExecutionEngine {
         costAccounting: CostAccounting,
         auditLog: any AuditLogProtocol,
         output: any OutputDispatcherProtocol,
-        agentExecutor: AgentExecutor? = nil
+        agentExecutor: AgentExecutor? = nil,
+        sideEffectExecutor: (any SideEffectExecutorProtocol)? = nil
     ) {
         self.contextCollector = contextCollector
         self.permissionBroker = permissionBroker
@@ -91,6 +96,7 @@ public actor ExecutionEngine {
         self.costAccounting = costAccounting
         self.auditLog = auditLog
         self.output = output
+        self.sideEffectExecutor = sideEffectExecutor
     }
 
     // MARK: - Public API

@@ -115,7 +115,7 @@ git commit -m "feat: add output lifecycle foundation"
 
 ## Task 2: SideEffect Executor
 
-- [ ] **Step 1: Write failing executor tests**
+- [x] **Step 1: Write failing executor tests**
 
 Add `SideEffectExecutorTests` covering:
 
@@ -128,13 +128,13 @@ func test_execute_tts_speaksFinalText() async throws
 func test_execute_writeMemory_returnsUnsupported() async throws
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `swift test --package-path SliceAIKit --filter OrchestrationTests.SideEffectExecutorTests`
 
 Expected: compile failure because `SideEffectExecutorProtocol` does not exist.
 
-- [ ] **Step 3: Add side effect execution boundary**
+- [x] **Step 3: Add side effect execution boundary**
 
 Create `SideEffectExecutorProtocol.swift`:
 
@@ -154,7 +154,7 @@ public protocol SideEffectExecutorProtocol: Sendable {
 }
 ```
 
-- [ ] **Step 4: Implement concrete executor**
+- [x] **Step 4: Implement concrete executor**
 
 Implement `SideEffectExecutor` with injected adapters:
 
@@ -166,17 +166,17 @@ Implement `SideEffectExecutor` with injected adapters:
 
 Do not implement memory writes. Return `.unsupported(reason: "writeMemory is planned for Phase 3")`.
 
-- [ ] **Step 5: Wire ExecutionEngine**
+- [x] **Step 5: Wire ExecutionEngine**
 
 Add a `sideEffectExecutor` dependency to `ExecutionEngine`. In `runSideEffects`, after gate approval and non-dry-run check, call executor with final text. Preserve current `.sideEffectTriggered` and audit behavior only after `.executed`.
 
-- [ ] **Step 6: Run focused tests**
+- [x] **Step 6: Run focused tests**
 
 Run: `swift test --package-path SliceAIKit --filter 'OrchestrationTests.SideEffectExecutorTests|OrchestrationTests.ExecutionEngineTests'`
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add SliceAIKit/Sources/Orchestration SliceAIKit/Tests/OrchestrationTests
@@ -552,6 +552,15 @@ Task 1 current verification:
 - Green: `swift test --package-path SliceAIKit --filter OrchestrationTests.OutputLifecycleTests`: 2 tests, 0 failures.
 - Green: `swift test --package-path SliceAIKit --filter 'OrchestrationTests.OutputLifecycleTests|OrchestrationTests.ExecutionEngineTests|OrchestrationTests.AgentExecutorTests'`: 56 tests, 0 failures.
 - Green: `swift test --package-path SliceAIKit --filter 'OrchestrationTests.OutputDispatcherTests|OrchestrationTests.OutputDispatcherFallbackTests|OrchestrationTests.OutputLifecycleTests'`: 18 tests, 0 failures.
+- Green: touched Swift files `swiftlint lint --strict ...`: 0 violations.
+- Green: `git diff --check`: passed.
+
+Task 2 current verification:
+
+- Red: `swift test --package-path SliceAIKit --filter OrchestrationTests.SideEffectExecutorTests` failed before implementation because `SideEffectExecutor`, `ClipboardWriting`, `UserNotifying`, and `TextSpeaking` did not exist.
+- Red: after direct executor implementation, the ExecutionEngine wiring test failed with `extra argument 'sideEffectExecutor'`, proving the engine had not been wired.
+- Green: `swift test --package-path SliceAIKit --filter OrchestrationTests.SideEffectExecutorTests`: 7 tests, 0 failures.
+- Green: `swift test --package-path SliceAIKit --filter 'OrchestrationTests.SideEffectExecutorTests|OrchestrationTests.ExecutionEngineTests|OrchestrationTests.OutputLifecycleTests|OrchestrationTests.AgentExecutorTests'`: 63 tests, 0 failures.
 - Green: touched Swift files `swiftlint lint --strict ...`: 0 violations.
 - Green: `git diff --check`: passed.
 

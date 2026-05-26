@@ -25,6 +25,8 @@ final class FlowContext {
     let continuation: AsyncThrowingStream<ExecutionEvent, any Error>.Continuation
     /// PermissionGraph 计算后的 effective union（Step 2 写入，后续 step 只读）
     var effective: Set<Permission>
+    /// 当前 invocation 的完整最终输出；Prompt / Agent stream 完成后写入，side effects 读取。
+    var finalText: String
     /// 关键事件标记，main flow / sideEffects 增量写入
     var flags: Set<InvocationFlag>
 
@@ -50,6 +52,7 @@ final class FlowContext {
         self.screenAnchor = screenAnchor
         self.continuation = continuation
         self.effective = []
+        self.finalText = ""
         self.flags = []
     }
 }

@@ -31,7 +31,7 @@ Task 58-62 已完成 Phase 2 前半段：Skill Registry MVP、真实本地 skill
 - [x] 创建 Phase 2 completion implementation plan。
 - [x] 更新 Task_history、README、AGENTS 和 master todolist 的任务口径。
 - [x] 按 TDD 实施 Output lifecycle foundation。
-- [ ] 按 TDD 实施 SideEffect executor。
+- [x] 按 TDD 实施 SideEffect executor。
 - [ ] 按 TDD 实施 `.silent` 与 `.file`。
 - [ ] 按 TDD 实施 `.replace`。
 - [ ] 按 TDD 实施 `.bubble` 与 `.structured`。
@@ -68,7 +68,14 @@ Task 58-62 已完成 Phase 2 前半段：Skill Registry MVP、真实本地 skill
   - 绿灯：`swift test --package-path SliceAIKit --filter 'OrchestrationTests.OutputDispatcherTests|OrchestrationTests.OutputDispatcherFallbackTests|OrchestrationTests.OutputLifecycleTests'`，18 tests，0 failures。
   - 绿灯：touched Swift files `swiftlint lint --strict ...`，0 violations。
   - 绿灯：`git diff --check`，passed。
+- SideEffect executor：
+  - 红灯：`swift test --package-path SliceAIKit --filter OrchestrationTests.SideEffectExecutorTests` 首次因 `SideEffectExecutor` 与 adapter 协议缺失编译失败。
+  - 红灯：直接 executor 实现后，ExecutionEngine wiring 测试因 `sideEffectExecutor` init 参数不存在失败。
+  - 绿灯：`swift test --package-path SliceAIKit --filter OrchestrationTests.SideEffectExecutorTests`，7 tests，0 failures。
+  - 绿灯：`swift test --package-path SliceAIKit --filter 'OrchestrationTests.SideEffectExecutorTests|OrchestrationTests.ExecutionEngineTests|OrchestrationTests.OutputLifecycleTests|OrchestrationTests.AgentExecutorTests'`，63 tests，0 failures。
+  - 绿灯：touched Swift files `swiftlint lint --strict ...`，0 violations。
+  - 绿灯：`git diff --check`，passed。
 
 ## 下一步
 
-提交 Output lifecycle foundation 后进入 plan Task 2：SideEffect executor。
+提交 SideEffect executor 后进入 plan Task 3：`.silent` 与 `.file` DisplayMode。

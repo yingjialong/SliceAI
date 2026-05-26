@@ -215,6 +215,7 @@ extension ExecutionEngine {
                 }
             }
             try await output.finish(finalText: finalText, context: outputContext)
+            context.finalText = finalText
         } catch is CancellationError {
             // 静默取消：consumer drop iterator 已触发 onTermination → 外层 continuation 已 drain；
             // 不写 audit、不 yield .failed（避免 audit 出现"用户取消但记 .failed"的歧义）。
@@ -259,15 +260,8 @@ extension ExecutionEngine {
                     // dry-run：yield 占位事件，**不**写 audit（按 spec §3.9.7：仅真正执行才入 audit）
                     context.continuation.yield(.sideEffectSkippedDryRun(sideEffect))
                 } else {
-                    context.continuation.yield(.sideEffectTriggered(sideEffect))
-                    // try? 吞错：audit 写失败不应阻塞主流程；M2 用 mock 都不会失败
-                    try? await auditLog.append(
-                        .sideEffectTriggered(
-                            invocationId: context.invocationId,
-                            sideEffect: sideEffect,
-                            executedAt: Date()
-                        )
-                    )
+                    let executed = await executeApprovedSideEffect(sideEffect, context: context)
+                    partialFailure = partialFailure || !executed
                 }
             case .denied:
                 partialFailure = true
@@ -279,6 +273,35 @@ extension ExecutionEngine {
             }
         }
         return partialFailure
+    }
+
+    /// 执行已通过权限 gate 的 side effect，并在成功后派发事件/audit。
+    /// - Parameters:
+    ///   - sideEffect: 已通过 gate 的副作用。
+    ///   - context: 当前 flow context。
+    /// - Returns: true 表示已执行成功；false 表示执行失败或当前阶段不支持。
+    private func executeApprovedSideEffect(
+        _ sideEffect: SideEffect,
+        context: FlowContext
+    ) async -> Bool {
+        if let sideEffectExecutor {
+            let outcome = await sideEffectExecutor.execute(
+                sideEffect,
+                finalText: context.finalText,
+                invocationId: context.invocationId
+            )
+            guard outcome == .executed else { return false }
+        }
+        context.continuation.yield(.sideEffectTriggered(sideEffect))
+        // try? 吞错：audit 写失败不应阻塞主流程；M2 用 mock 都不会失败
+        try? await auditLog.append(
+            .sideEffectTriggered(
+                invocationId: context.invocationId,
+                sideEffect: sideEffect,
+                executedAt: Date()
+            )
+        )
+        return true
     }
 
     // MARK: - Step 8/9 复合 helper
