@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 SliceAI 是 macOS 原生、开源的划词触发 LLM 工具栏。划词后弹出浮条工具栏（PopClip 风格），或按 `⌥Space` 调出命令面板（Raycast 风格），通过 OpenAI 兼容协议调用大模型并流式渲染结果。
 
 - 平台：macOS 14 Sonoma+，Xcode 26+，Swift 6.0
-- 状态：Phase 2 Skill Registry MVP、真实本地 Skill E2E、公开 skill 仓库 smoke 与 supporting files 只读加载已完成；`v0.2.0` 已正式发布，`v0.3.0` tag 与 GitHub draft release 已生成但用户暂缓人工发布（unsigned，不上架 App Store，需 Accessibility 权限）
+- 状态：Phase 2 Skill Registry MVP、真实本地 Skill E2E、公开 skill 仓库 smoke、supporting files 只读加载、非 window DisplayMode、本地 TTS 和 English Tutor 默认工具已完成；`v0.2.0` 已正式发布，`v0.3.0` tag 与 GitHub draft release 已生成但用户暂缓人工发布（unsigned，不上架 App Store，需 Accessibility 权限）
 
 ## 常用命令
 
@@ -47,12 +47,12 @@ SliceAI.app  (Xcode App target, SliceAIApp/)
 SliceAIKit  (SliceAIKit/Package.swift, 10 个 library target)
   ├─ SliceCore         领域层，Foundation only，零 UI 依赖；含 canonical Tool/Provider/Configuration
   ├─ Orchestration     ExecutionEngine + ContextCollector + PermissionGraph/Broker + PromptExecutor + AgentExecutor + Audit/Cost
-  ├─ Capabilities      PathSandbox + ContextProviders + MCP store/import/client + LocalSkillRegistry
+  ├─ Capabilities      PathSandbox + ContextProviders + MCP store/import/client + LocalSkillRegistry + TTS
   ├─ LLMProviders      OpenAI 兼容协议 + SSE 流式
   ├─ SelectionCapture  AX 主路径 + Cmd+C 备份恢复路径
   ├─ HotkeyManager     Carbon RegisterEventHotKey 全局热键
   ├─ DesignSystem      颜色/字体/间距/圆角 token + ThemeManager + 共享组件（IconButton/PillButton/SectionCard…）
-  ├─ Windowing         FloatingToolbar / CommandPalette / ResultPanel（依赖 DesignSystem）
+  ├─ Windowing         FloatingToolbar / CommandPalette / ResultPanel / BubblePanel / StructuredResultView（依赖 DesignSystem）
   ├─ Permissions       Accessibility 权限轮询 + Onboarding 视图（依赖 DesignSystem）
   └─ SettingsUI        SwiftUI 设置界面 + Provider / Tool / MCP Servers / Skills 页面（依赖 DesignSystem）
 ```
@@ -67,7 +67,7 @@ SliceAIKit  (SliceAIKit/Package.swift, 10 个 library target)
 - **Composition Root 集中在 `SliceAIApp/AppContainer.swift`**：所有跨模块依赖在 App 启动时一次性装配，业务层不再分散 init。
 - **主题切换中枢是 `DesignSystem/Theme/ThemeManager`**：读写 `Configuration.appearance`（auto / light / dark），由 `AppContainer` 在启动时注入一次；切换时通过 `onModeChange` 回调把变更持久化回 `ConfigurationStore`。UI 层只读环境里的 `ThemeManager`，不直接碰 `NSApp.appearance`。
 - **ExecutionEngine 是唯一执行入口**：生产触发链不再使用旧 `ToolExecutor`；所有工具调用都进入 `Orchestration.ExecutionEngine`。`.prompt` 走 `PromptExecutor`，`.agent` 走 `AgentExecutor` ReAct loop，`.pipeline` 仍是未实现的 Phase 5 占位。
-- **Skill Registry 已接入 Agent Tool**：用户可配置本地 skill roots，Settings Skills 页面展示 registry snapshot；Agent Tool 最多绑定 5 个 enabled skills，运行时通过 `sliceai.load_skill` pseudo-tool 渐进式加载完整 `SKILL.md`，并可通过 `sliceai.load_skill_resource` 只读加载已列出的 `references/` 与文本型 `assets/`。
+- **Skill Registry 已接入 Agent Tool**：用户可配置本地 skill roots，Settings Skills 页面展示 registry snapshot；Agent Tool 最多绑定 5 个 enabled skills，运行时通过 `sliceai.load_skill` pseudo-tool 渐进式加载完整 `SKILL.md`，并可通过 `sliceai.load_skill_resource` 只读加载已列出的 `references/` 与文本型 `assets/`。`LocalSkillRegistry` 还默认提供首方内置 `english-tutor` skill，供默认 English Tutor 工具绑定。
 
 ### 触发与执行流（核心数据流）
 
@@ -81,7 +81,7 @@ mouseDown → 记录起点 → mouseUp → 算位移 ≥ 5pt → debounce(trigge
   → ExecutionEngine.execute(tool, seed)             // actor，权限闭环 + context + provider + prompt + audit/cost
   → PromptExecutor.run(...) 或 AgentExecutor.run(...) // prompt 单次调用；agent 使用 ReAct + MCP + skill
   → OpenAICompatibleProvider.stream(request)        // SSE 流
-  → OutputDispatcher.handle(..., mode, invocationId)
+  → OutputDispatcher lifecycle（begin / chunk / finish，按 DisplayMode 路由）
   → ResultPanelWindowSinkAdapter + InvocationGate   // single-flight chunk gating
   → ResultPanel.open(..., anchor, onDismiss: { streamTask.cancel() })   // 浮出于选区附近，可钉可拖可 resize
   → ResultPanel.append(chunk.delta) / .finish() / .fail(SliceError, onRetry, onOpenSettings)
@@ -94,7 +94,7 @@ mouseDown → 记录起点 → mouseUp → 算位移 ≥ 5pt → debounce(trigge
 
 `ExecutionEngine` 主流程固定为：`.started` → `PermissionGraph.compute` 静态闭环 → `PermissionBroker.gate` → `ContextCollector.resolve` → `ProviderResolver.resolve` → 根据 `ToolKind` 分派到 `PromptExecutor` 或 `AgentExecutor` → `OutputDispatcher` → side effects gate → `CostAccounting` → `JSONLAuditLog` → `.finished` / `.failed`。App 层只消费事件，不直接拼 prompt、读 Keychain、调 MCP 或写审计日志。
 
-当前明确未完成的执行面：`.pipeline` ToolKind 仍返回 not implemented；`DisplayMode` 只有 `.window` 真实 sink，`.bubble`、`.replace`、`.file`、`.silent`、`.structured` 仍 fallback 到 window；Skill `scripts/` 不读取、不执行，二进制 assets、`agents/openai.yaml` 解析、script 授权策略仍未实现。
+当前明确未完成的执行面：`.pipeline` ToolKind 仍返回 not implemented；Skill `scripts/` 不读取、不执行，二进制 assets、`agents/openai.yaml` 解析、script 授权策略仍未实现；InlineReplaceOverlay 的确认 / 撤销浮条尚未实现，`.replace` 当前使用 AX 替换并在失败时复制到剪贴板和通知。
 
 ### Swift 6 严格并发约定
 

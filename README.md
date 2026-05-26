@@ -8,7 +8,7 @@ SliceAI 让你在任何 Mac 应用里选中文字后，通过快捷工具栏或 
 
 v0.2.0 Phase 0 底层重构已正式发布：v2 数据模型、Orchestration 执行引擎、Capabilities 能力边界已接入真实 App 触发链。Release: <https://github.com/yingjialong/SliceAI/releases/tag/v0.2.0>。
 
-Phase 1 MCP + Context 主干已完成 `v0.3` release prep：stdio / Streamable HTTP MCP client、MCP Servers 设置页、五个核心 ContextProvider、PermissionBroker UI gate、AgentExecutor tool calling、ResultPanel tool-call lifecycle、`web-search-summarize`、per-tool hotkey 和基础自定义 Agent Tool 配置均已落地。Task 17 已完成真实 release E2E 主体验证；filesystem / postgres / brave-search / git / sqlite 五项本地 MCP server 已完成直接 JSON-RPC `tools/list` 与安全只读 / 低风险 `tools/call`，用户已基本复测 App 场景且未反馈阻塞问题。最终 Claude review loop Round 2 approve；review 中发现并修复了两项发布阻塞：长 MCP tool result 不再以 `<truncated:N>` 回填给 LLM，stdio MCP server 在 command / args / env 变化后会重启旧 session。最终 gate 已通过 SwiftPM 758 tests、SwiftLint strict、`git diff --check`、App Debug build、本地 unsigned DMG 构建和 DMG 挂载结构校验。`v0.3.0` tag 已推送，GitHub Actions Release run `26168050987` 已成功生成 draft release；CI DMG SHA256 为 `cf63e4e50b8eeda63e38f04c85ff485d11cdfa939038d7555b72ae61ad96f0e0`。用户已明确暂缓人工发布，draft release 保持草稿；Phase 2 Skill Registry MVP 已完成并推送到 `main` / `origin/main`（commit `1411e88`）：支持本地 skill roots、`SKILL.md` parser/scanner、Settings Skills 页面、Agent Tool 最多 5 个 skill 绑定，以及 `sliceai.load_skill` 渐进式加载。Task 60 真实本地 Skill E2E 已完成；Task 61 公开仓库 smoke 已完成；Task 62 supporting files 只读加载已实现：支持索引并按需读取 `references/` 与文本型 `assets/`，继续禁止执行或读取 `scripts/`。Task 63 Phase 2 completion 正在推进，已完成 Output lifecycle、SideEffect executor、`.silent` / `.file` / `.replace` / `.bubble` / `.structured` DisplayMode 和本地 TTS capability；下一步是 English Tutor 与最终 smoke。参见 [docs/v2-refactor-master-todolist.md](docs/v2-refactor-master-todolist.md) 跟踪后续 Phase。
+Phase 1 MCP + Context 主干已完成 `v0.3` release prep：stdio / Streamable HTTP MCP client、MCP Servers 设置页、五个核心 ContextProvider、PermissionBroker UI gate、AgentExecutor tool calling、ResultPanel tool-call lifecycle、`web-search-summarize`、per-tool hotkey 和基础自定义 Agent Tool 配置均已落地。Task 17 已完成真实 release E2E 主体验证；filesystem / postgres / brave-search / git / sqlite 五项本地 MCP server 已完成直接 JSON-RPC `tools/list` 与安全只读 / 低风险 `tools/call`，用户已基本复测 App 场景且未反馈阻塞问题。最终 Claude review loop Round 2 approve；review 中发现并修复了两项发布阻塞：长 MCP tool result 不再以 `<truncated:N>` 回填给 LLM，stdio MCP server 在 command / args / env 变化后会重启旧 session。最终 gate 已通过 SwiftPM 758 tests、SwiftLint strict、`git diff --check`、App Debug build、本地 unsigned DMG 构建和 DMG 挂载结构校验。`v0.3.0` tag 已推送，GitHub Actions Release run `26168050987` 已成功生成 draft release；CI DMG SHA256 为 `cf63e4e50b8eeda63e38f04c85ff485d11cdfa939038d7555b72ae61ad96f0e0`。用户已明确暂缓人工发布，draft release 保持草稿；Phase 2 Skill Registry MVP 已完成并推送到 `main` / `origin/main`（commit `1411e88`）：支持本地 skill roots、`SKILL.md` parser/scanner、Settings Skills 页面、Agent Tool 最多 5 个 skill 绑定，以及 `sliceai.load_skill` 渐进式加载。Task 60 真实本地 Skill E2E 已完成；Task 61 公开仓库 smoke 已完成；Task 62 supporting files 只读加载已实现：支持索引并按需读取 `references/` 与文本型 `assets/`，继续禁止执行或读取 `scripts/`。Task 63 Phase 2 completion 正在推进，已完成 Output lifecycle、SideEffect executor、`.silent` / `.file` / `.replace` / `.bubble` / `.structured` DisplayMode、本地 TTS capability 和首方 English Tutor 默认工具；最终 automated gate 与公开仓库 smoke 已通过，真实 App 手工 smoke 待做。参见 [docs/v2-refactor-master-todolist.md](docs/v2-refactor-master-todolist.md) 跟踪后续 Phase。
 
 ## Current Features
 
@@ -17,11 +17,12 @@ Phase 1 MCP + Context 主干已完成 `v0.3` release prep：stdio / Streamable H
 - 独立浮窗 Markdown 流式渲染
 - 支持 OpenAI 兼容协议（OpenAI、DeepSeek、Moonshot、OpenRouter、自建中转…）
 - 4 个内置 Prompt 工具：Translate / Polish / Summarize / Explain
-- 1 个内置 Agent 工具：Web Search Summarize（需要配置 Brave Search MCP）
+- 2 个内置 Agent 工具：Web Search Summarize（需要配置 Brave Search MCP）与 English Tutor（structured + TTS）
 - 自定义 Prompt / Agent 工具、供应商、模型和 Agent MCP allowlist / 调用策略
 - 本地 Skills 注册表、Skills 设置页、Agent Tool 最多 5 个 skill 绑定、`sliceai_load_skill` 渐进式加载和 `sliceai_load_skill_resource` supporting file 只读加载
 - Output lifecycle、`.silent`、`.file` final text 写入、`.replace` 选区替换、`.bubble` final text 气泡和 `.structured` JSON 结构化渲染
 - 本地 TTS side effect：permission gate 通过后用 macOS AVSpeech 朗读 final text，dry-run 不发声
+- English Tutor 默认工具：绑定内置 `english-tutor` skill，输出 structured JSON，并优先朗读 `ttsText`
 - API Key 存 macOS Keychain
 
 ## Build from source
@@ -154,6 +155,19 @@ open SliceAI.xcodeproj
 - dry-run 下 TTS side effect 只发 `.sideEffectSkippedDryRun`，不会调用真实朗读。
 
 **验证状态**：已通过 TTS / SideEffect focused tests 和 App Debug build。
+
+### 2026-05-26 · Phase 2 English Tutor Default Tool
+
+**范围**：Task 63 Phase 2 completion 的首方 English Tutor 默认工具与 schema v4 迁移
+
+**当前状态**：
+- `Configuration.currentSchemaVersion` 已提升到 4，`config.schema.json` 同步更新。
+- 默认配置新增 `english-tutor` Agent Tool，使用 `.structured` 主输出、`.tts` side effect、`.systemAudio` 权限和 tool-calling provider capability。
+- `ConfigurationStore` 加入 v3 → v4 迁移：加载 v3 配置时只在缺失时追加 English Tutor；v4 用户删除后不会被重新添加。
+- `LocalSkillRegistry` 默认提供首方内置 `english-tutor` skill，避免默认工具绑定到不存在的用户本地 skill root。
+- `SideEffectExecutor` 对 structured JSON 优先朗读 `ttsText` 字段，避免把整段 JSON 读出来。
+
+**验证状态**：已通过配置 / 迁移 / registry / SettingsUI focused tests、全量 SwiftPM 837 tests（1 skipped）、SwiftLint strict、`git diff --check`、App Debug build 和公开 skill smoke（3 repositories / 9 public skills）。真实 App 手工 smoke 待做。
 
 ### 2026-05-20 · Phase 2 Skill Registry MVP Spec Kickoff
 

@@ -8,7 +8,7 @@
 
 - 工具模型：`Tool`、`ToolKind`、`PromptTool`、`AgentTool`、`PipelineStep`、`ToolMatcher`、`ToolBudget`。
 - Provider 模型：`Provider`、`ProviderKind`、`ProviderCapability`、`ProviderSelection`。
-- 配置模型：`Configuration`、`ConfigurationStore`、`DefaultConfiguration`、`ConfigMigratorV1ToV2`、`LegacyConfigV1`、`SkillSettings`。
+- 配置模型：`Configuration`、`ConfigurationStore`、`DefaultConfiguration`、`EnglishTutorToolFactory`、`ConfigMigratorV1ToV2`、`LegacyConfigV1`、`SkillSettings`。
 - 执行上下文：`ExecutionSeed`、`ResolvedExecutionContext`、`SelectionSnapshot`、`AppSnapshot`、`ContextRequest`、`ContextBag`。
 - 权限与安全：`Permission`、`Provenance`、`OutputBinding`、`DisplayMode`、`SideEffect`。
 - MCP / Skill contract：`MCPJSONValue`、`MCPContentItem`、`MCPCallResult`、`MCPToolDescriptor`、`MCPDescriptor`、`MCPTransport`、`MCPToolRef`、`Skill`、`SkillManifest`、`SkillResource`、`SkillReference`、`SkillSource`。
@@ -22,11 +22,13 @@
 - `.agent`：真实执行路径，包含 Agent ReAct loop、MCP allowlist、AgentToolCallPolicy 和最多 5 个 SkillReference 绑定；执行由 `Orchestration.AgentExecutor` 完成。
 - `.pipeline`：Phase 5 pipeline 的数据骨架，当前执行引擎返回 not implemented。
 
-`Configuration.currentSchemaVersion` 当前为 `3`，对应 `config-v2.json` 中的 `skillSettings` 与 Agent Tool 多 skill 绑定模型。`ConfigurationStore` 只读写 `config-v2.json`。首次启动时：
+`Configuration.currentSchemaVersion` 当前为 `4`，对应 `config-v2.json` 中的 `skillSettings`、Agent Tool 多 skill 绑定模型和 English Tutor 默认工具迁移。`ConfigurationStore` 只读写 `config-v2.json`。首次启动时：
 
 1. 如果 `config-v2.json` 存在，直接读取并校验。
 2. 如果只有旧 `config.json`，通过 `ConfigMigratorV1ToV2` 迁移生成 v2 配置。
 3. 如果两者都不存在，写入 `DefaultConfiguration.initial()`。
+
+v3 配置加载到 v4 时，`ConfigurationStore` 会在缺失 `english-tutor` 工具时追加一次首方默认工具；schema v4 用户如果删除该工具，后续加载不会重新添加。`DefaultConfiguration.initial()` 当前包含 4 个 Prompt Tool、`web-search-summarize` 和 `english-tutor` 两个 Agent Tool。
 
 旧 `config.json` 是迁移输入，不被 v2 store 覆写；API Key 始终保存在 Keychain，配置文件只保存 `apiKeyRef = "keychain:<provider.id>"`。
 

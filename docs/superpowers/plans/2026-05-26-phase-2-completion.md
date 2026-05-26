@@ -382,7 +382,7 @@ git commit -m "feat: add local tts side effect"
 
 ## Task 7: English Tutor Default Tool
 
-- [ ] **Step 1: Write failing configuration tests**
+- [x] **Step 1: Write failing configuration tests**
 
 Add tests:
 
@@ -392,13 +392,13 @@ func test_schemaV4Migration_appendsEnglishTutorOnce() throws
 func test_englishTutor_declaresStructuredAndTTSRequirements() throws
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `swift test --package-path SliceAIKit --filter SliceCoreTests.ConfigurationTests`
 
 Expected: fail because schema version remains 3 and `english-tutor` does not exist.
 
-- [ ] **Step 3: Add bundled skill**
+- [x] **Step 3: Add bundled skill**
 
 Create bundled first-party skill:
 
@@ -411,7 +411,7 @@ description: Diagnose English grammar, rewrite naturally, and provide short prac
 Return concise tutoring feedback. Prefer concrete corrections over broad lectures.
 ```
 
-- [ ] **Step 4: Add tool factory**
+- [x] **Step 4: Add tool factory**
 
 `EnglishTutorToolFactory.make()` returns an Agent Tool with:
 
@@ -421,15 +421,15 @@ Return concise tutoring feedback. Prefer concrete corrections over broad lecture
 - skill binding `english-tutor`
 - permissions including `.systemAudio`
 
-- [ ] **Step 5: Add schema v4 migration**
+- [x] **Step 5: Add schema v4 migration**
 
 Bump `Configuration.currentSchemaVersion` to 4. When loading v3 config, append `english-tutor` only if no tool with that id exists. Do not re-add it after a v4 user deletes it.
 
-- [ ] **Step 6: Update config schema**
+- [x] **Step 6: Update config schema**
 
 Update `config.schema.json` to schemaVersion 4 and include TTS / English Tutor relevant fields.
 
-- [ ] **Step 7: Run focused tests**
+- [x] **Step 7: Run focused tests**
 
 Run: `swift test --package-path SliceAIKit --filter 'SliceCoreTests.ConfigurationTests|SliceCoreTests.ConfigurationStoreTests|SettingsUITests'`
 
@@ -444,7 +444,7 @@ git commit -m "feat: add english tutor tool"
 
 ## Task 8: App Wiring And Manual Smoke
 
-- [ ] **Step 1: Build App wiring**
+- [x] **Step 1: Build App wiring**
 
 Wire:
 
@@ -454,7 +454,7 @@ Wire:
 - Bubble/replace/structured UI adapters.
 - ResultPanel opening policy by display mode.
 
-- [ ] **Step 2: Run App build**
+- [x] **Step 2: Run App build**
 
 Run: `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`
 
@@ -485,7 +485,7 @@ git commit -m "chore: wire phase 2 app smoke"
 
 ## Task 9: Final Documentation And Gate
 
-- [ ] **Step 1: Update docs**
+- [x] **Step 1: Update docs**
 
 Update:
 
@@ -498,7 +498,7 @@ Update:
 - `docs/Task_history.md`
 - `docs/Task-detail/2026-05-26-phase-2-completion.md`
 
-- [ ] **Step 2: Run final automated gate**
+- [x] **Step 2: Run final automated gate**
 
 Run:
 
@@ -516,7 +516,7 @@ Expected:
 - Whitespace check passes.
 - App Debug build succeeds.
 
-- [ ] **Step 3: Optional public skill smoke**
+- [x] **Step 3: Optional public skill smoke**
 
 Run:
 
@@ -526,7 +526,7 @@ bash scripts/phase2-public-skill-smoke.sh
 
 Expected: 3 repositories / 9 public skills still pass scanning, parsing, enabling, `SKILL.md`, and resource loading invariants.
 
-- [ ] **Step 4: Final self-review**
+- [x] **Step 4: Final self-review**
 
 Check:
 
@@ -593,6 +593,40 @@ Task 5 current verification:
 - Green: `swiftlint lint --strict`: 190 files, 0 violations.
 - Green: `git diff --check`: passed.
 - Green: `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`: `BUILD SUCCEEDED`.
+
+Task 6 current verification:
+
+- Red: `swift test --package-path SliceAIKit --filter 'CapabilitiesTests.TTSCapabilityTests|OrchestrationTests.SideEffectExecutorTests'` failed before implementation because `SpeechSynthesizing`, `TTSRequest`, and `AVSpeechTTSCapability` did not exist.
+- Green: `swift test --package-path SliceAIKit --filter 'CapabilitiesTests.TTSCapabilityTests|OrchestrationTests.SideEffectExecutorTests'`: 12 tests, 0 failures.
+- Initial App build red: `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build` failed because App target default `MainActor` isolation exposed a file-level logger issue in side-effect adapters.
+- Green: `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`: `BUILD SUCCEEDED`.
+- Green: `swiftlint lint --strict`: 192 files, 0 violations.
+- Green: `git diff --check`: passed.
+
+Task 7 current verification:
+
+- Red: `swift test --package-path SliceAIKit --filter 'SliceCoreTests.ConfigurationTests|SliceCoreTests.ConfigurationStoreTests|SliceCoreTests.ConfigMigratorV1ToV2Tests|CapabilitiesTests.LocalSkillRegistryTests'` failed before implementation because schema remained 3, default config lacked `english-tutor`, v3 migration did not append it, and registry did not expose the bundled skill.
+- Red: `swift test --package-path SliceAIKit --filter OrchestrationTests.SideEffectExecutorTests/test_execute_tts_prefersStructuredTTSText` failed before implementation because TTS spoke the full structured JSON.
+- Green: `swift test --package-path SliceAIKit --filter 'SliceCoreTests.ConfigurationTests|SliceCoreTests.ConfigurationStoreTests|SliceCoreTests.ConfigMigratorV1ToV2Tests|CapabilitiesTests.LocalSkillRegistryTests'`: 55 tests, 0 failures.
+- Green: `swift test --package-path SliceAIKit --filter OrchestrationTests.SideEffectExecutorTests/test_execute_tts_prefersStructuredTTSText`: 1 test, 0 failures.
+- Green: `swift test --package-path SliceAIKit --filter SettingsUITests`: 24 tests, 0 failures.
+- Green: `jq empty config.schema.json`: passed.
+
+Task 8 current verification:
+
+- Green: `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`: `BUILD SUCCEEDED`.
+- Manual smoke matrix is not executed yet because it would start the real App and may temporarily back up / modify `~/Library/Application Support/SliceAI/config-v2.json`, use the system pasteboard, replace selected text, post local notifications, and speak local TTS.
+
+Task 9 current verification:
+
+- Red: first `swift test --package-path SliceAIKit` failed because `AgentExecutorSkillE2ETests` included the bundled `english-tutor` skill in a fixture-only assertion; the test now filters to the `project-skills` source.
+- Green: `swift test --package-path SliceAIKit --filter OrchestrationTests.AgentExecutorSkillE2ETests`: 0 failures.
+- Red: one full-suite rerun exposed an existing scheduling race in `ExecutionEngineTests/test_execute_cancellationDuringPermissionGate_skipsAuditAndLLM`; focused rerun passed and no production logic was changed for that flake.
+- Green: `swift test --package-path SliceAIKit`: 837 tests, 1 skipped, 0 failures.
+- Green: `swiftlint lint --strict`: 194 files, 0 violations.
+- Green: `git diff --check`: passed.
+- Green: `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`: `BUILD SUCCEEDED`.
+- Green: `bash scripts/phase2-public-skill-smoke.sh`: 3 repositories / 9 public skills.
 
 Pre-plan baseline from Task 62 was:
 

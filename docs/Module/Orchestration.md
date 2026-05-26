@@ -47,7 +47,7 @@
 | `PromptExecutor.run(...)` | prompt 渲染 + LLM provider stream。 |
 | `AgentExecutor.run(...)` | Agent ReAct loop；按 MCP allowlist 暴露 tool catalog，执行 MCP tool call，并支持 `sliceai.load_skill` / `sliceai.load_skill_resource` pseudo-tool 按需加载绑定 skill 指令和只读 supporting files。 |
 | `OutputDispatcher.handle(chunk:context:)` / `finish(finalText:context:)` | 按 `DisplayMode` 生命周期派发输出；`.silent` 不展示，`.file` 在 finish 写文件，`.replace` 在 finish 替换选区，`.bubble` 在 finish 展示气泡，`.structured` 在 finish 展示结构化结果。 |
-| `SideEffectExecutor.execute(_:finalText:invocationId:)` | 在 permission gate 通过后执行副作用；支持 clipboard、file append、notification、MCP call 和 TTS，memory 明确 unsupported。 |
+| `SideEffectExecutor.execute(_:finalText:invocationId:)` | 在 permission gate 通过后执行副作用；支持 clipboard、file append、notification、MCP call 和 TTS，memory 明确 unsupported；structured JSON 含 `ttsText` 时 TTS 优先朗读该字段。 |
 | `InvocationGate` | single-flight 状态唯一来源，阻止旧 invocation 污染新结果。 |
 | `AuditLogProtocol.append(_:)` | 审计日志抽象，生产实现为 JSONL append。 |
 
@@ -80,7 +80,7 @@ Agent 执行链会把 allowlist 中的 MCP tool 暴露给支持 tool calling 的
 
 `OutputDispatcher` 当前已具备 `.window`、`.silent`、`.file`、`.replace`、`.bubble` 和 `.structured` 的真实行为。`.silent` 消费输出但不写 window；`.file` 在 finish 阶段从 `outputBinding.sideEffects` 读取首个 `appendToFile` 目标并写入 final text，缺少目标时返回配置错误；`.replace` 在 finish 阶段通过 `TextReplacementClient` 替换前台 App 选区，AX 失败时由 App 层复制到剪贴板并通知用户；`.bubble` 与 `.structured` 在 chunk 阶段均不写 window，finish 阶段分别调用 `BubbleOutputSink` 和 `StructuredOutputSink`。缺少对应 sink 时会返回配置错误，避免静默丢输出或退回旧 window fallback。
 
-`SideEffectExecutor` 当前已接入生产 `ExecutionEngine`。App 层注入剪贴板写入、用户通知、routing MCP client、`PathSandbox` 和 `AVSpeechTTSCapability`；`.tts` 在 permission gate 通过后朗读 final text，dry-run 只发 `.sideEffectSkippedDryRun`，不会调用真实 TTS。
+`SideEffectExecutor` 当前已接入生产 `ExecutionEngine`。App 层注入剪贴板写入、用户通知、routing MCP client、`PathSandbox` 和 `AVSpeechTTSCapability`；`.tts` 在 permission gate 通过后朗读 final text，dry-run 只发 `.sideEffectSkippedDryRun`，不会调用真实 TTS。English Tutor 这类 structured 输出如果包含顶层 `ttsText` 字段，会朗读该字段而不是整段 JSON。
 
 ## 代码实现说明
 

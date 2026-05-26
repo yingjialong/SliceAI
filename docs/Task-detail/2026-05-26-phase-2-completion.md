@@ -2,7 +2,7 @@
 
 ## 背景
 
-Task 58-62 已完成 Phase 2 前半段：Skill Registry MVP、真实本地 skill E2E、公开 skill 仓库 smoke，以及 supporting files 只读加载。当前 Phase 2 还不能标记完成，因为多 DisplayMode、真实 side effects、TTS 和 English Tutor 仍未落地。
+Task 58-62 已完成 Phase 2 前半段：Skill Registry MVP、真实本地 skill E2E、公开 skill 仓库 smoke，以及 supporting files 只读加载。本任务启动时，Phase 2 还不能标记完成，因为多 DisplayMode、真实 side effects、TTS 和 English Tutor 仍未落地。
 
 本任务按用户确认的“严格 Roadmap”范围继续推进 Phase 2，目标是做到完整完成并通过测试。
 
@@ -36,9 +36,10 @@ Task 58-62 已完成 Phase 2 前半段：Skill Registry MVP、真实本地 skill
 - [x] 按 TDD 实施 `.replace`。
 - [x] 按 TDD 实施 `.bubble` 与 `.structured`。
 - [x] 按 TDD 实施 TTS capability。
-- [ ] 按 TDD 实施 `english-tutor` 默认工具。
-- [ ] 完成 App wiring 和真实手工 smoke。
-- [ ] 跑最终 automated gate 并更新文档结果。
+- [x] 按 TDD 实施 `english-tutor` 默认工具。
+- [x] 完成 App wiring。
+- [ ] 完成真实手工 smoke。
+- [x] 跑最终 automated gate 并更新文档结果。
 
 ## 当前实施方案
 
@@ -106,6 +107,24 @@ Task 58-62 已完成 Phase 2 前半段：Skill Registry MVP、真实本地 skill
   - 绿灯：局部 logger 修复后，`xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`，BUILD SUCCEEDED。
   - 绿灯：`swiftlint lint --strict`，192 files，0 violations。
   - 绿灯：`git diff --check`，passed。
+- English Tutor 默认工具：
+  - 红灯：`swift test --package-path SliceAIKit --filter 'SliceCoreTests.ConfigurationTests|SliceCoreTests.ConfigurationStoreTests|SliceCoreTests.ConfigMigratorV1ToV2Tests|CapabilitiesTests.LocalSkillRegistryTests'` 首次因 schema 仍为 3、默认工具缺失、v3 迁移未补入 English Tutor、registry 未暴露内置 skill 而失败。
+  - 红灯：`swift test --package-path SliceAIKit --filter OrchestrationTests.SideEffectExecutorTests/test_execute_tts_prefersStructuredTTSText` 首次因 TTS 朗读整段 structured JSON 而失败。
+  - 绿灯：`swift test --package-path SliceAIKit --filter 'SliceCoreTests.ConfigurationTests|SliceCoreTests.ConfigurationStoreTests|SliceCoreTests.ConfigMigratorV1ToV2Tests|CapabilitiesTests.LocalSkillRegistryTests'`，55 tests，0 failures。
+  - 绿灯：`swift test --package-path SliceAIKit --filter OrchestrationTests.SideEffectExecutorTests/test_execute_tts_prefersStructuredTTSText`，1 test，0 failures。
+  - 绿灯：`swift test --package-path SliceAIKit --filter SettingsUITests`，24 tests，0 failures。
+  - 绿灯：`jq empty config.schema.json`，passed。
+- Final automated gate：
+  - 红灯：首次 `swift test --package-path SliceAIKit` 因 `AgentExecutorSkillE2ETests` 把内置 `english-tutor` skill 一并暴露给 fixture E2E 而失败；已把该测试收敛到 `project-skills` source。
+  - 绿灯：`swift test --package-path SliceAIKit --filter OrchestrationTests.AgentExecutorSkillE2ETests`，0 failures。
+  - 红灯：一次全量 SwiftPM 回归因既有取消测试 `ExecutionEngineTests/test_execute_cancellationDuringPermissionGate_skipsAuditAndLLM` 调度竞态失败；focused rerun 通过，未修改生产逻辑。
+  - 绿灯：`swift test --package-path SliceAIKit`，837 tests，1 skipped，0 failures。
+  - 绿灯：`swiftlint lint --strict`，194 files，0 violations。
+  - 绿灯：`git diff --check`，passed。
+  - 绿灯：`xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`，BUILD SUCCEEDED。
+  - 绿灯：`bash scripts/phase2-public-skill-smoke.sh`，3 repositories / 9 public skills。
+- 真实 App 手工 smoke：
+  - 未执行。该项会启动真实 App，并可能临时备份 / 修改 `~/Library/Application Support/SliceAI/config-v2.json`、触发系统剪贴板、选区替换、通知和本地 TTS；执行前需要用户确认具体读写边界。
 
 ## 已完成实现细节
 
@@ -154,6 +173,15 @@ Task 58-62 已完成 Phase 2 前半段：Skill Registry MVP、真实本地 skill
 - App 层新增 `AppClipboardWriter` 与 `AppUserNotifier`，并在 `AppContainer` 中把真实 `SideEffectExecutor` 注入 `ExecutionEngine`。
 - dry-run 下 TTS side effect 会 yield `.sideEffectSkippedDryRun`，不会调用真实 executor 或发声。
 
+### English Tutor 默认工具
+
+- 新增 `EnglishTutorToolFactory`，集中构造首方 `english-tutor` Agent Tool，避免默认配置文件直接堆叠 Agent 细节。
+- `english-tutor` 使用 `.structured` 主输出、`.tts(voice: nil)` side effect、`.systemAudio` 权限和 `.capability(requires: [.toolCalling])` provider 选择。
+- `Configuration.currentSchemaVersion` 提升到 4；`ConfigurationStore` 在加载 v3 配置时只补入一次 English Tutor，v4 用户删除后不再重加。
+- `config.schema.json` 已同步到 schemaVersion 4。
+- 新增 `BundledSkillCatalog`，`LocalSkillRegistry.snapshot()` 默认加入首方内置 `english-tutor` skill，`loadSkillInstructions(id:)` 对内置 skill 直接返回内存中的 `SKILL.md` payload，不依赖用户本地 skill root。
+- `SideEffectExecutor` 在 final text 是顶层 JSON object 且包含非空 `ttsText` 时，优先朗读该字段；普通文本仍按原 final text 朗读。
+
 ## 变动文件清单
 
 - `SliceAIKit/Sources/Orchestration/Output/OutputDispatcherProtocol.swift`
@@ -164,6 +192,12 @@ Task 58-62 已完成 Phase 2 前半段：Skill Registry MVP、真实本地 skill
 - `SliceAIKit/Sources/Orchestration/Output/FinalDisplaySinks.swift`
 - `SliceAIKit/Sources/Capabilities/TTS/TTSCapability.swift`
 - `SliceAIKit/Sources/Capabilities/TTS/MockTTSCapability.swift`
+- `SliceAIKit/Sources/Capabilities/Skills/BundledSkillCatalog.swift`
+- `SliceAIKit/Sources/Capabilities/Skills/LocalSkillRegistry.swift`
+- `SliceAIKit/Sources/SliceCore/EnglishTutorToolFactory.swift`
+- `SliceAIKit/Sources/SliceCore/Configuration.swift`
+- `SliceAIKit/Sources/SliceCore/ConfigurationStore.swift`
+- `SliceAIKit/Sources/SliceCore/DefaultConfiguration.swift`
 - `SliceAIKit/Sources/Orchestration/Engine/ExecutionEngine.swift`
 - `SliceAIKit/Sources/Orchestration/Engine/ExecutionEngine+OutputLifecycle.swift`
 - `SliceAIKit/Sources/Orchestration/Engine/ExecutionEngine+Steps.swift`
@@ -180,6 +214,10 @@ Task 58-62 已完成 Phase 2 前半段：Skill Registry MVP、真实本地 skill
 - `SliceAIKit/Tests/OrchestrationTests/Output/ReplaceDisplayModeTests.swift`
 - `SliceAIKit/Tests/OrchestrationTests/Output/BubbleStructuredDisplayModeTests.swift`
 - `SliceAIKit/Tests/CapabilitiesTests/TTSCapabilityTests.swift`
+- `SliceAIKit/Tests/CapabilitiesTests/LocalSkillRegistryTests.swift`
+- `SliceAIKit/Tests/SliceCoreTests/ConfigurationTests.swift`
+- `SliceAIKit/Tests/SliceCoreTests/ConfigurationStoreTests.swift`
+- `SliceAIKit/Tests/SliceCoreTests/ConfigMigratorV1ToV2Tests.swift`
 - `SliceAIKit/Tests/OrchestrationTests/OutputDispatcherTests.swift`
 - `SliceAIKit/Tests/WindowingTests/StructuredResultViewStateTests.swift`
 - `SliceAIApp/AppContextAdapters.swift`
@@ -188,7 +226,8 @@ Task 58-62 已完成 Phase 2 前半段：Skill Registry MVP、真实本地 skill
 - `SliceAIKit/Sources/SettingsUI/ToolEditorView.swift`
 - `SliceAIKit/Sources/SettingsUI/ToolEditorView+Support.swift`
 - `SliceAIKit/Sources/SettingsUI/ToolEditorView+Sections.swift`
+- `config.schema.json`
 
 ## 下一步
 
-提交 TTS capability 后进入 plan Task 7：English Tutor 默认工具。
+完成真实 App 手工 smoke，或由用户确认以 automated gate 作为本阶段收口边界后再关闭 goal。

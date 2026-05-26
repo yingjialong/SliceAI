@@ -7,7 +7,7 @@
 - 项目定位：macOS 原生、开源的划词触发型 LLM / Agent 工具栏。
 - 平台基线：macOS 14+、Xcode 26+、Swift 6.0、SwiftPM local package。
 - 当前分支：`codex/phase2-completion`。
-- 当前阶段：Task 63 Phase 2 completion 进行中；Skill Registry MVP、真实本地 Skill E2E、公开 Anthropic / OpenAI / Codex skill 仓库 smoke、supporting files 只读加载、Output lifecycle、SideEffect executor、`.silent` / `.file` / `.replace` / `.bubble` / `.structured` DisplayMode 和本地 TTS capability 均已完成，下一步实施 English Tutor 与最终 smoke。
+- 当前阶段：Task 63 Phase 2 completion 收口中；Skill Registry MVP、真实本地 Skill E2E、公开 Anthropic / OpenAI / Codex skill 仓库 smoke、supporting files 只读加载、Output lifecycle、SideEffect executor、`.silent` / `.file` / `.replace` / `.bubble` / `.structured` DisplayMode、本地 TTS capability 和首方 English Tutor 默认工具均已完成；最终 automated gate 与公开仓库 smoke 已通过，真实 App 手工 smoke 待做。
 - 已发布状态：`v0.2.0` 已正式发布；`v0.3.0` tag 和 GitHub draft release 已生成并校验通过，但用户明确暂缓人工发布。
 - 根工程是 Swift/macOS 项目，不是 Python 项目；PEP 8、Alembic、uv 规则通常不适用于当前仓库。
 
@@ -37,7 +37,7 @@
 - `SliceAIApp/`：AppKit / SwiftUI app 薄壳、菜单栏、全局监听、Composition Root、ResultPanel 生命周期。
 - `SliceAIKit/Package.swift`：本地 SwiftPM package，包含 10 个 library target。
 - `SliceCore`：领域模型、配置、权限、MCP/Skill canonical 类型和跨模块协议，原则上零 UI、零网络、零文件系统副作用。
-- `Capabilities`：PathSandbox、ContextProviders、MCP store/import/client、persistent permission grants、Skill registry parser/scanner/local actor。
+- `Capabilities`：PathSandbox、ContextProviders、MCP store/import/client、persistent permission grants、Skill registry parser/scanner/local actor、内置首方 skill catalog 和本地 TTS capability。
 - `Orchestration`：ExecutionEngine、ContextCollector、PermissionGraph/Broker、PromptExecutor、AgentExecutor、OutputDispatcher、SideEffectExecutor、审计和成本记录。
 - `LLMProviders`：OpenAI-compatible Chat Completions / SSE / tool calling provider。
 - `SelectionCapture`：Accessibility 选区读取 + Cmd+C fallback。
@@ -52,7 +52,7 @@
 - OpenAI 兼容 provider、Keychain API Key、Provider / Tool 设置页。
 - v2 `config-v2.json`、旧 `config.json` 迁移、ExecutionEngine 生产触发链。
 - 4 个内置 Prompt Tool：Translate、Polish、Summarize、Explain。
-- 1 个内置 Agent Tool：`web-search-summarize`，通过 Brave Search MCP 搜索并总结。
+- 2 个内置 Agent Tool：`web-search-summarize` 通过 Brave Search MCP 搜索并总结；`english-tutor` 绑定内置 skill，输出 structured JSON 并触发 TTS。
 - MCP stdio 与 Streamable HTTP client、Claude Desktop `mcp.json` 导入、MCP Servers 设置页。
 - 五个核心 ContextProvider：`selection`、`app.windowTitle`、`app.url`、`clipboard.current`、`file.read`。
 - PermissionGraph / PermissionBroker、AppKit 权限确认、session/persistent grant 读取边界。
@@ -63,18 +63,17 @@
 - Phase 2 output lifecycle：prompt / agent 执行路径都会 begin / chunk / finish，并把 final text 交给 output sink 与 side effect executor。
 - Phase 2 `.silent` / `.file` / `.replace` / `.bubble` / `.structured` DisplayMode：`.silent` 不落窗；`.file` 在 finish 阶段写入 `appendToFile` 目标，并跳过重复的 appendToFile side effect；`.replace` 在 finish 阶段通过 AX 替换选区，失败时复制到剪贴板并通知；`.bubble` 在 finish 后展示自动消失气泡；`.structured` 把顶层 JSON object 渲染为结构化字段视图。
 - Phase 2 SideEffect executor：`copyToClipboard`、`appendToFile`、`notify`、`callMCP`、`tts` 已有执行边界并接入生产 `ExecutionEngine`；本地 TTS 使用 macOS AVFoundation `AVSpeechSynthesizer`；`writeMemory` 仍明确 unsupported。
+- Phase 2 English Tutor：默认配置 schema v4 新增 `english-tutor`，v3 配置加载时自动补入一次，v4 用户删除后不会重加；内置 `english-tutor` skill 由 `LocalSkillRegistry` 默认提供。
 
 ## 明确未完成 / 不应误报已完成
 
-- English Tutor 仍未实现；`.structured` 目前只负责 JSON object 解析与渲染，尚未有默认工具强制模型输出该格式。
-- SideEffect executor 尚未完成 AppContainer 生产 adapter 全量 wiring；当前主要在 Orchestration 层和测试注入路径可用。
 - `.pipeline` ToolKind 仍未实现真实 PipelineExecutor。
 - Skill supporting files 已支持只读读取 `references/` 与文本型 `assets/`；`scripts/` 不读取、不执行，二进制 assets、`agents/openai.yaml` 解析、script 授权策略仍未实现。
 - Marketplace、远端安装、skill 自动更新、Tool Pack、`.slicepack` 尚未实现。
-- English Tutor 尚未实现；BubblePanel / StructuredResultView / 本地 TTS 已有基础实现但仍需最终真实 App smoke。
+- BubblePanel / StructuredResultView / 本地 TTS / English Tutor 已有基础实现，但仍需最终真实 App smoke。
 - InlineReplaceOverlay 尚未实现；`.replace` 当前是 AX 替换 + 剪贴板通知 fallback。
 - 原生 Anthropic / Gemini / Ollama provider、Prompt Playground、Memory、Cost Panel 尚未实现。
-- `config.schema.json` 已更新到 `Configuration.currentSchemaVersion = 3` 和 v2/Phase 2 配置模型；后续修改配置模型时必须同步更新 schema。
+- `config.schema.json` 已更新到 `Configuration.currentSchemaVersion = 4` 和 v2/Phase 2 配置模型；后续修改配置模型时必须同步更新 schema。
 
 ## 常用命令
 
