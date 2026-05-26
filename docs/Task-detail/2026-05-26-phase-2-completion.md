@@ -38,7 +38,7 @@ Task 58-62 已完成 Phase 2 前半段：Skill Registry MVP、真实本地 skill
 - [x] 按 TDD 实施 TTS capability。
 - [x] 按 TDD 实施 `english-tutor` 默认工具。
 - [x] 完成 App wiring。
-- [ ] 完成真实手工 smoke。
+- [x] 完成真实手工 smoke。
 - [x] 跑最终 automated gate 并更新文档结果。
 
 ## 当前实施方案
@@ -117,14 +117,25 @@ Task 58-62 已完成 Phase 2 前半段：Skill Registry MVP、真实本地 skill
 - Final automated gate：
   - 红灯：首次 `swift test --package-path SliceAIKit` 因 `AgentExecutorSkillE2ETests` 把内置 `english-tutor` skill 一并暴露给 fixture E2E 而失败；已把该测试收敛到 `project-skills` source。
   - 绿灯：`swift test --package-path SliceAIKit --filter OrchestrationTests.AgentExecutorSkillE2ETests`，0 failures。
-  - 红灯：一次全量 SwiftPM 回归因既有取消测试 `ExecutionEngineTests/test_execute_cancellationDuringPermissionGate_skipsAuditAndLLM` 调度竞态失败；focused rerun 通过，未修改生产逻辑。
+  - 红灯：一次全量 SwiftPM 回归因取消测试 `ExecutionEngineTests/test_execute_cancellationDuringPermissionGate_skipsAuditAndLLM` 使用 `Task.yield()` 作为调度同步点而暴露竞态；focused rerun 10 次通过后，确认根因是测试替身不稳定。
+  - 修复：新增 `CancellationAwareMockPermissionBroker`，让 gate 挂起到 stream termination 取消发生后再返回 denied；生产逻辑未修改。
+  - 绿灯：`swift test --package-path SliceAIKit --filter ExecutionEngineTests/test_execute_cancellationDuringPermissionGate_skipsAuditAndLLM`，1 test，0 failures。
   - 绿灯：`swift test --package-path SliceAIKit`，837 tests，1 skipped，0 failures。
   - 绿灯：`swiftlint lint --strict`，194 files，0 violations。
   - 绿灯：`git diff --check`，passed。
   - 绿灯：`xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`，BUILD SUCCEEDED。
   - 绿灯：`bash scripts/phase2-public-skill-smoke.sh`，3 repositories / 9 public skills。
-- 真实 App 手工 smoke：
-  - 未执行。该项会启动真实 App，并可能临时备份 / 修改 `~/Library/Application Support/SliceAI/config-v2.json`、触发系统剪贴板、选区替换、通知和本地 TTS；执行前需要用户确认具体读写边界。
+  - 绿灯：`jq empty config.schema.json`，passed。
+- 真实 App smoke：
+  - 绿灯：Debug app `/Users/majiajun/Library/Developer/Xcode/DerivedData/SliceAI-brzscqfwfyocfjeawmcilvwfdnlt/Build/Products/Debug/SliceAI.app` 启动后日志确认 `AX trusted=true`、`wireRuntime: done`，并注册 `ctrl+option+shift+1` 到 `ctrl+option+shift+6` 六个临时工具热键。
+  - 绿灯：本地 OpenAI-compatible SSE stub 监听 `127.0.0.1`，六个临时工具均向 stub 发起对应模型请求：`silent-smoke`、`file-smoke`、`replace-smoke`、`bubble-smoke`、`structured-smoke`、`window-smoke`。
+  - 绿灯：`.silent` 无窗口输出，`copyToClipboard` side effect 把剪贴板写为 `SILENT_SMOKE_OK`。
+  - 绿灯：`.file` 无窗口输出，final text 写入临时 `~/Library/Application Support/SliceAI/phase2-smoke-output.txt`，内容包含 `FILE_SMOKE_OK`。
+  - 绿灯：`.replace` 在 TextEdit 选区上执行，前台文档内容变为 `REPLACE_SMOKE_OK`。
+  - 绿灯：`.bubble` 请求完成并出现 transient BubblePanel，System Events 观察到 SliceAI 窗口数从 0 增至 1。
+  - 绿灯：`.structured + TTS` 的 provider request 暴露 `sliceai_load_skill` tool schema，ResultPanel 显示 structured 路径，审计日志包含 `sideEffect kind=tts outcome=executed`。
+  - 绿灯：`.window` 请求完成后 ResultPanel 可见，SliceAI 窗口数为 1。
+  - 状态恢复：脚本结束后已停止临时 App、恢复 `config-v2.json` / `permission-grants.json` / `audit.jsonl` / `cost.sqlite*` 备份、删除临时 Keychain account、恢复剪贴板文本、停止本地 stub，并按原状态重新启动 SliceAI；恢复后用户配置仍为 `schemaVersion = 3`、`hotkeys.tools = {}`，临时 keychain account 不存在。
 
 ## 已完成实现细节
 
@@ -219,6 +230,7 @@ Task 58-62 已完成 Phase 2 前半段：Skill Registry MVP、真实本地 skill
 - `SliceAIKit/Tests/SliceCoreTests/ConfigurationStoreTests.swift`
 - `SliceAIKit/Tests/SliceCoreTests/ConfigMigratorV1ToV2Tests.swift`
 - `SliceAIKit/Tests/OrchestrationTests/OutputDispatcherTests.swift`
+- `SliceAIKit/Tests/OrchestrationTests/ExecutionEngineTests.swift`
 - `SliceAIKit/Tests/WindowingTests/StructuredResultViewStateTests.swift`
 - `SliceAIApp/AppContextAdapters.swift`
 - `SliceAIApp/AppContainer.swift`
@@ -230,4 +242,4 @@ Task 58-62 已完成 Phase 2 前半段：Skill Registry MVP、真实本地 skill
 
 ## 下一步
 
-完成真实 App 手工 smoke，或由用户确认以 automated gate 作为本阶段收口边界后再关闭 goal。
+Phase 2 completion 收口完成。下一步按产品节奏做 Phase 2 release 决策（建议 `v0.4.0` tag / DMG / release notes）或启动 Phase 3 规格设计。

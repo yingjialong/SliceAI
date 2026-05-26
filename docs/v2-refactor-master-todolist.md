@@ -17,8 +17,8 @@
 |---|---|
 | 最后更新 | 2026-05-26 |
 | 当前 Phase | **Phase 2 Skill + 多 DisplayMode** |
-| 当前 Milestone | **Task 63 Phase 2 completion 收口中；Output lifecycle / SideEffect executor / `.silent` / `.file` / `.replace` / `.bubble` / `.structured` / 本地 TTS / English Tutor 已完成，automated gate 与公开仓库 smoke 已通过** |
-| 下一个动作 | 完成真实 App 手工 smoke，或由用户确认以 automated gate 作为 Phase 2 收口边界 |
+| 当前 Milestone | **Task 63 Phase 2 completion 已完成；automated gate、公开仓库 smoke 和真实 App smoke 均已通过** |
+| 下一个动作 | 做 Phase 2 release 决策（建议 `v0.4.0` tag / DMG / release notes）或启动 Phase 3 规格设计 |
 | 阻塞 | 无已知产品代码阻塞；`v0.3.0` draft release 已生成并校验通过，但用户已决定暂缓人工发布 |
 
 **Milestone 状态**
@@ -38,7 +38,7 @@
 | 2 | Skill E2E Validation | ✅ 已完成：3 个本地 Claude / Codex 风格 skill E2E 与 full gate 均通过 |
 | 2 | Public Skill Repository Smoke | ✅ 已完成：3 个公开仓库 / 9 个真实 skill 的扫描、解析、启用和 `SKILL.md` 加载 smoke 通过 |
 | 2 | Supporting Files Read-Only Loading | ✅ 已完成：`references/` 与文本型 `assets/` 可按需只读加载；`scripts/` 仍不读取、不执行 |
-| 2 | Phase 2 Completion | 🟨 Task 63 收口中：Output lifecycle、SideEffect executor、`.silent`、`.file`、`.replace`、`.bubble`、`.structured`、本地 TTS 和 English Tutor 已完成；automated gate 与公开仓库 smoke 已通过，真实 App 手工 smoke 待做 |
+| 2 | Phase 2 Completion | ✅ 已完成：Output lifecycle、SideEffect executor、多 DisplayMode、本地 TTS、English Tutor、automated gate、公开仓库 smoke 和真实 App smoke 均完成 |
 | 3–5 | — | 🟦 Directional，进入前需重新 spec |
 
 ---
@@ -75,7 +75,7 @@
 |---|---|---|---|---|---|
 | **0** | 底层重构 | ✅ 已完成并正式发布 `v0.2.0` | 15–21 (M1+M2+M3) | **无**（只重构） | Orchestration + Capabilities 骨架、Tool 三态、ExecutionSeed/ResolvedContext、Permission + Provenance + PermissionGraph + PathSandbox hook、v2 schema + 独立 config 路径 |
 | **1** | MCP + Context 主干 | ✅ 已完成；`v0.3.0` tag + GitHub draft release 已生成，人工发布暂缓 | 20–30 | MCP 支持 / 5 个核心 ContextProvider / Per-Tool Hotkey / 基础自定义 Agent Tool | MCPClient（stdio + Streamable HTTP）+ MCPServersPage + AgentExecutor + Agent Tool 编辑器 + `web-search-summarize` 首个真 Agent Tool |
-| **2** | Skill + 多 DisplayMode | 🟨 已完成 Skill Registry MVP、本地 Skill E2E、公开仓库 smoke、supporting files 只读加载、Output lifecycle、SideEffect executor、`.silent`、`.file`、`.replace`、`.bubble`、`.structured`、本地 TTS、English Tutor；automated gate 已通过 | — | Skill 接入 / replace / bubble / structured / TTS / English Tutor | Skill registry、多 DisplayMode、本地 TTS 和 English Tutor 已在本分支推进；真实 App 手工 smoke 仍待做 |
+| **2** | Skill + 多 DisplayMode | 🟨 核心 completion 已完成；Phase 2 release 待决策 | — | Skill 接入 / replace / bubble / structured / TTS / English Tutor | Skill Registry MVP、本地 Skill E2E、公开仓库 smoke、supporting files 只读加载、多 DisplayMode、本地 TTS、English Tutor 和真实 App smoke 已完成；Skill diagnostics、scripts 策略、完整 app 成功率矩阵和 release 属后续 hardening / release 决策 |
 | **3** | Prompt IDE + 本地模型 | Directional | — | Playground / A-B / Ollama & Anthropic 原生 / Memory | 进入前重新 spec |
 | **4** | 生态与分享 | Directional | — | Tool Pack / Marketplace / SliceAI as MCP server / Shortcuts / Services | 进入前重新 spec；Pack 签名体系在 §3.9.4 已埋 hook |
 | **5** | 高级编排 | Directional | — | Pipeline / 智能路由 / Smart Actions | 进入前重新 spec |
@@ -517,7 +517,7 @@ fi
 | 10 | 2 | `OutputDispatcher` 多 sink 落地 | `.silent`、`.file`、`.replace`、`.bubble`、`.structured` 已不再 fallback；TTS side effect 已通过 SideEffectExecutor 执行 | 完成 |
 | 11 | 2 | `Capabilities/TTSCapability` | 本地 AVSpeech、权限和 dry-run 防误发声已完成；远端 TTS provider 切换留到后续重新 spec | 完成 |
 | 12 | 2 | `english-tutor` 官方 Tool Pack | 语法分析、改写、朗读、结构化结果和 skill 绑定 | 完成：默认 `english-tutor` Agent Tool、内置 skill、schema v4 迁移和 structured TTS `ttsText` 已实现 |
-| 13 | 2 | Phase 2 E2E / 文档 / 回归 | Skill、DisplayMode、TTS、English Tutor 的自动化与实机回归 | 进行中：automated gate 与公开仓库 smoke 已通过；真实 App 手工 smoke 待做 |
+| 13 | 2 | Phase 2 E2E / 文档 / 回归 | Skill、DisplayMode、TTS、English Tutor 的自动化与实机回归 | 完成：automated gate、公开仓库 smoke、真实 App smoke 和最终文档 gate 均通过 |
 | 14 | 2 | Phase 2 release | 建议 `v0.4.0` tag / DMG / release notes，版本号需发布前确认 | 待做 |
 | 15 | 3 | `ToolEditor v2` 信息架构 | 左侧配置、右侧 Playground、kind-aware 编辑器和保存规则 | 待做 |
 | 16 | 3 | Prompt Playground 运行器 | 在 Settings 内运行 selection sample、展示 streaming / tool call / structured output | 待做 |
@@ -570,7 +570,7 @@ fi
 
 **目标**：把 Anthropic Skills 规范的 skill 包引入；`replace / bubble / structured / silent` 四种 DisplayMode 真正可用。
 
-**当前进度**：Skill Registry MVP、真实本地 Skill E2E、公开 skill 仓库 smoke、supporting files 只读加载、Output lifecycle、SideEffect executor、`.silent`、`.file`、`.replace`、`.bubble`、`.structured` DisplayMode、本地 TTS capability 与 English Tutor 默认工具已完成。Task 63 automated gate 与公开仓库 smoke 已通过；真实 App 手工 smoke 待做。Skill scripts 执行明确不进入 Phase 2 completion。
+**当前进度**：Skill Registry MVP、真实本地 Skill E2E、公开 skill 仓库 smoke、supporting files 只读加载、Output lifecycle、SideEffect executor、`.silent`、`.file`、`.replace`、`.bubble`、`.structured` DisplayMode、本地 TTS capability 与 English Tutor 默认工具已完成。Task 63 automated gate、公开仓库 smoke 和真实 App smoke 均已通过。Skill scripts 执行明确不进入 Phase 2 completion。
 
 **已实现的 MVP 边界**：
 
@@ -1178,9 +1178,12 @@ fi
 - `SideEffectExecutor` 对 structured JSON 优先朗读 `ttsText` 字段，避免 TTS 朗读整段 JSON。
 - 验证通过 `SliceCoreTests.ConfigurationTests`、`SliceCoreTests.ConfigurationStoreTests`、`SliceCoreTests.ConfigMigratorV1ToV2Tests`、`CapabilitiesTests.LocalSkillRegistryTests`、`OrchestrationTests.SideEffectExecutorTests/test_execute_tts_prefersStructuredTTSText` 和 `SettingsUITests` focused tests。
 
-### 2026-05-26 — Phase 2 automated gate 通过，真实 App smoke 待做
+### 2026-05-26 — Phase 2 completion gate 通过
 
-- 已通过最终 automated gate：`swift test --package-path SliceAIKit`（837 tests，1 skipped，0 failures）、`swiftlint lint --strict`（194 files，0 violations）、`git diff --check` 和 `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`。
+- 已通过 automated gate：`swift test --package-path SliceAIKit`（837 tests，1 skipped，0 failures）、`swiftlint lint --strict`（194 files，0 violations）、`git diff --check` 和 `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`。
 - 已重跑公开仓库 smoke：`bash scripts/phase2-public-skill-smoke.sh`，3 repositories / 9 public skills 通过。
-- 已完成最终自查：非 window DisplayMode 不再 fallback 到 window；skill scripts 仍没有执行路径；`writeMemory` 仍明确 unsupported；`config.schema.json` 与 `Configuration.currentSchemaVersion = 4` 一致。
-- 真实 App 手工 smoke 尚未执行，因为该项需要启动真实 App，并可能临时备份 / 修改用户 App Support 配置、使用系统剪贴板、替换前台 App 选区、发送本地通知和播放 TTS。
+- 已完成真实 App smoke：Debug app 启动后确认 `AX trusted=true`、六个临时工具热键注册成功；本地 OpenAI-compatible SSE stub 收到 `.silent`、`.file`、`.replace`、`.bubble`、`.structured + TTS` 和 `.window` 请求；剪贴板、文件写入、TextEdit 替换、BubblePanel、ResultPanel、`sliceai_load_skill` 和 TTS 审计均有证据。
+- smoke 结束后已恢复用户 `~/Library/Application Support/SliceAI` 配置、删除临时 Keychain account、恢复剪贴板并重启 SliceAI；恢复后用户配置仍为 `schemaVersion = 3` 且无临时 tool hotkeys。
+- final gate 中发现并修复一个测试夹具调度竞态：`ExecutionEngineTests/test_execute_cancellationDuringPermissionGate_skipsAuditAndLLM` 不再用 `Task.yield()` 作为取消同步点，改为 `CancellationAwareMockPermissionBroker` 挂起到 stream termination 取消后返回 denied；生产逻辑未修改。
+- 文档收口后的最终验证通过：`swift test --package-path SliceAIKit`（837 tests，1 skipped，0 failures）、`swiftlint lint --strict`（194 files，0 violations）、`xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`（BUILD SUCCEEDED）、`bash scripts/phase2-public-skill-smoke.sh`（3 repositories / 9 public skills）、`jq empty config.schema.json` 和 `git diff --check`。
+- 下一步：做 Phase 2 release 决策（建议 `v0.4.0` tag / DMG / release notes）或启动 Phase 3 规格设计。

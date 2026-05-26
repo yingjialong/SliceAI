@@ -435,7 +435,7 @@ Run: `swift test --package-path SliceAIKit --filter 'SliceCoreTests.Configuratio
 
 Expected: pass.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add SliceAIKit/Sources/SliceCore SliceAIKit/Sources/Capabilities SliceAIKit/Tests config.schema.json
@@ -460,7 +460,7 @@ Run: `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug
 
 Expected: `BUILD SUCCEEDED`.
 
-- [ ] **Step 3: Manual smoke matrix**
+- [x] **Step 3: Manual smoke matrix**
 
 Run real app checks:
 
@@ -472,11 +472,11 @@ Run real app checks:
 - `.structured`: English Tutor JSON renders as structured UI.
 - TTS: English Tutor speaks `ttsText` locally.
 
-- [ ] **Step 4: Record findings**
+- [x] **Step 4: Record findings**
 
 Update `docs/Task-detail/2026-05-26-phase-2-completion.md` with exact commands, manual app versions, and any unsupported app fallback behavior.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add SliceAIApp SliceAIKit docs
@@ -615,18 +615,30 @@ Task 7 current verification:
 Task 8 current verification:
 
 - Green: `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`: `BUILD SUCCEEDED`.
-- Manual smoke matrix is not executed yet because it would start the real App and may temporarily back up / modify `~/Library/Application Support/SliceAI/config-v2.json`, use the system pasteboard, replace selected text, post local notifications, and speak local TTS.
+- Manual smoke matrix passed with the Debug app at `/Users/majiajun/Library/Developer/Xcode/DerivedData/SliceAI-brzscqfwfyocfjeawmcilvwfdnlt/Build/Products/Debug/SliceAI.app`.
+- Green: App launch logs showed `AX trusted=true`, `wireRuntime: done`, and all six temporary tool hotkeys registered.
+- Green: local OpenAI-compatible SSE stub received `silent-smoke`, `file-smoke`, `replace-smoke`, `bubble-smoke`, `structured-smoke`, and `window-smoke`.
+- Green: `.silent` copied `SILENT_SMOKE_OK` to the clipboard without opening a window.
+- Green: `.file` appended `FILE_SMOKE_OK` to a temporary App Support output file without opening a window.
+- Green: `.replace` replaced the selected TextEdit text with `REPLACE_SMOKE_OK`.
+- Green: `.bubble` completed and exposed a transient BubblePanel window.
+- Green: `.structured + TTS` sent provider-visible `sliceai_load_skill` and produced `sideEffect kind=tts outcome=executed` audit/log evidence.
+- Green: `.window` kept ResultPanel visible.
+- Cleanup: temporary App Support config/grants/audit/cost files were restored, the temporary Keychain account was deleted, clipboard text was restored, and SliceAI was relaunched with the user's restored config.
 
 Task 9 current verification:
 
 - Red: first `swift test --package-path SliceAIKit` failed because `AgentExecutorSkillE2ETests` included the bundled `english-tutor` skill in a fixture-only assertion; the test now filters to the `project-skills` source.
 - Green: `swift test --package-path SliceAIKit --filter OrchestrationTests.AgentExecutorSkillE2ETests`: 0 failures.
-- Red: one full-suite rerun exposed an existing scheduling race in `ExecutionEngineTests/test_execute_cancellationDuringPermissionGate_skipsAuditAndLLM`; focused rerun passed and no production logic was changed for that flake.
+- Red: one full-suite rerun exposed a scheduling race in `ExecutionEngineTests/test_execute_cancellationDuringPermissionGate_skipsAuditAndLLM`; focused rerun passed 10 times, proving the failure came from the test fixture's `Task.yield()` synchronization assumption.
+- Fix: `CancellationAwareMockPermissionBroker` now suspends gate until stream termination cancels the execute task, then returns the denial outcome; no production logic changed.
+- Green: `swift test --package-path SliceAIKit --filter ExecutionEngineTests/test_execute_cancellationDuringPermissionGate_skipsAuditAndLLM`: 1 test, 0 failures.
 - Green: `swift test --package-path SliceAIKit`: 837 tests, 1 skipped, 0 failures.
 - Green: `swiftlint lint --strict`: 194 files, 0 violations.
 - Green: `git diff --check`: passed.
 - Green: `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`: `BUILD SUCCEEDED`.
 - Green: `bash scripts/phase2-public-skill-smoke.sh`: 3 repositories / 9 public skills.
+- Green: `jq empty config.schema.json`: passed.
 
 Pre-plan baseline from Task 62 was:
 

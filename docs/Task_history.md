@@ -9,7 +9,7 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 - **时间**：2026-05-26
 - **描述**：按“严格 Roadmap”范围完成 Phase 2 剩余内容：Output lifecycle、多 DisplayMode、side effects 实执行、TTS 和首方 English Tutor。
 - **详情**：[docs/Task-detail/2026-05-26-phase-2-completion.md](Task-detail/2026-05-26-phase-2-completion.md)
-- **结果**：进行中。已完成 Output lifecycle foundation、SideEffect executor、`.silent` / `.file` / `.replace` / `.bubble` / `.structured` DisplayMode、本地 TTS capability 和 English Tutor 默认工具：prompt / agent 路径会传递 output lifecycle 和 final text；`copyToClipboard`、`appendToFile`、`notify`、`callMCP`、`tts` 已有执行边界并接入生产 `ExecutionEngine`；`.silent` 不再落窗，`.file` 在 finish 阶段写入 appendToFile 目标且避免重复执行同一文件写入；`.replace` 在 finish 阶段通过 AX 替换选区，失败时复制到剪贴板并通知；`.bubble` 在 finish 后展示自动消失气泡；`.structured` 把顶层 JSON object 渲染为结构化字段视图；TTS 使用 macOS AVFoundation 朗读 final text，dry-run 不发声，并在 structured JSON 包含 `ttsText` 时优先朗读该字段；默认配置 schema v4 新增 `english-tutor`，并由内置首方 skill 支撑绑定。最终 automated gate 与公开仓库 smoke 已通过；真实 App 手工 smoke 待做。
+- **结果**：完成。已完成 Output lifecycle foundation、SideEffect executor、`.silent` / `.file` / `.replace` / `.bubble` / `.structured` DisplayMode、本地 TTS capability 和 English Tutor 默认工具：prompt / agent 路径会传递 output lifecycle 和 final text；`copyToClipboard`、`appendToFile`、`notify`、`callMCP`、`tts` 已有执行边界并接入生产 `ExecutionEngine`；`.silent` 不再落窗，`.file` 在 finish 阶段写入 appendToFile 目标且避免重复执行同一文件写入；`.replace` 在 finish 阶段通过 AX 替换选区，失败时复制到剪贴板并通知；`.bubble` 在 finish 后展示自动消失气泡；`.structured` 把顶层 JSON object 渲染为结构化字段视图；TTS 使用 macOS AVFoundation 朗读 final text，dry-run 不发声，并在 structured JSON 包含 `ttsText` 时优先朗读该字段；默认配置 schema v4 新增 `english-tutor`，并由内置首方 skill 支撑绑定。真实 App smoke 覆盖六种输出路径；final gate 中修复了一个取消测试夹具调度竞态（生产逻辑未改）。最终 automated gate、公开仓库 smoke 和真实 App smoke 均已通过。
 
 ---
 

@@ -1014,10 +1014,9 @@ final class ExecutionEngineTests: XCTestCase {
     /// 取消后才发生的 .failed 记录，与"取消静默退出"语义冲突。当前实现 gate await 后
     /// 显式 `Task.isCancelled` 短路。
     func test_execute_cancellationDuringPermissionGate_skipsAuditAndLLM() async throws {
-        // YieldingMockPermissionBroker 在 gate 内 Task.yield()，让 cancel cascade 在
-        // 此 await 边界落地；outcome=.denied 模拟"如果不查 cancel 就会 finishFailure"的最坏情况
-        let broker = YieldingMockPermissionBroker(
-            outcomeOverride: .denied(permission: .clipboard, reason: "test deny")
+        // 挂起到 execute task 被取消后再返回 denied；比 Task.yield 更稳定地覆盖 gate 后取消短路。
+        let broker = CancellationAwareMockPermissionBroker(
+            outcomeAfterCancellation: .denied(permission: .clipboard, reason: "test deny")
         )
         let llm = MockLLMProvider(chunks: [ChatChunk(delta: "should-not-stream", finishReason: .stop)])
 
@@ -1390,6 +1389,36 @@ private final actor YieldingMockPermissionBroker: PermissionBrokerProtocol {
     ) async -> GateOutcome {
         await Task.yield()
         return outcomeOverride ?? .approved
+    }
+}
+
+/// gate 内保持挂起，直到外层 execute task 被 stream termination 取消。
+///
+/// 用于 permission gate cancellation 测试：取消后仍返回一个会触发失败的 outcome，
+/// 确认 `ExecutionEngine.runPermissionGate` 在 await 后通过 `Task.isCancelled`
+/// 静默退出，而不是把取消后的 broker 结果写成失败 audit。
+private final actor CancellationAwareMockPermissionBroker: PermissionBrokerProtocol {
+    private let outcomeAfterCancellation: GateOutcome
+
+    init(outcomeAfterCancellation: GateOutcome) {
+        self.outcomeAfterCancellation = outcomeAfterCancellation
+    }
+
+    /// 等待任务取消后再返回预设 outcome，制造稳定的“gate 返回时 task 已取消”状态。
+    func gate(
+        effective: Set<Permission>,
+        provenance: Provenance,
+        scope: GrantScope,
+        isDryRun: Bool
+    ) async -> GateOutcome {
+        do {
+            try await Task.sleep(nanoseconds: 5_000_000_000)
+        } catch is CancellationError {
+            // 预期路径：consumer 关闭 stream 后，onTermination 会取消 execute task。
+        } catch {
+            // Task.sleep 不应抛出其它错误；保留兜底以免测试替身吞掉未知异常形态。
+        }
+        return outcomeAfterCancellation
     }
 }
 
