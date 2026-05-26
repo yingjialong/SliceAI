@@ -33,7 +33,7 @@ Task 58-62 已完成 Phase 2 前半段：Skill Registry MVP、真实本地 skill
 - [x] 按 TDD 实施 Output lifecycle foundation。
 - [x] 按 TDD 实施 SideEffect executor。
 - [x] 按 TDD 实施 `.silent` 与 `.file`。
-- [ ] 按 TDD 实施 `.replace`。
+- [x] 按 TDD 实施 `.replace`。
 - [ ] 按 TDD 实施 `.bubble` 与 `.structured`。
 - [ ] 按 TDD 实施 TTS capability。
 - [ ] 按 TDD 实施 `english-tutor` 默认工具。
@@ -82,6 +82,14 @@ Task 58-62 已完成 Phase 2 前半段：Skill Registry MVP、真实本地 skill
   - 绿灯：`swift test --package-path SliceAIKit --filter 'OrchestrationTests.OutputLifecycleTests|OrchestrationTests.ExecutionEngineTests|OrchestrationTests.AgentExecutorTests'`，56 tests，0 failures。
   - 绿灯：touched Swift files `swiftlint lint --strict ...`，0 violations。
   - 绿灯：`git diff --check`，passed。
+- Replace DisplayMode：
+  - 红灯：`swift test --package-path SliceAIKit --filter OrchestrationTests.ReplaceDisplayModeTests` 首次因 `TextReplacementClient` / `TextReplacementResult` 与 `OutputDispatcher(replacementClient:)` 缺失编译失败。
+  - 红灯：`.replace` 生产实现后，旧 fallback 测试仍断言 replace 写 window sink，触发越界崩溃；已修正为 replace 不落窗。
+  - 绿灯：`swift test --package-path SliceAIKit --filter OrchestrationTests.ReplaceDisplayModeTests`，4 tests，0 failures。
+  - 绿灯：`swift test --package-path SliceAIKit --filter 'OrchestrationTests.ReplaceDisplayModeTests|OrchestrationTests.OutputDispatcherFallbackTests|OrchestrationTests.OutputDispatcherTests|OrchestrationTests.OutputLifecycleTests'`，25 tests，0 failures。
+  - 绿灯：`swift test --package-path SliceAIKit --filter 'OrchestrationTests.ReplaceDisplayModeTests|OrchestrationTests.OutputDispatcherFallbackTests|OrchestrationTests.OutputDispatcherTests|OrchestrationTests.OutputLifecycleTests|OrchestrationTests.ExecutionEngineTests'`，44 tests，0 failures。
+  - 绿灯：`xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`，BUILD SUCCEEDED。
+  - 绿灯：touched Swift files `swiftlint lint --strict ...`，0 violations。
 
 ## 已完成实现细节
 
@@ -104,12 +112,20 @@ Task 58-62 已完成 Phase 2 前半段：Skill Registry MVP、真实本地 skill
 - 旧 `OutputDispatcher.handle(chunk:mode:invocationId:)` 已桥接到 lifecycle 路由，避免旧调用方继续把 `.silent/.file` fallback 到 window。
 - `.file` 主输出已经消费的 `appendToFile` 会从 `runSideEffects` 实执行列表中过滤，避免文件重复写入；其它 side effect 仍照常执行。
 
+### `.replace`
+
+- 新增 `TextReplacementClient` 与 `TextReplacementResult`，让 Orchestration 只依赖协议，不直接 import AppKit。
+- `OutputDispatcher` 对 `.replace` 的 streaming chunk 不写 window；finish 阶段用完整 final text 调用 replacement client。
+- `AppTextReplacementClient` 在 App 层先尝试 AX `kAXSelectedTextAttribute` 直接替换；失败时把 final text 写入剪贴板并发本地通知，日志只记录长度和结果，不记录用户文本。
+- AppContainer 已注入 `AppTextReplacementClient`；AppDelegate 对 `.replace`、`.file`、`.silent` 不再提前打开空 ResultPanel，失败时才打开面板展示错误。
+
 ## 变动文件清单
 
 - `SliceAIKit/Sources/Orchestration/Output/OutputDispatcherProtocol.swift`
 - `SliceAIKit/Sources/Orchestration/Output/OutputDispatcher.swift`
 - `SliceAIKit/Sources/Orchestration/Output/FinalTextFileAppender.swift`
 - `SliceAIKit/Sources/Orchestration/Output/SideEffectExecutor.swift`
+- `SliceAIKit/Sources/Orchestration/Output/TextReplacementClient.swift`
 - `SliceAIKit/Sources/Orchestration/Engine/ExecutionEngine.swift`
 - `SliceAIKit/Sources/Orchestration/Engine/ExecutionEngine+OutputLifecycle.swift`
 - `SliceAIKit/Sources/Orchestration/Engine/ExecutionEngine+Steps.swift`
@@ -118,8 +134,13 @@ Task 58-62 已完成 Phase 2 前半段：Skill Registry MVP、真实本地 skill
 - `SliceAIKit/Tests/OrchestrationTests/Output/OutputLifecycleTests.swift`
 - `SliceAIKit/Tests/OrchestrationTests/Output/SideEffectExecutorTests.swift`
 - `SliceAIKit/Tests/OrchestrationTests/Output/OutputDispatcherFallbackTests.swift`
+- `SliceAIKit/Tests/OrchestrationTests/Output/ReplaceDisplayModeTests.swift`
 - `SliceAIKit/Tests/OrchestrationTests/OutputDispatcherTests.swift`
+- `SliceAIApp/AppContextAdapters.swift`
+- `SliceAIApp/AppContainer.swift`
+- `SliceAIApp/AppDelegate+Execution.swift`
+- `SliceAIKit/Sources/SettingsUI/ToolEditorView+Sections.swift`
 
 ## 下一步
 
-提交 `.silent` / `.file` 后进入 plan Task 4：`.replace` DisplayMode。
+提交 `.replace` 后进入 plan Task 5：`.bubble` 与 `.structured` DisplayMode。

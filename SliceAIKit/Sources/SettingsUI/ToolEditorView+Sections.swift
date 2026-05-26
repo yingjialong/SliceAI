@@ -175,7 +175,7 @@ extension ToolEditorView {
                 .labelsHidden()
             }
 
-            Text("v0.2 暂时全部以窗口模式展示，Phase 2 起 bubble / replace 等模式生效")
+            Text("window / replace 已生效；bubble 当前仍暂走窗口展示")
                 .font(SliceFont.caption)
                 .foregroundColor(SliceColor.textTertiary)
                 .frame(maxWidth: .infinity, alignment: .leading)

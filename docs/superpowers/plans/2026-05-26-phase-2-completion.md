@@ -224,7 +224,7 @@ git commit -m "feat: add silent and file display modes"
 
 ## Task 4: Replace DisplayMode
 
-- [ ] **Step 1: Write failing replace tests**
+- [x] **Step 1: Write failing replace tests**
 
 Add tests for the replacement adapter:
 
@@ -234,13 +234,13 @@ func test_replace_fallsBackToClipboardAndNotificationWhenAXFails() async throws
 func test_replace_waitsUntilFinishBeforeWriting() async throws
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `swift test --package-path SliceAIKit --filter OrchestrationTests.ReplaceDisplayModeTests`
 
 Expected: compile failure because replacement adapter does not exist.
 
-- [ ] **Step 3: Add replacement protocol**
+- [x] **Step 3: Add replacement protocol**
 
 Create a small protocol in `Windowing` or `Capabilities`:
 
@@ -256,21 +256,21 @@ public enum TextReplacementResult: Sendable, Equatable {
 }
 ```
 
-- [ ] **Step 4: Implement AppKit adapter**
+- [x] **Step 4: Implement AppKit adapter**
 
 Use AX replacement where available. If it fails, write final text to pasteboard and show a local notification telling the user to paste manually. Do not stream partial chunks into the active app.
 
-- [ ] **Step 5: Wire `.replace`**
+- [x] **Step 5: Wire `.replace`**
 
 `OutputDispatcher.finish(finalText:)` calls the replacement client only for `.replace`.
 
-- [ ] **Step 6: Run focused tests**
+- [x] **Step 6: Run focused tests**
 
 Run: `swift test --package-path SliceAIKit --filter 'OrchestrationTests.ReplaceDisplayModeTests|OrchestrationTests.OutputLifecycleTests'`
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add SliceAIKit/Sources SliceAIKit/Tests

@@ -13,7 +13,8 @@ import SliceCore
 /// - `.window` → 调 `windowSink.append(chunk:invocationId:)` 后返回 `.delivered`
 /// - `.silent` → 消费 chunk，不展示
 /// - `.file` → chunk 阶段不展示，finish 阶段追加完整 final text
-/// - `.bubble` / `.replace` / `.structured` → 暂时 fallback 到 `.window`
+/// - `.replace` → chunk 阶段不展示，finish 阶段替换前台 App 选区
+/// - `.bubble` / `.structured` → 暂时 fallback 到 `.window`
 /// - fallback 每个 invocation 只写一条日志，避免 stream chunk 高频刷屏
 ///
 /// **M3 范围（后续接入）**：
@@ -28,6 +29,8 @@ public actor OutputDispatcher: OutputDispatcherProtocol {
     private let windowSink: any WindowSinkProtocol
     /// `.file` 模式的 final text 写入器。
     private let fileAppender: any FinalTextFileAppending
+    /// `.replace` 模式的前台 App 文本替换 client。
+    private let replacementClient: (any TextReplacementClient)?
     /// fallback 日志节流状态容量；足够覆盖并发/近期 invocation，且避免长期无界增长。
     private static let maxLoggedFallbackInvocations = 128
     /// fallback 日志节流状态：同一个 invocation 只记录一次 non-window fallback。
@@ -42,12 +45,15 @@ public actor OutputDispatcher: OutputDispatcherProtocol {
     /// - Parameters:
     ///   - windowSink: `.window` 模式 sink。
     ///   - fileAppender: `.file` 模式 final text 文件写入器。
+    ///   - replacementClient: `.replace` 模式文本替换 client。
     public init(
         windowSink: any WindowSinkProtocol,
-        fileAppender: any FinalTextFileAppending = SandboxedFinalTextFileAppender()
+        fileAppender: any FinalTextFileAppending = SandboxedFinalTextFileAppender(),
+        replacementClient: (any TextReplacementClient)? = nil
     ) {
         self.windowSink = windowSink
         self.fileAppender = fileAppender
+        self.replacementClient = replacementClient
     }
 
     /// 根据 `mode` 派发 chunk；兼容旧调用方并复用 lifecycle 路由规则。
@@ -81,9 +87,9 @@ public actor OutputDispatcher: OutputDispatcherProtocol {
         switch context.mode {
         case .window:
             try await windowSink.append(chunk: chunk, invocationId: context.invocationId)
-        case .silent, .file:
+        case .silent, .file, .replace:
             return .delivered
-        case .bubble, .replace, .structured:
+        case .bubble, .structured:
             logFallbackIfNeeded(mode: context.mode, invocationId: context.invocationId)
             try await windowSink.append(chunk: chunk, invocationId: context.invocationId)
         }
@@ -92,7 +98,18 @@ public actor OutputDispatcher: OutputDispatcherProtocol {
 
     /// lifecycle finish；`.file` 在此阶段写入完整 final text。
     public func finish(finalText: String, context: OutputInvocationContext) async throws {
-        guard context.mode == .file else { return }
+        switch context.mode {
+        case .file:
+            try await finishFile(finalText: finalText, context: context)
+        case .replace:
+            try await finishReplace(finalText: finalText)
+        case .window, .bubble, .silent, .structured:
+            return
+        }
+    }
+
+    /// `.file` finish：写入 appendToFile 目标。
+    private func finishFile(finalText: String, context: OutputInvocationContext) async throws {
         guard let destination = context.outputBinding?.appendToFileDestination else {
             throw SliceError.configuration(.validationFailed(
                 "DisplayMode.file requires outputBinding.sideEffects appendToFile destination"
@@ -103,6 +120,22 @@ public actor OutputDispatcher: OutputDispatcherProtocol {
             to: destination.path,
             header: destination.header
         )
+    }
+
+    /// `.replace` finish：只在 final text 完整后替换前台选区。
+    private func finishReplace(finalText: String) async throws {
+        guard let replacementClient else {
+            throw SliceError.configuration(.validationFailed(
+                "DisplayMode.replace requires TextReplacementClient"
+            ))
+        }
+        let result = await replacementClient.replaceSelection(with: finalText)
+        switch result {
+        case .replaced, .fallbackCopied:
+            return
+        case .failed:
+            throw SliceError.execution(.unknown("replace display mode failed"))
+        }
     }
 
     /// 对 non-window fallback 做固定容量日志节流。

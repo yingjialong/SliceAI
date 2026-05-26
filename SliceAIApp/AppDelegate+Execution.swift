@@ -52,12 +52,14 @@ extension AppDelegate {
         let invocationId = seed.invocationId
         container.invocationGate.setActiveInvocation(invocationId)
 
-        openResultPanel(
-            tool: tool,
-            payload: payload,
-            triggerSource: triggerSource,
-            invocationId: invocationId
-        )
+        if Self.shouldOpenResultPanelInitially(for: tool.displayMode) {
+            openResultPanel(
+                tool: tool,
+                payload: payload,
+                triggerSource: triggerSource,
+                invocationId: invocationId
+            )
+        }
         startExecutionStream(
             tool: tool,
             payload: payload,
@@ -185,6 +187,14 @@ extension AppDelegate {
         guard container?.invocationGate.shouldAccept(invocationId: context.invocationId) == true else {
             return
         }
+        if !Self.shouldOpenResultPanelInitially(for: context.tool.displayMode) {
+            openResultPanel(
+                tool: context.tool,
+                payload: context.payload,
+                triggerSource: context.triggerSource,
+                invocationId: context.invocationId
+            )
+        }
         container?.resultPanel.fail(
             with: error,
             onRetry: { [weak self] in
@@ -207,5 +217,18 @@ extension AppDelegate {
             return modelId ?? "default"
         }
         return "default"
+    }
+
+    /// 判断执行开始时是否需要打开 ResultPanel。
+    ///
+    /// `.bubble` / `.structured` 在当前切片还未有独立 sink，仍走 window fallback；
+    /// `.replace` / `.file` / `.silent` 是 final-only 或 side-only 模式，不应打开空面板。
+    private static func shouldOpenResultPanelInitially(for mode: DisplayMode) -> Bool {
+        switch mode {
+        case .window, .bubble, .structured:
+            return true
+        case .replace, .file, .silent:
+            return false
+        }
     }
 }

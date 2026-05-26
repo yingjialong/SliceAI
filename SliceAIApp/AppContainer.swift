@@ -123,6 +123,13 @@ final class AppContainer {
         let resultPanelAdapter: ResultPanelWindowSinkAdapter
     }
 
+    /// bootstrap 期间创建出的输出依赖集合。
+    private struct OutputDependencies {
+        let outputDispatcher: any OutputDispatcherProtocol
+        let invocationGate: InvocationGate
+        let resultPanelAdapter: ResultPanelWindowSinkAdapter
+    }
+
     /// 创建 v2 runtime 所需的输入依赖集合，避免 helper 参数列表持续膨胀。
     private struct V2RuntimeDependencyInputs {
         let appSupport: URL
@@ -262,9 +269,7 @@ final class AppContainer {
         let auditLog: any AuditLogProtocol = try JSONLAuditLog(
             fileURL: inputs.appSupport.appendingPathComponent("audit.jsonl")
         )
-        let invocationGate = InvocationGate()
-        let resultPanelAdapter = ResultPanelWindowSinkAdapter(panel: inputs.resultPanel, gate: invocationGate)
-        let outputDispatcher: any OutputDispatcherProtocol = OutputDispatcher(windowSink: resultPanelAdapter)
+        let outputDependencies = makeOutputDependencies(resultPanel: inputs.resultPanel)
         let engineDependencies = ExecutionEngineDependencies(
             providerRegistry: providerRegistry,
             permissionBroker: permissionBroker,
@@ -275,12 +280,29 @@ final class AppContainer {
             skillRegistry: inputs.skillRegistry,
             costAccounting: costAccounting,
             auditLog: auditLog,
-            outputDispatcher: outputDispatcher
+            outputDispatcher: outputDependencies.outputDispatcher
         )
         let executionEngine = makeExecutionEngine(dependencies: engineDependencies)
 
         return RuntimeDependencies(
             executionEngine: executionEngine,
+            outputDispatcher: outputDependencies.outputDispatcher,
+            invocationGate: outputDependencies.invocationGate,
+            resultPanelAdapter: outputDependencies.resultPanelAdapter
+        )
+    }
+
+    /// 创建输出相关依赖。
+    /// - Parameter resultPanel: AppContainer 持有的结果面板。
+    /// - Returns: output dispatcher、single-flight gate 与 window sink adapter。
+    private static func makeOutputDependencies(resultPanel: ResultPanel) -> OutputDependencies {
+        let invocationGate = InvocationGate()
+        let resultPanelAdapter = ResultPanelWindowSinkAdapter(panel: resultPanel, gate: invocationGate)
+        let outputDispatcher: any OutputDispatcherProtocol = OutputDispatcher(
+            windowSink: resultPanelAdapter,
+            replacementClient: AppTextReplacementClient()
+        )
+        return OutputDependencies(
             outputDispatcher: outputDispatcher,
             invocationGate: invocationGate,
             resultPanelAdapter: resultPanelAdapter

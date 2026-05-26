@@ -6,7 +6,7 @@ import XCTest
 ///
 /// 覆盖范围：
 /// 1. `.window` 模式 chunk 顺序与计数（Array == 严格 FIFO）
-/// 2. 未实现的视觉模式 fallback 到 window sink 并返回 `.delivered`
+/// 2. 未实现的视觉模式 fallback 到 window sink，final-only 模式不落窗
 /// 3. `.window` 调用真的转发到注入的 sink（spy WindowSink 验证 args）
 /// 4. 不同 invocationId 在 sink 内严格隔离（不串流）
 /// 5. WindowSink 抛错时 `OutputDispatcher.handle(...)` 透传
@@ -35,16 +35,16 @@ final class OutputDispatcherTests: XCTestCase {
         XCTAssertEqual(received, ["a", "b", "c"], "sink 应保留 chunk 原始顺序")
     }
 
-    // MARK: - Cell 2: 未实现视觉模式 fallback，silent/file 不落窗
+    // MARK: - Cell 2: 未实现视觉模式 fallback，final-only 模式不落窗
 
     /// `.bubble` 模式应 fallback 到 window sink，并返回 .delivered
     func test_handle_bubbleMode_fallsBackToWindowSink() async throws {
         try await assertFallsBack(mode: .bubble)
     }
 
-    /// `.replace` 模式应 fallback 到 window sink，并返回 .delivered
-    func test_handle_replaceMode_fallsBackToWindowSink() async throws {
-        try await assertFallsBack(mode: .replace)
+    /// `.replace` 模式 chunk 阶段不应写 window sink。
+    func test_handle_replaceMode_doesNotWriteWindowSink() async throws {
+        try await assertDoesNotWriteWindow(mode: .replace)
     }
 
     /// `.file` 模式 chunk 阶段不应写 window sink。
@@ -68,13 +68,13 @@ final class OutputDispatcherTests: XCTestCase {
         let sut = OutputDispatcher(windowSink: sink)
 
         // 只遍历尚未实现独立 sink 的视觉模式。
-        for mode in [DisplayMode.bubble, .replace, .structured] {
+        for mode in [DisplayMode.bubble, .structured] {
             let outcome = try await sut.handle(chunk: "fallback", mode: mode, invocationId: UUID())
             XCTAssertEqual(outcome, .delivered, "\(mode) fallback 成功时应返回 .delivered")
         }
 
         let calls = await sink.calls
-        XCTAssertEqual(calls.count, 3, "三个未实现视觉模式都应触达 windowSink，实际调用 \(calls.count) 次")
+        XCTAssertEqual(calls.count, 2, "两个未实现视觉模式都应触达 windowSink，实际调用 \(calls.count) 次")
         XCTAssertTrue(calls.allSatisfy { $0.chunk == "fallback" }, "fallback chunk 应原样透传")
     }
 

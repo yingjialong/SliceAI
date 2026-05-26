@@ -35,9 +35,9 @@ final class OutputDispatcherFallbackTests: XCTestCase {
         XCTAssertEqual(calls[0].invocationId, invocationId)
     }
 
-    /// 验证 replace 模式 fallback 到 windowSink。
-    func test_handle_replace_fallsBack() async throws {
-        try await assertFallsBack(mode: .replace)
+    /// 验证旧 API 下 replace 模式不再 fallback 到 windowSink。
+    func test_handle_replace_doesNotWriteWindowSink() async throws {
+        try await assertDoesNotWriteWindow(mode: .replace)
     }
 
     /// 验证旧 API 下 file 模式不再 fallback 到 windowSink。

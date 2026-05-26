@@ -46,7 +46,7 @@
 | `PermissionGrantStore` | actor 隔离的 session grant store；只缓存 cacheable permissions，拒绝 MCP / network / shell / AppIntents。 |
 | `PromptExecutor.run(...)` | prompt 渲染 + LLM provider stream。 |
 | `AgentExecutor.run(...)` | Agent ReAct loop；按 MCP allowlist 暴露 tool catalog，执行 MCP tool call，并支持 `sliceai.load_skill` / `sliceai.load_skill_resource` pseudo-tool 按需加载绑定 skill 指令和只读 supporting files。 |
-| `OutputDispatcher.handle(chunk:context:)` / `finish(finalText:context:)` | 按 `DisplayMode` 生命周期派发输出；`.silent` 不展示，`.file` 在 finish 写文件，`.bubble/.replace/.structured` 暂时 fallback 到 window。 |
+| `OutputDispatcher.handle(chunk:context:)` / `finish(finalText:context:)` | 按 `DisplayMode` 生命周期派发输出；`.silent` 不展示，`.file` 在 finish 写文件，`.replace` 在 finish 替换选区，`.bubble/.structured` 暂时 fallback 到 window。 |
 | `SideEffectExecutor.execute(_:finalText:invocationId:)` | 在 permission gate 通过后执行副作用；支持 clipboard、file append、notification、MCP call 和 TTS，memory 明确 unsupported。 |
 | `InvocationGate` | single-flight 状态唯一来源，阻止旧 invocation 污染新结果。 |
 | `AuditLogProtocol.append(_:)` | 审计日志抽象，生产实现为 JSONL append。 |
@@ -78,7 +78,7 @@
 
 Agent 执行链会把 allowlist 中的 MCP tool 暴露给支持 tool calling 的 OpenAI-compatible provider，并在每次真实 MCP 调用前走权限 gate。Phase 2 Skill Registry MVP 后，Agent Tool 初始只注入绑定 skills 的 metadata；模型需要完整指令时调用内置 `sliceai.load_skill` pseudo-tool，执行器从 `LocalSkillRegistry` 读取对应 `SKILL.md`。Task 62 后，metadata 还会列出可读 supporting files；模型必须先加载 skill，再用 `sliceai.load_skill_resource` 读取 `references/` 或文本型 `assets/`。`scripts/` 仍不读取、不执行。
 
-`OutputDispatcher` 当前已具备 `.window`、`.silent`、`.file` 的真实行为。`.silent` 消费输出但不写 window；`.file` 在 finish 阶段从 `outputBinding.sideEffects` 读取首个 `appendToFile` 目标并写入 final text，缺少目标时返回配置错误。`.bubble`、`.replace`、`.structured` 仍会 fallback 到 window sink 并记录一次去重日志，直到对应 sink 完成。
+`OutputDispatcher` 当前已具备 `.window`、`.silent`、`.file`、`.replace` 的真实行为。`.silent` 消费输出但不写 window；`.file` 在 finish 阶段从 `outputBinding.sideEffects` 读取首个 `appendToFile` 目标并写入 final text，缺少目标时返回配置错误；`.replace` 在 finish 阶段通过 `TextReplacementClient` 替换前台 App 选区，AX 失败时由 App 层复制到剪贴板并通知用户。`.bubble`、`.structured` 仍会 fallback 到 window sink 并记录一次去重日志，直到对应 sink 完成。
 
 ## 代码实现说明
 
