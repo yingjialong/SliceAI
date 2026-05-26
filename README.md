@@ -8,7 +8,7 @@ SliceAI 让你在任何 Mac 应用里选中文字后，通过快捷工具栏或 
 
 v0.2.0 Phase 0 底层重构已正式发布：v2 数据模型、Orchestration 执行引擎、Capabilities 能力边界已接入真实 App 触发链。Release: <https://github.com/yingjialong/SliceAI/releases/tag/v0.2.0>。
 
-Phase 1 MCP + Context 主干已完成 `v0.3` release prep：stdio / Streamable HTTP MCP client、MCP Servers 设置页、五个核心 ContextProvider、PermissionBroker UI gate、AgentExecutor tool calling、ResultPanel tool-call lifecycle、`web-search-summarize`、per-tool hotkey 和基础自定义 Agent Tool 配置均已落地。Task 17 已完成真实 release E2E 主体验证；filesystem / postgres / brave-search / git / sqlite 五项本地 MCP server 已完成直接 JSON-RPC `tools/list` 与安全只读 / 低风险 `tools/call`，用户已基本复测 App 场景且未反馈阻塞问题。最终 Claude review loop Round 2 approve；review 中发现并修复了两项发布阻塞：长 MCP tool result 不再以 `<truncated:N>` 回填给 LLM，stdio MCP server 在 command / args / env 变化后会重启旧 session。最终 gate 已通过 SwiftPM 758 tests、SwiftLint strict、`git diff --check`、App Debug build、本地 unsigned DMG 构建和 DMG 挂载结构校验。`v0.3.0` tag 已推送，GitHub Actions Release run `26168050987` 已成功生成 draft release；CI DMG SHA256 为 `cf63e4e50b8eeda63e38f04c85ff485d11cdfa939038d7555b72ae61ad96f0e0`。用户已明确暂缓人工发布，draft release 保持草稿；Phase 2 Skill Registry MVP 已完成并推送到 `main` / `origin/main`（commit `1411e88`）：支持本地 skill roots、`SKILL.md` parser/scanner、Settings Skills 页面、Agent Tool 最多 5 个 skill 绑定，以及 `sliceai.load_skill` 渐进式加载。Task 60 真实本地 Skill E2E 已完成；Task 61 公开仓库 smoke 已完成；Task 62 supporting files 只读加载已实现：支持索引并按需读取 `references/` 与文本型 `assets/`，继续禁止执行或读取 `scripts/`。参见 [docs/v2-refactor-master-todolist.md](docs/v2-refactor-master-todolist.md) 跟踪后续 Phase。
+Phase 1 MCP + Context 主干已完成 `v0.3` release prep：stdio / Streamable HTTP MCP client、MCP Servers 设置页、五个核心 ContextProvider、PermissionBroker UI gate、AgentExecutor tool calling、ResultPanel tool-call lifecycle、`web-search-summarize`、per-tool hotkey 和基础自定义 Agent Tool 配置均已落地。Task 17 已完成真实 release E2E 主体验证；filesystem / postgres / brave-search / git / sqlite 五项本地 MCP server 已完成直接 JSON-RPC `tools/list` 与安全只读 / 低风险 `tools/call`，用户已基本复测 App 场景且未反馈阻塞问题。最终 Claude review loop Round 2 approve；review 中发现并修复了两项发布阻塞：长 MCP tool result 不再以 `<truncated:N>` 回填给 LLM，stdio MCP server 在 command / args / env 变化后会重启旧 session。最终 gate 已通过 SwiftPM 758 tests、SwiftLint strict、`git diff --check`、App Debug build、本地 unsigned DMG 构建和 DMG 挂载结构校验。`v0.3.0` tag 已推送，GitHub Actions Release run `26168050987` 已成功生成 draft release；CI DMG SHA256 为 `cf63e4e50b8eeda63e38f04c85ff485d11cdfa939038d7555b72ae61ad96f0e0`。用户已明确暂缓人工发布，draft release 保持草稿；Phase 2 Skill Registry MVP 已完成并推送到 `main` / `origin/main`（commit `1411e88`）：支持本地 skill roots、`SKILL.md` parser/scanner、Settings Skills 页面、Agent Tool 最多 5 个 skill 绑定，以及 `sliceai.load_skill` 渐进式加载。Task 60 真实本地 Skill E2E 已完成；Task 61 公开仓库 smoke 已完成；Task 62 supporting files 只读加载已实现：支持索引并按需读取 `references/` 与文本型 `assets/`，继续禁止执行或读取 `scripts/`。Task 63 Phase 2 completion 已启动，范围锁定为 Output lifecycle、多 DisplayMode、side effects 实执行、TTS 和 English Tutor。参见 [docs/v2-refactor-master-todolist.md](docs/v2-refactor-master-todolist.md) 跟踪后续 Phase。
 
 ## Current Features
 
@@ -104,6 +104,17 @@ open SliceAI.xcodeproj
 - `scripts/`、`agents/`、二进制 assets 和未列出的路径仍不会进入模型 payload，也不会被执行。
 
 **验证状态**：已通过 focused registry / Agent / Skill E2E、公开仓库 smoke（3 repositories / 9 public skills）、全量 SwiftPM 803 tests（1 skipped）、SwiftLint strict、`git diff --check` 和 App Debug build。
+
+### 2026-05-26 · Phase 2 Completion Kickoff
+
+**范围**：严格 Roadmap Phase 2 剩余内容
+
+**当前状态**：
+- 已新增 Phase 2 completion spec 与 implementation plan，明确接下来只做 Output lifecycle、多 DisplayMode、side effects 实执行、TTS 和 English Tutor。
+- 明确不做 skill scripts 执行 / 读取、marketplace、远端安装、自动更新、`.slicepack`、PipelineExecutor、Memory 写入和原生 Anthropic / Gemini / Ollama provider。
+- 下一步按 TDD 实施 Output lifecycle foundation。
+
+**验证状态**：本条为设计冻结与任务启动记录，尚未修改业务代码；沿用 Task 62 baseline gate。
 
 ### 2026-05-20 · Phase 2 Skill Registry MVP Spec Kickoff
 

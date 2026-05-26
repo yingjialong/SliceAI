@@ -6,8 +6,8 @@
 
 - 项目定位：macOS 原生、开源的划词触发型 LLM / Agent 工具栏。
 - 平台基线：macOS 14+、Xcode 26+、Swift 6.0、SwiftPM local package。
-- 当前分支：`main`。
-- 当前阶段：Phase 2 Skill Registry MVP、真实本地 Skill E2E、公开 Anthropic / OpenAI / Codex skill 仓库 smoke、supporting files 只读加载均已完成；后续建议进入 DisplayMode 设计切片或 Skill scripts 策略冻结。
+- 当前分支：`codex/phase2-completion`。
+- 当前阶段：Task 63 Phase 2 completion 进行中；Skill Registry MVP、真实本地 Skill E2E、公开 Anthropic / OpenAI / Codex skill 仓库 smoke、supporting files 只读加载均已完成，当前正在实施 Output lifecycle、多 DisplayMode、side effects 实执行、TTS 和 English Tutor。
 - 已发布状态：`v0.2.0` 已正式发布；`v0.3.0` tag 和 GitHub draft release 已生成并校验通过，但用户明确暂缓人工发布。
 - 根工程是 Swift/macOS 项目，不是 Python 项目；PEP 8、Alembic、uv 规则通常不适用于当前仓库。
 
@@ -21,7 +21,7 @@
 4. 当前任务对应的 `docs/Task-detail/*.md`：如果是同一任务的多轮对话，继续更新同一个文件。
 5. 当前 Phase / Milestone 对应的 `docs/superpowers/specs/*.md` 和 `docs/superpowers/plans/*.md`。
 
-注意：`CLAUDE.md` 已同步到 Phase 2 Skill Registry MVP 口径，但 `AGENTS.md` 仍是 Codex 工作指引的优先入口；遇到状态冲突时以源码、README 和 master todolist 为准。
+注意：`CLAUDE.md` 可能滞后于当前 Task 63 进度；`AGENTS.md` 仍是 Codex 工作指引的优先入口；遇到状态冲突时以源码、README 和 master todolist 为准。
 
 ## 文档规范
 

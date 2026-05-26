@@ -17,8 +17,8 @@
 |---|---|
 | 最后更新 | 2026-05-26 |
 | 当前 Phase | **Phase 2 Skill + 多 DisplayMode** |
-| 当前 Milestone | **Task 62 supporting files 只读加载已完成；下一切片待启动** |
-| 下一个动作 | 建议进入 DisplayMode 设计切片或 Skill scripts 策略冻结；TTS / English Tutor 仍需独立 spec |
+| 当前 Milestone | **Task 63 Phase 2 completion 已启动；spec / plan 已冻结** |
+| 下一个动作 | 按 TDD 实施 Output lifecycle foundation，然后依次完成 side effects、DisplayMode、TTS、English Tutor |
 | 阻塞 | 无已知产品代码阻塞；`v0.3.0` draft release 已生成并校验通过，但用户已决定暂缓人工发布 |
 
 **Milestone 状态**
@@ -38,6 +38,7 @@
 | 2 | Skill E2E Validation | ✅ 已完成：3 个本地 Claude / Codex 风格 skill E2E 与 full gate 均通过 |
 | 2 | Public Skill Repository Smoke | ✅ 已完成：3 个公开仓库 / 9 个真实 skill 的扫描、解析、启用和 `SKILL.md` 加载 smoke 通过 |
 | 2 | Supporting Files Read-Only Loading | ✅ 已完成：`references/` 与文本型 `assets/` 可按需只读加载；`scripts/` 仍不读取、不执行 |
+| 2 | Phase 2 Completion | 🟨 Task 63 进行中：Output lifecycle、多 DisplayMode、side effects 实执行、TTS、English Tutor |
 | 3–5 | — | 🟦 Directional，进入前需重新 spec |
 
 ---
@@ -569,7 +570,7 @@ fi
 
 **目标**：把 Anthropic Skills 规范的 skill 包引入；`replace / bubble / structured / silent` 四种 DisplayMode 真正可用。
 
-**当前进度**：Skill Registry MVP、真实本地 Skill E2E、公开 skill 仓库 smoke 和 supporting files 只读加载已完成。下一步仍不应直接宣称 Phase 2 完成；DisplayMode、Skill scripts 策略、TTS 和 English Tutor 都还需要独立 spec / plan / review。
+**当前进度**：Skill Registry MVP、真实本地 Skill E2E、公开 skill 仓库 smoke 和 supporting files 只读加载已完成。Task 63 已冻结 Phase 2 completion spec / plan；当前目标是按 TDD 完成 Output lifecycle、多 DisplayMode、side effects 实执行、TTS 和 English Tutor。Skill scripts 执行明确不进入 Phase 2 completion。
 
 **已实现的 MVP 边界**：
 
@@ -590,6 +591,7 @@ fi
 - [x] 真实 Skill E2E 兼容性验证（3 个本地 Claude / Codex 风格 skill）— focused E2E 与 full gate 均通过
 - [x] 公开 Skill 仓库兼容性 smoke（`anthropics/skills`、`openai/skills`、`jMerta/codex-skills` 3 个仓库 / 9 个真实 skill）
 - [x] Skill supporting files 只读加载（`references/` 与文本型 `assets/`，通过 `sliceai_load_skill_resource` 渐进式读取）
+- [x] Phase 2 completion spec / implementation plan（严格 Roadmap 范围，不包含 scripts 执行和 marketplace）
 - [ ] `Windowing/BubblePanel`（小气泡、2.5s 自动消失）
 - [ ] `Windowing/InlineReplaceOverlay`（AX `setSelectedText` + 确认撤销浮条）
 - [ ] `Windowing/StructuredResultView`（JSONSchema → SwiftUI 表单）
@@ -1128,3 +1130,12 @@ fi
 - E2E 已覆盖真实临时 skill root：`references/style.md` 可按需进入模型 tool message，`scripts/check.sh` 仍不会进入 payload。
 - 验证通过：focused registry / Agent / Skill E2E、公开仓库 smoke（3 repositories / 9 public skills）、`swift test --package-path SliceAIKit`（803 tests，1 skipped）、`swiftlint lint --strict`、`git diff --check` 和 App Debug build。
 - 下一步建议进入 DisplayMode 设计切片或 Skill scripts 策略冻结；TTS、English Tutor、marketplace 仍未实现。
+
+### 2026-05-26 — Phase 2 completion spec / plan 冻结
+
+- 用户确认按“严格 Roadmap”继续 Phase 2 completion，不扩大到 marketplace、scripts 执行、PipelineExecutor、Memory 或原生多 provider。
+- 新增 spec：`docs/superpowers/specs/2026-05-26-phase-2-completion.md`。
+- 新增 implementation plan：`docs/superpowers/plans/2026-05-26-phase-2-completion.md`。
+- 新增 Task 63 任务详情：`docs/Task-detail/2026-05-26-phase-2-completion.md`。
+- 范围冻结为 Output lifecycle foundation、side effects 实执行、`.silent/.file/.replace/.bubble/.structured`、本地 TTS、首方 `english-tutor` 和最终 gate。
+- 当前代码尚未改业务逻辑；下一步从 Output lifecycle failing tests 开始按 TDD 实施。
