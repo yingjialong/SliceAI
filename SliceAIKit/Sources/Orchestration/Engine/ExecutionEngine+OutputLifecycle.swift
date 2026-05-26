@@ -55,7 +55,8 @@ extension ExecutionEngine {
             toolId: tool.id,
             toolName: tool.name,
             mode: tool.displayMode,
-            screenAnchor: context.screenAnchor
+            screenAnchor: context.screenAnchor,
+            outputBinding: tool.outputBinding
         )
     }
 }

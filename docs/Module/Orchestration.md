@@ -2,7 +2,7 @@
 
 ## 模块定位
 
-`Orchestration` 是 v2 执行引擎模块，负责把一次用户触发从 `Tool + ExecutionSeed` 串成完整执行流。它不直接管理 AppKit UI，而是通过协议把输出投递给 Window sink，由 `SliceAIApp` 的 adapter 接到既有 `ResultPanel`。
+`Orchestration` 是 v2 执行引擎模块，负责把一次用户触发从 `Tool + ExecutionSeed` 串成完整执行流。它不直接管理 AppKit UI，而是通过协议把输出投递给 output sink，由 `SliceAIApp` 的 adapter 接到既有 `ResultPanel` 或后续 DisplayMode sink。
 
 ## 功能范围
 
@@ -11,7 +11,7 @@
 - 权限闭环：`PermissionGraph`、`PermissionBroker`、`PermissionConsentPresenting`、`PermissionGrantStore`、`EffectivePermissions`。Phase 1 M2 Task 6 后，`EffectivePermissions.undeclared` 使用 case-aware coverage；Task 8 后，生产 `PermissionBroker` 通过 UI-free presenter 在 broker 内部解析 consent，不再把运行期确认需求直接交给 `ExecutionEngine`；Task 9 后，App target 提供 `AppPermissionConsentPresenter` 作为真实 AppKit presenter。
 - Provider 解析：`ProviderResolver`、`DefaultProviderResolver`。
 - Prompt / Agent 执行：`PromptExecutor` 负责 prompt 渲染、Keychain 取 key、调用 `LLMProviderFactory` 和流式 provider；`AgentExecutor` 负责 OpenAI-compatible tool calling、MCP allowlist、ReAct loop、tool-call lifecycle 和 skill 渐进式加载。
-- 输出派发：`OutputDispatcher`、`WindowSinkProtocol`、`InvocationGate`。
+- 输出派发：`OutputDispatcher`、`WindowSinkProtocol`、`FinalTextFileAppending`、`SideEffectExecutor`、`InvocationGate`。
 - 遥测：`CostAccounting`、`JSONLAuditLog`、`InvocationReport`、`ExecutionEvent`。
 
 ## 技术实现
@@ -26,8 +26,8 @@
 4. `ContextCollector.resolve` 并发解析 `ContextRequest`；内置 provider 可采集 seed/app 快照、剪贴板和 `PathSandbox` 允许的文件内容。
 5. `ProviderResolver.resolve` 解析 `ProviderSelection`。
 6. `.prompt` 工具进入 `PromptExecutor`；`.agent` 工具进入 `AgentExecutor`；`.pipeline` 仍返回 not implemented。
-7. LLM chunk 通过 `OutputDispatcher` 投递到 window sink。
-8. `OutputBinding.sideEffects` 逐条 gate。
+7. LLM chunk 通过 `OutputDispatcher` lifecycle 投递；prompt / agent 路径都会累积 final text 并在 finish 阶段收口。
+8. `OutputBinding.sideEffects` 逐条 gate；`.file` 主输出已经消费的 `appendToFile` 会跳过重复实执行。
 9. `CostAccounting` 写 token / USD 估算。
 10. `JSONLAuditLog` 写终态报告并发送 `.finished` / `.failed`。
 
@@ -46,7 +46,8 @@
 | `PermissionGrantStore` | actor 隔离的 session grant store；只缓存 cacheable permissions，拒绝 MCP / network / shell / AppIntents。 |
 | `PromptExecutor.run(...)` | prompt 渲染 + LLM provider stream。 |
 | `AgentExecutor.run(...)` | Agent ReAct loop；按 MCP allowlist 暴露 tool catalog，执行 MCP tool call，并支持 `sliceai.load_skill` / `sliceai.load_skill_resource` pseudo-tool 按需加载绑定 skill 指令和只读 supporting files。 |
-| `OutputDispatcher.handle(chunk:mode:invocationId:)` | 按 `DisplayMode` 派发输出；当前 non-window mode fallback 到 window。 |
+| `OutputDispatcher.handle(chunk:context:)` / `finish(finalText:context:)` | 按 `DisplayMode` 生命周期派发输出；`.silent` 不展示，`.file` 在 finish 写文件，`.bubble/.replace/.structured` 暂时 fallback 到 window。 |
+| `SideEffectExecutor.execute(_:finalText:invocationId:)` | 在 permission gate 通过后执行副作用；支持 clipboard、file append、notification、MCP call 和 TTS，memory 明确 unsupported。 |
 | `InvocationGate` | single-flight 状态唯一来源，阻止旧 invocation 污染新结果。 |
 | `AuditLogProtocol.append(_:)` | 审计日志抽象，生产实现为 JSONL append。 |
 
@@ -77,8 +78,8 @@
 
 Agent 执行链会把 allowlist 中的 MCP tool 暴露给支持 tool calling 的 OpenAI-compatible provider，并在每次真实 MCP 调用前走权限 gate。Phase 2 Skill Registry MVP 后，Agent Tool 初始只注入绑定 skills 的 metadata；模型需要完整指令时调用内置 `sliceai.load_skill` pseudo-tool，执行器从 `LocalSkillRegistry` 读取对应 `SKILL.md`。Task 62 后，metadata 还会列出可读 supporting files；模型必须先加载 skill，再用 `sliceai.load_skill_resource` 读取 `references/` 或文本型 `assets/`。`scripts/` 仍不读取、不执行。
 
-`OutputDispatcher` 当前只有 `.window` 真实 sink。`.bubble`、`.replace`、`.file`、`.silent`、`.structured` 会 fallback 到 window sink 并记录一次去重日志，保证旧配置迁移后用户仍能看到结果，不会因为 Phase 2 UI 未实现而丢输出。
+`OutputDispatcher` 当前已具备 `.window`、`.silent`、`.file` 的真实行为。`.silent` 消费输出但不写 window；`.file` 在 finish 阶段从 `outputBinding.sideEffects` 读取首个 `appendToFile` 目标并写入 final text，缺少目标时返回配置错误。`.bubble`、`.replace`、`.structured` 仍会 fallback 到 window sink 并记录一次去重日志，直到对应 sink 完成。
 
 ## 代码实现说明
 
-核心源码位于 `SliceAIKit/Sources/Orchestration/`。测试位于 `SliceAIKit/Tests/OrchestrationTests/`，重点覆盖 `InvocationGate`、事件顺序、single-writer 输出契约、OutputDispatcher fallback、PromptExecutor 错误分类、AgentExecutor MCP / skill tool-call 行为、InvocationReport 和权限闭环。
+核心源码位于 `SliceAIKit/Sources/Orchestration/`。测试位于 `SliceAIKit/Tests/OrchestrationTests/`，重点覆盖 `InvocationGate`、事件顺序、single-writer 输出契约、OutputDispatcher lifecycle / fallback、SideEffectExecutor、PromptExecutor 错误分类、AgentExecutor MCP / skill tool-call 行为、InvocationReport 和权限闭环。

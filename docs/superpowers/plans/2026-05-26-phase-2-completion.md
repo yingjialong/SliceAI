@@ -14,8 +14,8 @@
 
 - Modify `SliceAIKit/Sources/Orchestration/Output/OutputDispatcherProtocol.swift`: add lifecycle context and new begin/finish/fail methods.
 - Modify `SliceAIKit/Sources/Orchestration/Output/OutputDispatcher.swift`: route lifecycle events to sink protocols and remove non-window fallback behavior.
-- Add `SliceAIKit/Sources/Orchestration/Output/FinalTextBuffer.swift`: accumulate final output per invocation for final-only modes.
-- Add `SliceAIKit/Sources/Orchestration/Output/SideEffectExecutorProtocol.swift`: declare side effect execution boundary.
+- Add `SliceAIKit/Sources/Orchestration/Output/FinalTextFileAppender.swift`: append final output for `.file` and appendToFile side effects.
+- Add `SliceAIKit/Sources/Orchestration/Output/SideEffectExecutor.swift`: declare side effect execution boundary and concrete executor.
 - Add `SliceAIKit/Sources/Orchestration/Output/SideEffectExecutor.swift`: implement pure orchestration of approved side effects.
 - Modify `SliceAIKit/Sources/Orchestration/Engine/ExecutionEngine+Steps.swift`: use lifecycle output and call side effect executor.
 - Modify `SliceAIKit/Sources/Orchestration/Engine/ExecutionEngine.swift`: inject side effect executor.
@@ -185,7 +185,7 @@ git commit -m "feat: execute output side effects"
 
 ## Task 3: Silent And File DisplayModes
 
-- [ ] **Step 1: Write failing DisplayMode tests**
+- [x] **Step 1: Write failing DisplayMode tests**
 
 Replace current fallback tests with assertions:
 
@@ -195,27 +195,27 @@ func test_file_requiresAppendToFileDestination() async throws
 func test_file_writesFinalTextAtFinish() async throws
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `swift test --package-path SliceAIKit --filter OrchestrationTests.OutputDispatcherFallbackTests`
 
 Expected: fail because current implementation writes all non-window chunks to window sink.
 
-- [ ] **Step 3: Implement `.silent`**
+- [x] **Step 3: Implement `.silent`**
 
 Route `.silent` to a no-op sink. It should accept begin/chunk/finish and never call the window sink.
 
-- [ ] **Step 4: Implement `.file`**
+- [x] **Step 4: Implement `.file`**
 
 At `finish`, find the destination from `outputBinding.sideEffects.first { case .appendToFile }`. If no destination exists, return a configuration failure. Reuse the same file append adapter as `SideEffectExecutor` so permission behavior and path sandboxing stay consistent.
 
-- [ ] **Step 5: Run focused tests**
+- [x] **Step 5: Run focused tests**
 
 Run: `swift test --package-path SliceAIKit --filter 'OrchestrationTests.OutputDispatcherFallbackTests|OrchestrationTests.SideEffectExecutorTests'`
 
 Expected: pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add SliceAIKit/Sources/Orchestration SliceAIKit/Tests/OrchestrationTests

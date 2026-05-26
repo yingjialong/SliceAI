@@ -17,8 +17,8 @@
 |---|---|
 | 最后更新 | 2026-05-26 |
 | 当前 Phase | **Phase 2 Skill + 多 DisplayMode** |
-| 当前 Milestone | **Task 63 Phase 2 completion 已启动；spec / plan 已冻结** |
-| 下一个动作 | 按 TDD 实施 Output lifecycle foundation，然后依次完成 side effects、DisplayMode、TTS、English Tutor |
+| 当前 Milestone | **Task 63 Phase 2 completion 进行中；Output lifecycle / SideEffect executor / `.silent` / `.file` 已完成** |
+| 下一个动作 | 按 TDD 实施 `.replace` DisplayMode，然后完成 `.bubble/.structured`、TTS、English Tutor |
 | 阻塞 | 无已知产品代码阻塞；`v0.3.0` draft release 已生成并校验通过，但用户已决定暂缓人工发布 |
 
 **Milestone 状态**
@@ -38,7 +38,7 @@
 | 2 | Skill E2E Validation | ✅ 已完成：3 个本地 Claude / Codex 风格 skill E2E 与 full gate 均通过 |
 | 2 | Public Skill Repository Smoke | ✅ 已完成：3 个公开仓库 / 9 个真实 skill 的扫描、解析、启用和 `SKILL.md` 加载 smoke 通过 |
 | 2 | Supporting Files Read-Only Loading | ✅ 已完成：`references/` 与文本型 `assets/` 可按需只读加载；`scripts/` 仍不读取、不执行 |
-| 2 | Phase 2 Completion | 🟨 Task 63 进行中：Output lifecycle、多 DisplayMode、side effects 实执行、TTS、English Tutor |
+| 2 | Phase 2 Completion | 🟨 Task 63 进行中：Output lifecycle、SideEffect executor、`.silent`、`.file` 已完成；`.replace`、`.bubble/.structured`、TTS、English Tutor 待做 |
 | 3–5 | — | 🟦 Directional，进入前需重新 spec |
 
 ---
@@ -75,7 +75,7 @@
 |---|---|---|---|---|---|
 | **0** | 底层重构 | ✅ 已完成并正式发布 `v0.2.0` | 15–21 (M1+M2+M3) | **无**（只重构） | Orchestration + Capabilities 骨架、Tool 三态、ExecutionSeed/ResolvedContext、Permission + Provenance + PermissionGraph + PathSandbox hook、v2 schema + 独立 config 路径 |
 | **1** | MCP + Context 主干 | ✅ 已完成；`v0.3.0` tag + GitHub draft release 已生成，人工发布暂缓 | 20–30 | MCP 支持 / 5 个核心 ContextProvider / Per-Tool Hotkey / 基础自定义 Agent Tool | MCPClient（stdio + Streamable HTTP）+ MCPServersPage + AgentExecutor + Agent Tool 编辑器 + `web-search-summarize` 首个真 Agent Tool |
-| **2** | Skill + 多 DisplayMode | 🟨 已完成 Skill Registry MVP、本地 Skill E2E、公开仓库 smoke 与 supporting files 只读加载；多 DisplayMode 尚未实现 | — | Skill 接入 / replace / bubble / structured / TTS | Skill registry 已合入；DisplayMode、scripts 策略、English Tutor、TTS 仍需重新 spec |
+| **2** | Skill + 多 DisplayMode | 🟨 已完成 Skill Registry MVP、本地 Skill E2E、公开仓库 smoke、supporting files 只读加载、Output lifecycle、SideEffect executor、`.silent` 与 `.file`；其余 DisplayMode 仍在实施 | — | Skill 接入 / replace / bubble / structured / TTS | Skill registry 已合入；`.replace`、`.bubble/.structured`、TTS、English Tutor 仍待做 |
 | **3** | Prompt IDE + 本地模型 | Directional | — | Playground / A-B / Ollama & Anthropic 原生 / Memory | 进入前重新 spec |
 | **4** | 生态与分享 | Directional | — | Tool Pack / Marketplace / SliceAI as MCP server / Shortcuts / Services | 进入前重新 spec；Pack 签名体系在 §3.9.4 已埋 hook |
 | **5** | 高级编排 | Directional | — | Pipeline / 智能路由 / Smart Actions | 进入前重新 spec |
@@ -514,7 +514,7 @@ fi
 | 7 | 2 | `Windowing/BubblePanel` | 小气泡展示、自动消失、定位、降级行为和测试 | 待做 |
 | 8 | 2 | `Windowing/InlineReplaceOverlay` | AX `setSelectedText`、paste fallback、确认 / 撤销浮条 | 待做 |
 | 9 | 2 | `Windowing/StructuredResultView` | JSON Schema / structured output 的动态表单或表格渲染 | 待做 |
-| 10 | 2 | `OutputDispatcher` 多 sink 落地 | `.bubble`、`.replace`、`.file`、`.silent`、`.structured` 不再 fallback 到 window | 待做 |
+| 10 | 2 | `OutputDispatcher` 多 sink 落地 | `.silent`、`.file` 已不再 fallback；`.bubble`、`.replace`、`.structured` 仍需独立 sink | 进行中 |
 | 11 | 2 | `Capabilities/TTSCapability` | AVSpeech 与远端 TTS provider 切换、权限和错误处理 | 待做 |
 | 12 | 2 | `english-tutor` 官方 Tool Pack | 语法分析、改写、朗读、结构化结果和 skill 绑定 | 待做 |
 | 13 | 2 | Phase 2 E2E / 文档 / 回归 | Skill、DisplayMode、TTS、English Tutor 的自动化与实机回归 | 待做 |
@@ -570,7 +570,7 @@ fi
 
 **目标**：把 Anthropic Skills 规范的 skill 包引入；`replace / bubble / structured / silent` 四种 DisplayMode 真正可用。
 
-**当前进度**：Skill Registry MVP、真实本地 Skill E2E、公开 skill 仓库 smoke 和 supporting files 只读加载已完成。Task 63 已冻结 Phase 2 completion spec / plan；当前目标是按 TDD 完成 Output lifecycle、多 DisplayMode、side effects 实执行、TTS 和 English Tutor。Skill scripts 执行明确不进入 Phase 2 completion。
+**当前进度**：Skill Registry MVP、真实本地 Skill E2E、公开 skill 仓库 smoke、supporting files 只读加载、Output lifecycle、SideEffect executor、`.silent` 与 `.file` DisplayMode 已完成。Task 63 已冻结 Phase 2 completion spec / plan；当前目标是按 TDD 完成 `.replace`、`.bubble/.structured`、TTS 和 English Tutor。Skill scripts 执行明确不进入 Phase 2 completion。
 
 **已实现的 MVP 边界**：
 
@@ -596,7 +596,7 @@ fi
 - [ ] `Windowing/InlineReplaceOverlay`（AX `setSelectedText` + 确认撤销浮条）
 - [ ] `Windowing/StructuredResultView`（JSONSchema → SwiftUI 表单）
 - [ ] `Capabilities/TTSCapability`（AVSpeech + OpenAI TTS 切换）
-- [ ] `Orchestration/OutputDispatcher` 填充所有 DisplayMode
+- [ ] `Orchestration/OutputDispatcher` 填充所有 DisplayMode（`.silent`、`.file` 已完成；`.replace`、`.bubble`、`.structured` 待做）
 - [x] Anthropic / OpenAI / Codex Skills 仓库 smoke（扫描、解析、启用和 `SKILL.md` 加载）
 - [ ] 新内置 Tool Pack：`english-tutor`
 
@@ -1138,4 +1138,11 @@ fi
 - 新增 implementation plan：`docs/superpowers/plans/2026-05-26-phase-2-completion.md`。
 - 新增 Task 63 任务详情：`docs/Task-detail/2026-05-26-phase-2-completion.md`。
 - 范围冻结为 Output lifecycle foundation、side effects 实执行、`.silent/.file/.replace/.bubble/.structured`、本地 TTS、首方 `english-tutor` 和最终 gate。
+
+### 2026-05-26 — Phase 2 Output lifecycle / SideEffect / Silent / File 完成
+
+- 已完成 `OutputDispatcherProtocol` lifecycle API，prompt / agent 执行路径都会 begin / chunk / finish，并把 final text 交给 output sink。
+- 已完成 `SideEffectExecutor` 执行边界：`copyToClipboard`、`appendToFile`、`notify`、`callMCP`、`tts` 有实执行入口；`writeMemory` 明确 Phase 3 unsupported。
+- `.silent` 不再写 window sink；`.file` 在 finish 阶段使用 `appendToFile` 目标写 final text，且跳过重复的 appendToFile side effect。
+- 验证通过 OutputDispatcher / SideEffect / OutputLifecycle / ExecutionEngine / AgentExecutor focused tests、touched Swift lint 和 `git diff --check`。
 - 当前代码尚未改业务逻辑；下一步从 Output lifecycle failing tests 开始按 TDD 实施。

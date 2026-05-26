@@ -131,6 +131,26 @@ final class SideEffectExecutorTests: XCTestCase {
         ])
     }
 
+    /// `.file` display mode 已在 OutputDispatcher.finish 写文件，不能再执行同一个 appendToFile side effect。
+    func test_executionEngine_fileMode_skipsAppendToFileSideEffectExecutor() async throws {
+        let recorder = RecordingSideEffectExecutor()
+        let engine = try makeEngine(sideEffectExecutor: recorder, chunks: [
+            ChatChunk(delta: "final ", finishReason: nil),
+            ChatChunk(delta: "answer", finishReason: nil)
+        ])
+        let tool = makeFilePromptToolWithSideEffects()
+
+        _ = await collectEvents(from: engine.execute(tool: tool, seed: makeSeed()))
+
+        let calls = await recorder.calls
+        XCTAssertEqual(calls, [
+            RecordingSideEffectExecutor.Call(
+                sideEffect: .copyToClipboard,
+                finalText: "final answer"
+            )
+        ])
+    }
+
     /// 构造 executor。
     private func makeExecutor(
         clipboard: SpyClipboardWriter = SpyClipboardWriter(),
@@ -177,6 +197,40 @@ final class SideEffectExecutorTests: XCTestCase {
             displayMode: .window,
             outputBinding: OutputBinding(primary: .window, sideEffects: [.copyToClipboard]),
             permissions: [.clipboard],
+            provenance: .firstParty,
+            budget: nil,
+            hotkey: nil,
+            labelStyle: .iconAndName,
+            tags: []
+        )
+    }
+
+    /// 构造 `.file` 主输出并带额外 side effect 的测试 Tool。
+    private func makeFilePromptToolWithSideEffects() -> Tool {
+        Tool(
+            id: "file-side-effect.tool",
+            name: "File Side Effect Tool",
+            icon: "F",
+            description: nil,
+            kind: .prompt(PromptTool(
+                systemPrompt: "system",
+                userPrompt: "user {{selection}}",
+                contexts: [],
+                provider: .fixed(providerId: "test-provider", modelId: nil),
+                temperature: nil,
+                maxTokens: nil,
+                variables: [:]
+            )),
+            visibleWhen: nil,
+            displayMode: .file,
+            outputBinding: OutputBinding(
+                primary: .file,
+                sideEffects: [
+                    .appendToFile(path: "/tmp/sliceai-result.md", header: nil),
+                    .copyToClipboard
+                ]
+            ),
+            permissions: [.fileWrite(path: "/tmp/sliceai-result.md"), .clipboard],
             provenance: .firstParty,
             budget: nil,
             hotkey: nil,

@@ -9,7 +9,7 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 - **时间**：2026-05-26
 - **描述**：按“严格 Roadmap”范围完成 Phase 2 剩余内容：Output lifecycle、多 DisplayMode、side effects 实执行、TTS 和首方 English Tutor。
 - **详情**：[docs/Task-detail/2026-05-26-phase-2-completion.md](Task-detail/2026-05-26-phase-2-completion.md)
-- **结果**：进行中。已创建 Phase 2 completion spec 与 implementation plan，并明确 scripts 执行、marketplace、PipelineExecutor、Memory 和原生多 provider 不进入本阶段。下一步按 TDD 实施 Output lifecycle foundation。
+- **结果**：进行中。已完成 Output lifecycle foundation、SideEffect executor、`.silent` 与 `.file` DisplayMode：prompt / agent 路径会传递 output lifecycle 和 final text；`copyToClipboard`、`appendToFile`、`notify`、`callMCP`、`tts` 已有执行边界；`.silent` 不再落窗，`.file` 在 finish 阶段写入 appendToFile 目标且避免重复执行同一文件写入。下一步按 TDD 实施 `.replace` DisplayMode。
 
 ---
 

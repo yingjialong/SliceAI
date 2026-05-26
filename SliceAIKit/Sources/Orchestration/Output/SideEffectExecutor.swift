@@ -60,7 +60,7 @@ public struct SideEffectExecutor: SideEffectExecutorProtocol {
     private let notifier: any UserNotifying
     private let speaker: any TextSpeaking
     private let mcpClient: any MCPClientProtocol
-    private let pathSandbox: PathSandbox
+    private let fileAppender: any FinalTextFileAppending
     private let logger = Logger(subsystem: "com.sliceai.app", category: "side-effects")
 
     /// 构造 SideEffectExecutor。
@@ -81,7 +81,7 @@ public struct SideEffectExecutor: SideEffectExecutorProtocol {
         self.notifier = notifier
         self.speaker = speaker
         self.mcpClient = mcpClient
-        self.pathSandbox = pathSandbox
+        self.fileAppender = SandboxedFinalTextFileAppender(pathSandbox: pathSandbox)
     }
 
     /// 执行单个 SideEffect。
@@ -103,7 +103,7 @@ public struct SideEffectExecutor: SideEffectExecutorProtocol {
         do {
             switch sideEffect {
             case .appendToFile(let path, let header):
-                try append(finalText: finalText, to: path, header: header)
+                try await fileAppender.append(finalText: finalText, to: path, header: header)
             case .copyToClipboard:
                 try await clipboard.writeString(finalText)
             case .notify(let title, let body):
@@ -121,32 +121,6 @@ public struct SideEffectExecutor: SideEffectExecutorProtocol {
         } catch {
             return .failed(reason: "side effect execution failed")
         }
-    }
-
-    /// 追加 final text 到沙箱允许的文件。
-    private func append(finalText: String, to path: String, header: String?) throws {
-        let url = try pathSandbox.normalize(path, role: .write)
-        try FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        if !FileManager.default.fileExists(atPath: url.path) {
-            FileManager.default.createFile(atPath: url.path, contents: nil)
-        }
-        let handle = try FileHandle(forWritingTo: url)
-        defer { try? handle.close() }
-        try handle.seekToEnd()
-        try handle.write(contentsOf: appendPayload(finalText: finalText, header: header))
-    }
-
-    /// 构造追加写入 payload。
-    private func appendPayload(finalText: String, header: String?) -> Data {
-        var lines: [String] = []
-        if let header, !header.isEmpty {
-            lines.append(header)
-        }
-        lines.append(finalText)
-        return (lines.joined(separator: "\n") + "\n").data(using: .utf8) ?? Data()
     }
 
     /// 调用 MCP side effect。

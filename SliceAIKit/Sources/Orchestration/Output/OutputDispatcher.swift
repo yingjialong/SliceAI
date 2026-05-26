@@ -6,14 +6,15 @@ import SliceCore
 ///
 /// **职责拆分（spec §3.3.6 + §3.4 Step 6）**：
 /// - 仅按 `mode` 路由到对应 sink；不做任何 chunk 改写 / 脱敏（sink 自己负责）
-/// - `OutputBinding.sideEffects` 与本类完全解耦——由 `ExecutionEngine` Step 7 直接读
-///   `tool.outputBinding?.sideEffects` 触发，避免把 sideEffect 路由耦合进 `mode` 派发
+/// - side effect 实执行仍由 `ExecutionEngine` Step 7 触发；`.file` 只复用
+///   `appendToFile` 配置作为 primary output destination，避免新增重复字段
 ///
-/// **M3.0 Step 1 范围**：
+/// **当前范围**：
 /// - `.window` → 调 `windowSink.append(chunk:invocationId:)` 后返回 `.delivered`
-/// - 其他 5 种 `DisplayMode` → v0.2 暂时 fallback 到 `.window` sink，保留用户可见输出
-/// - 每个 invocation 只在首次 fallback 时写一条日志，避免 stream chunk 高频刷屏
-/// - 日志节流状态固定容量，避免长时间运行时无界增长
+/// - `.silent` → 消费 chunk，不展示
+/// - `.file` → chunk 阶段不展示，finish 阶段追加完整 final text
+/// - `.bubble` / `.replace` / `.structured` → 暂时 fallback 到 `.window`
+/// - fallback 每个 invocation 只写一条日志，避免 stream chunk 高频刷屏
 ///
 /// **M3 范围（后续接入）**：
 /// - `.bubble` → BubblePanelSink
@@ -25,6 +26,8 @@ public actor OutputDispatcher: OutputDispatcherProtocol {
 
     /// `.window` 模式的投递目标；M2 测试用 `InMemoryWindowSink`，M3 替换为 `ResultPanel` adapter
     private let windowSink: any WindowSinkProtocol
+    /// `.file` 模式的 final text 写入器。
+    private let fileAppender: any FinalTextFileAppending
     /// fallback 日志节流状态容量；足够覆盖并发/近期 invocation，且避免长期无界增长。
     private static let maxLoggedFallbackInvocations = 128
     /// fallback 日志节流状态：同一个 invocation 只记录一次 non-window fallback。
@@ -36,12 +39,18 @@ public actor OutputDispatcher: OutputDispatcherProtocol {
 
     /// 构造默认 OutputDispatcher。
     ///
-    /// - Parameter windowSink: `.window` 模式 sink；v0.2 阶段其他模式会 fallback 到该 sink。
-    public init(windowSink: any WindowSinkProtocol) {
+    /// - Parameters:
+    ///   - windowSink: `.window` 模式 sink。
+    ///   - fileAppender: `.file` 模式 final text 文件写入器。
+    public init(
+        windowSink: any WindowSinkProtocol,
+        fileAppender: any FinalTextFileAppending = SandboxedFinalTextFileAppender()
+    ) {
         self.windowSink = windowSink
+        self.fileAppender = fileAppender
     }
 
-    /// 根据 `mode` 派发 chunk；v0.2 期间 non-window mode fallback 到 window sink。
+    /// 根据 `mode` 派发 chunk；兼容旧调用方并复用 lifecycle 路由规则。
     ///
     /// - Parameters:
     ///   - chunk: 单个 LLM stream 片段
@@ -54,17 +63,46 @@ public actor OutputDispatcher: OutputDispatcherProtocol {
         mode: DisplayMode,
         invocationId: UUID
     ) async throws -> DispatchOutcome {
-        // 路由策略：单一 switch，6 个 case 显式覆盖。
-        switch mode {
+        let context = OutputInvocationContext(
+            invocationId: invocationId,
+            toolId: "legacy-output-handle",
+            toolName: "Legacy Output Handle",
+            mode: mode,
+            screenAnchor: .zero
+        )
+        return try await handle(chunk: chunk, context: context)
+    }
+
+    /// lifecycle chunk 派发；`.silent` / `.file` 不再写入 window sink。
+    public func handle(
+        chunk: String,
+        context: OutputInvocationContext
+    ) async throws -> DispatchOutcome {
+        switch context.mode {
         case .window:
-            // 唯一 sink-backed 分支：把 chunk 转发给注入的 windowSink
-            try await windowSink.append(chunk: chunk, invocationId: invocationId)
+            try await windowSink.append(chunk: chunk, invocationId: context.invocationId)
+        case .silent, .file:
             return .delivered
-        case .bubble, .replace, .file, .silent, .structured:
-            logFallbackIfNeeded(mode: mode, invocationId: invocationId)
-            try await windowSink.append(chunk: chunk, invocationId: invocationId)
-            return .delivered
+        case .bubble, .replace, .structured:
+            logFallbackIfNeeded(mode: context.mode, invocationId: context.invocationId)
+            try await windowSink.append(chunk: chunk, invocationId: context.invocationId)
         }
+        return .delivered
+    }
+
+    /// lifecycle finish；`.file` 在此阶段写入完整 final text。
+    public func finish(finalText: String, context: OutputInvocationContext) async throws {
+        guard context.mode == .file else { return }
+        guard let destination = context.outputBinding?.appendToFileDestination else {
+            throw SliceError.configuration(.validationFailed(
+                "DisplayMode.file requires outputBinding.sideEffects appendToFile destination"
+            ))
+        }
+        try await fileAppender.append(
+            finalText: finalText,
+            to: destination.path,
+            header: destination.header
+        )
     }
 
     /// 对 non-window fallback 做固定容量日志节流。
@@ -83,5 +121,18 @@ public actor OutputDispatcher: OutputDispatcherProtocol {
         logger.info(
             "OutputDispatcher fallback mode=\(String(describing: mode), privacy: .public) to .window sink"
         )
+    }
+}
+
+private extension OutputBinding {
+
+    /// `.file` mode 使用的 appendToFile 目标。
+    var appendToFileDestination: (path: String, header: String?)? {
+        for sideEffect in sideEffects {
+            if case .appendToFile(let path, let header) = sideEffect {
+                return (path, header)
+            }
+        }
+        return nil
     }
 }

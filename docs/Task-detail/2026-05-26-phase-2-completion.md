@@ -32,7 +32,7 @@ Task 58-62 已完成 Phase 2 前半段：Skill Registry MVP、真实本地 skill
 - [x] 更新 Task_history、README、AGENTS 和 master todolist 的任务口径。
 - [x] 按 TDD 实施 Output lifecycle foundation。
 - [x] 按 TDD 实施 SideEffect executor。
-- [ ] 按 TDD 实施 `.silent` 与 `.file`。
+- [x] 按 TDD 实施 `.silent` 与 `.file`。
 - [ ] 按 TDD 实施 `.replace`。
 - [ ] 按 TDD 实施 `.bubble` 与 `.structured`。
 - [ ] 按 TDD 实施 TTS capability。
@@ -75,7 +75,51 @@ Task 58-62 已完成 Phase 2 前半段：Skill Registry MVP、真实本地 skill
   - 绿灯：`swift test --package-path SliceAIKit --filter 'OrchestrationTests.SideEffectExecutorTests|OrchestrationTests.ExecutionEngineTests|OrchestrationTests.OutputLifecycleTests|OrchestrationTests.AgentExecutorTests'`，63 tests，0 failures。
   - 绿灯：touched Swift files `swiftlint lint --strict ...`，0 violations。
   - 绿灯：`git diff --check`，passed。
+- Silent / File DisplayMode：
+  - 红灯：`swift test --package-path SliceAIKit --filter OrchestrationTests.OutputDispatcherFallbackTests` 首次因 `FinalTextFileAppending`、`OutputDispatcher(fileAppender:)` 和 `OutputInvocationContext.outputBinding` 缺失编译失败。
+  - 绿灯：`swift test --package-path SliceAIKit --filter OrchestrationTests.OutputDispatcherFallbackTests`，9 tests，0 failures。
+  - 绿灯：`swift test --package-path SliceAIKit --filter 'OrchestrationTests.OutputDispatcherFallbackTests|OrchestrationTests.OutputDispatcherTests|OrchestrationTests.SideEffectExecutorTests'`，27 tests，0 failures。
+  - 绿灯：`swift test --package-path SliceAIKit --filter 'OrchestrationTests.OutputLifecycleTests|OrchestrationTests.ExecutionEngineTests|OrchestrationTests.AgentExecutorTests'`，56 tests，0 failures。
+  - 绿灯：touched Swift files `swiftlint lint --strict ...`，0 violations。
+  - 绿灯：`git diff --check`，passed。
+
+## 已完成实现细节
+
+### Output lifecycle foundation
+
+- 新增 `OutputInvocationContext`，由 `ExecutionEngine` 在 prompt / agent 两条路径构造并传给 `OutputDispatcher`。
+- `ExecutionEngine` 在 streaming chunk 期间累积 final text，并在 finish 阶段把完整输出交给 output sink 与 side effect executor。
+- `MockOutputDispatcher` 增加 lifecycle call 记录，覆盖 prompt 与 agent 路径。
+
+### SideEffect executor
+
+- 新增 `SideEffectExecutorProtocol`、`SideEffectExecutionOutcome` 和 concrete `SideEffectExecutor`。
+- `copyToClipboard`、`appendToFile`、`notify`、`callMCP`、`tts` 已有执行边界；`writeMemory` 明确返回 Phase 3 unsupported。
+- `ExecutionEngine.runSideEffects` 在 permission gate 通过后调用 executor，只有 `.executed` 才发 `.sideEffectTriggered` 与 audit。
+
+### `.silent` / `.file`
+
+- `.silent` chunk / finish 均不写 window sink。
+- `.file` chunk 阶段不写 window sink，finish 阶段从 `outputBinding.sideEffects` 读取首个 `appendToFile` 目标并写入 final text；缺少目标时返回 configuration failure。
+- 旧 `OutputDispatcher.handle(chunk:mode:invocationId:)` 已桥接到 lifecycle 路由，避免旧调用方继续把 `.silent/.file` fallback 到 window。
+- `.file` 主输出已经消费的 `appendToFile` 会从 `runSideEffects` 实执行列表中过滤，避免文件重复写入；其它 side effect 仍照常执行。
+
+## 变动文件清单
+
+- `SliceAIKit/Sources/Orchestration/Output/OutputDispatcherProtocol.swift`
+- `SliceAIKit/Sources/Orchestration/Output/OutputDispatcher.swift`
+- `SliceAIKit/Sources/Orchestration/Output/FinalTextFileAppender.swift`
+- `SliceAIKit/Sources/Orchestration/Output/SideEffectExecutor.swift`
+- `SliceAIKit/Sources/Orchestration/Engine/ExecutionEngine.swift`
+- `SliceAIKit/Sources/Orchestration/Engine/ExecutionEngine+OutputLifecycle.swift`
+- `SliceAIKit/Sources/Orchestration/Engine/ExecutionEngine+Steps.swift`
+- `SliceAIKit/Sources/Orchestration/Flow/FlowContext.swift`
+- `SliceAIKit/Tests/OrchestrationTests/Helpers/MockOutputDispatcher.swift`
+- `SliceAIKit/Tests/OrchestrationTests/Output/OutputLifecycleTests.swift`
+- `SliceAIKit/Tests/OrchestrationTests/Output/SideEffectExecutorTests.swift`
+- `SliceAIKit/Tests/OrchestrationTests/Output/OutputDispatcherFallbackTests.swift`
+- `SliceAIKit/Tests/OrchestrationTests/OutputDispatcherTests.swift`
 
 ## 下一步
 
-提交 SideEffect executor 后进入 plan Task 3：`.silent` 与 `.file` DisplayMode。
+提交 `.silent` / `.file` 后进入 plan Task 4：`.replace` DisplayMode。

@@ -245,7 +245,7 @@ extension ExecutionEngine {
         context: FlowContext
     ) async -> Bool {
         var partialFailure = false
-        for sideEffect in tool.outputBinding?.sideEffects ?? [] {
+        for sideEffect in sideEffectsToExecute(for: tool) {
             if Task.isCancelled { break }
             let outcome = await permissionBroker.gate(
                 effective: Set(sideEffect.inferredPermissions),
@@ -302,6 +302,17 @@ extension ExecutionEngine {
             )
         )
         return true
+    }
+
+    /// 计算本轮需要由 SideEffectExecutor 执行的副作用。
+    ///
+    /// `.file` display mode 会在 OutputDispatcher.finish 阶段使用
+    /// `appendToFile` 目标写入完整 final text；这里跳过同一个 `.appendToFile`，
+    /// 避免主输出和 side effect 各写一次。
+    private func sideEffectsToExecute(for tool: Tool) -> [SideEffect] {
+        let sideEffects = tool.outputBinding?.sideEffects ?? []
+        guard tool.displayMode == .file else { return sideEffects }
+        return sideEffects.filter { !$0.isAppendToFile }
     }
 
     // MARK: - Step 8/9 复合 helper
@@ -473,5 +484,16 @@ extension ExecutionEngine {
             return modelId
         }
         return fallback
+    }
+}
+
+private extension SideEffect {
+
+    /// 是否为 `.file` 主输出已消费的文件追加目标。
+    var isAppendToFile: Bool {
+        if case .appendToFile = self {
+            return true
+        }
+        return false
     }
 }

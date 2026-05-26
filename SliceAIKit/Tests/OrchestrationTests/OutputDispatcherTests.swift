@@ -6,7 +6,7 @@ import XCTest
 ///
 /// 覆盖范围：
 /// 1. `.window` 模式 chunk 顺序与计数（Array == 严格 FIFO）
-/// 2. 五个非 `.window` 模式在 v0.2 阶段 fallback 到 window sink 并返回 `.delivered`
+/// 2. 未实现的视觉模式 fallback 到 window sink 并返回 `.delivered`
 /// 3. `.window` 调用真的转发到注入的 sink（spy WindowSink 验证 args）
 /// 4. 不同 invocationId 在 sink 内严格隔离（不串流）
 /// 5. WindowSink 抛错时 `OutputDispatcher.handle(...)` 透传
@@ -35,7 +35,7 @@ final class OutputDispatcherTests: XCTestCase {
         XCTAssertEqual(received, ["a", "b", "c"], "sink 应保留 chunk 原始顺序")
     }
 
-    // MARK: - Cell 2: 五个非 .window 模式 fallback 到 .window sink
+    // MARK: - Cell 2: 未实现视觉模式 fallback，silent/file 不落窗
 
     /// `.bubble` 模式应 fallback 到 window sink，并返回 .delivered
     func test_handle_bubbleMode_fallsBackToWindowSink() async throws {
@@ -47,14 +47,14 @@ final class OutputDispatcherTests: XCTestCase {
         try await assertFallsBack(mode: .replace)
     }
 
-    /// `.file` 模式应 fallback 到 window sink，并返回 .delivered
-    func test_handle_fileMode_fallsBackToWindowSink() async throws {
-        try await assertFallsBack(mode: .file)
+    /// `.file` 模式 chunk 阶段不应写 window sink。
+    func test_handle_fileMode_doesNotWriteWindowSink() async throws {
+        try await assertDoesNotWriteWindow(mode: .file)
     }
 
-    /// `.silent` 模式应 fallback 到 window sink，并返回 .delivered
-    func test_handle_silentMode_fallsBackToWindowSink() async throws {
-        try await assertFallsBack(mode: .silent)
+    /// `.silent` 模式不应写 window sink。
+    func test_handle_silentMode_doesNotWriteWindowSink() async throws {
+        try await assertDoesNotWriteWindow(mode: .silent)
     }
 
     /// `.structured` 模式应 fallback 到 window sink，并返回 .delivered
@@ -62,19 +62,19 @@ final class OutputDispatcherTests: XCTestCase {
         try await assertFallsBack(mode: .structured)
     }
 
-    /// 防御回归：非 .window 模式在真实 sink 未实现前必须 fallback，避免用户丢输出。
-    func test_handle_nonWindowModes_fallbacksToWindowSink() async throws {
+    /// 防御回归：未实现视觉模式必须 fallback，避免用户丢输出。
+    func test_handle_unimplementedVisualModes_fallbacksToWindowSink() async throws {
         let sink = SpyWindowSink()
         let sut = OutputDispatcher(windowSink: sink)
 
-        // 遍历所有非 .window 模式各调一次
-        for mode in DisplayMode.allCases where mode != .window {
+        // 只遍历尚未实现独立 sink 的视觉模式。
+        for mode in [DisplayMode.bubble, .replace, .structured] {
             let outcome = try await sut.handle(chunk: "fallback", mode: mode, invocationId: UUID())
             XCTAssertEqual(outcome, .delivered, "\(mode) fallback 成功时应返回 .delivered")
         }
 
         let calls = await sink.calls
-        XCTAssertEqual(calls.count, 5, "五个非 .window 模式都应触达 windowSink，实际调用 \(calls.count) 次")
+        XCTAssertEqual(calls.count, 3, "三个未实现视觉模式都应触达 windowSink，实际调用 \(calls.count) 次")
         XCTAssertTrue(calls.allSatisfy { $0.chunk == "fallback" }, "fallback chunk 应原样透传")
     }
 
@@ -156,6 +156,19 @@ final class OutputDispatcherTests: XCTestCase {
         XCTAssertEqual(calls.count, 1, "\(mode) 应调用 windowSink 一次")
         XCTAssertEqual(calls.first?.chunk, "test", "chunk 应原样透传")
         XCTAssertEqual(calls.first?.invocationId, invocationId, "invocationId 应原样透传")
+    }
+
+    /// 参数化辅助：对指定 `mode` 断言不会写 window sink 且返回 `.delivered`
+    ///
+    /// - Parameter mode: 要测试的已实现非 window `DisplayMode`
+    private func assertDoesNotWriteWindow(mode: DisplayMode) async throws {
+        let sink = SpyWindowSink()
+        let sut = OutputDispatcher(windowSink: sink)
+        let outcome = try await sut.handle(chunk: "test", mode: mode, invocationId: UUID())
+
+        XCTAssertEqual(outcome, .delivered, "\(mode) 成功消费时应返回 .delivered")
+        let calls = await sink.calls
+        XCTAssertTrue(calls.isEmpty, "\(mode) 不应调用 windowSink")
     }
 }
 

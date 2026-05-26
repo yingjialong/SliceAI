@@ -7,7 +7,7 @@
 - 项目定位：macOS 原生、开源的划词触发型 LLM / Agent 工具栏。
 - 平台基线：macOS 14+、Xcode 26+、Swift 6.0、SwiftPM local package。
 - 当前分支：`codex/phase2-completion`。
-- 当前阶段：Task 63 Phase 2 completion 进行中；Skill Registry MVP、真实本地 Skill E2E、公开 Anthropic / OpenAI / Codex skill 仓库 smoke、supporting files 只读加载均已完成，当前正在实施 Output lifecycle、多 DisplayMode、side effects 实执行、TTS 和 English Tutor。
+- 当前阶段：Task 63 Phase 2 completion 进行中；Skill Registry MVP、真实本地 Skill E2E、公开 Anthropic / OpenAI / Codex skill 仓库 smoke、supporting files 只读加载、Output lifecycle、SideEffect executor、`.silent` 与 `.file` DisplayMode 均已完成，下一步实施 `.replace` DisplayMode。
 - 已发布状态：`v0.2.0` 已正式发布；`v0.3.0` tag 和 GitHub draft release 已生成并校验通过，但用户明确暂缓人工发布。
 - 根工程是 Swift/macOS 项目，不是 Python 项目；PEP 8、Alembic、uv 规则通常不适用于当前仓库。
 
@@ -38,7 +38,7 @@
 - `SliceAIKit/Package.swift`：本地 SwiftPM package，包含 10 个 library target。
 - `SliceCore`：领域模型、配置、权限、MCP/Skill canonical 类型和跨模块协议，原则上零 UI、零网络、零文件系统副作用。
 - `Capabilities`：PathSandbox、ContextProviders、MCP store/import/client、persistent permission grants、Skill registry parser/scanner/local actor。
-- `Orchestration`：ExecutionEngine、ContextCollector、PermissionGraph/Broker、PromptExecutor、AgentExecutor、OutputDispatcher、审计和成本记录。
+- `Orchestration`：ExecutionEngine、ContextCollector、PermissionGraph/Broker、PromptExecutor、AgentExecutor、OutputDispatcher、SideEffectExecutor、审计和成本记录。
 - `LLMProviders`：OpenAI-compatible Chat Completions / SSE / tool calling provider。
 - `SelectionCapture`：Accessibility 选区读取 + Cmd+C fallback。
 - `HotkeyManager`：Carbon 全局快捷键注册与解析。
@@ -60,10 +60,14 @@
 - 基础自定义 Agent Tool 编辑器、MCP allowlist 文本配置、AgentToolCallPolicy。
 - Per-tool hotkeys。
 - Phase 2 Skill Registry MVP：本地 skill roots、`SKILL.md` parser/scanner、Skills 设置页、Agent Tool 最多 5 个 skills 绑定、`sliceai_load_skill` pseudo-tool 渐进式加载，以及 `sliceai_load_skill_resource` 对 `references/` 和文本型 `assets/` 的只读加载；真实本地 Skill E2E 已覆盖 3 个 Claude / Codex 风格 skill，公开仓库 smoke 已覆盖 3 个仓库 / 9 个真实 skill。
+- Phase 2 output lifecycle：prompt / agent 执行路径都会 begin / chunk / finish，并把 final text 交给 output sink 与 side effect executor。
+- Phase 2 `.silent` 与 `.file` DisplayMode：`.silent` 不落窗；`.file` 在 finish 阶段写入 `appendToFile` 目标，并跳过重复的 appendToFile side effect。
+- Phase 2 SideEffect executor：`copyToClipboard`、`appendToFile`、`notify`、`callMCP`、`tts` 已有执行边界；`writeMemory` 仍明确 unsupported。
 
 ## 明确未完成 / 不应误报已完成
 
-- `DisplayMode` 只有 `.window` 真实 sink；`.bubble`、`.replace`、`.file`、`.silent`、`.structured` 目前 fallback 到 window。
+- `DisplayMode` 仍未全部完成：`.window`、`.silent`、`.file` 已有真实行为；`.bubble`、`.replace`、`.structured` 目前仍 fallback 到 window。
+- SideEffect executor 尚未完成 AppContainer 生产 adapter 全量 wiring；当前主要在 Orchestration 层和测试注入路径可用。
 - `.pipeline` ToolKind 仍未实现真实 PipelineExecutor。
 - Skill supporting files 已支持只读读取 `references/` 与文本型 `assets/`；`scripts/` 不读取、不执行，二进制 assets、`agents/openai.yaml` 解析、script 授权策略仍未实现。
 - Marketplace、远端安装、skill 自动更新、Tool Pack、`.slicepack` 尚未实现。

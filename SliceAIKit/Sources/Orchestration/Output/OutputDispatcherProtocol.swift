@@ -31,6 +31,8 @@ public struct OutputInvocationContext: Sendable, Equatable {
     public let mode: DisplayMode
     /// 触发时的屏幕锚点。
     public let screenAnchor: CGPoint
+    /// 当前 Tool 的 outputBinding；`.file` 等 final-only sink 用它读取目标配置。
+    public let outputBinding: OutputBinding?
 
     /// 构造输出生命周期上下文。
     public init(
@@ -38,13 +40,15 @@ public struct OutputInvocationContext: Sendable, Equatable {
         toolId: String,
         toolName: String,
         mode: DisplayMode,
-        screenAnchor: CGPoint
+        screenAnchor: CGPoint,
+        outputBinding: OutputBinding? = nil
     ) {
         self.invocationId = invocationId
         self.toolId = toolId
         self.toolName = toolName
         self.mode = mode
         self.screenAnchor = screenAnchor
+        self.outputBinding = outputBinding
     }
 }
 
