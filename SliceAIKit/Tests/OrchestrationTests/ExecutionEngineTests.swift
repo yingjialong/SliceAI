@@ -1177,8 +1177,8 @@ final class ExecutionEngineTests: XCTestCase {
             + [ChatChunk(delta: "tail", finishReason: .stop)]
         let llm = YieldingMultiChunkLLMProvider(chunks: chunks)
 
-        // MockOutputDispatcher 默认 .delivered；记录 handleCallCount 用于断言"少于总 chunk 数"
-        let outputDispatcher = MockOutputDispatcher()
+        // 专用 dispatcher：第一个 handle 内可取消等待，给 consumer break 明确传导窗口。
+        let outputDispatcher = CancellationAwareFirstChunkOutputDispatcher()
 
         // 装配 engine（makeEngine 不接受 OutputDispatcher 注入；inline 装配）
         let dbURL = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -1225,16 +1225,17 @@ final class ExecutionEngineTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(collected.count, 2,
                                     "consumer should observe .started + first .llmChunk before cancel; got=\(collected)")
 
-        // 等 cancellation 完整传导：consumer break → onTermination → task.cancel() → 后续每个 chunk 入口 isCancelled=true
-        try? await Task.sleep(nanoseconds: 500_000_000)
+        // 等 cancellation 完整传导：consumer break → onTermination → task.cancel()
+        // → 第一个 handle 的 sleep 被取消 → runPromptStream post-handle isCancelled=true。
+        try? await Task.sleep(nanoseconds: 200_000_000)
 
-        // 关键断言：handleCallCount ≤ 1 ——
+        // 关键断言：handleCallCount == 1 ——
         // 修前：所有 6 个 chunk 都会调 handle（cancel 信号在 yield 后未被 yield-result/isCancelled 拦截）；
-        // 修后：第 1 个 chunk 进入 output.handle 后 cancel 已传导，第 2+ chunk 被 yield-result `.terminated`
-        // 或 post-handle isCancelled 短路拦下，dispatcher 最多被调 1 次
+        // 修后：第 1 个 chunk 进入 output.handle 后 cancel 已传导，第 2+ chunk 被
+        // post-handle isCancelled 短路拦下，dispatcher 不再收到后续 chunk。
         let callCount = await outputDispatcher.handleCallCount
-        XCTAssertLessThanOrEqual(callCount, 1,
-                                 "cancelled-during-prompt-stream must dispatch at most 1 chunk (the trigger); got handleCallCount=\(callCount), totalChunks=\(chunks.count)")
+        XCTAssertEqual(callCount, 1,
+                       "cancelled-during-prompt-stream must only dispatch the trigger chunk; got handleCallCount=\(callCount), totalChunks=\(chunks.count)")
 
         // audit 也不应有 .invocationCompleted —— cancel 静默退出
         let entries = await audit.entries
@@ -1336,6 +1337,32 @@ private final class YieldingMultiChunkLLMProvider: LLMProvider, @unchecked Senda
             }
             continuation.onTermination = { _ in producer.cancel() }
         }
+    }
+}
+
+/// 首个 chunk 派发时主动让出一个可取消窗口的 OutputDispatcher。
+///
+/// 这个测试夹具用于把“consumer 收到首个 `.llmChunk` 后 break”与
+/// `ExecutionEngine` 内部 `output.handle` 的后置取消检查稳定串起来。普通 mock
+/// 返回太快时，全量测试负载下 producer 可能在 consumer 真正关闭 stream 前多处理一个
+/// chunk，导致测试验证的是调度竞态而不是取消语义。
+private final actor CancellationAwareFirstChunkOutputDispatcher: OutputDispatcherProtocol {
+    /// `handle(...)` 累计被调次数；断言取消后不会继续派发第二个 chunk。
+    private(set) var handleCallCount: Int = 0
+
+    /// 记录 handle 调用并在首个 chunk 内挂起一个可被 Task cancel 打断的等待。
+    func handle(
+        chunk: String,
+        mode: DisplayMode,
+        invocationId: UUID
+    ) async throws -> DispatchOutcome {
+        handleCallCount += 1
+        if handleCallCount == 1 {
+            // 这里故意等待较长时间；正常路径下 consumer break 会触发 task.cancel()
+            // 并立即打断 sleep，避免测试真实等待 1 秒。
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+        }
+        return .delivered
     }
 }
 

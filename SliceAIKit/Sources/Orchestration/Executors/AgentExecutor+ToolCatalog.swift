@@ -29,6 +29,9 @@ extension AgentExecutor {
         try validateAllAllowedToolsExist(tool: tool, allowlist: allowlist, availableRefs: availableRefs)
         if !boundSkills.isEmpty {
             chatTools.append(Self.loadSkillChatTool())
+            if boundSkills.contains(where: { !$0.resources.isEmpty }) {
+                chatTools.append(Self.loadSkillResourceChatTool())
+            }
         }
         return AgentToolCatalog(
             allowlist: allowlist,
@@ -80,6 +83,30 @@ extension AgentExecutor {
                     ])
                 ]),
                 "required": .array([.string("name")]),
+                "additionalProperties": .bool(false)
+            ]
+        )
+    }
+
+    /// 构造 provider 可见的本地 supporting file 只读加载 pseudo-tool schema。
+    /// - Returns: OpenAI-compatible function tool。
+    static func loadSkillResourceChatTool() -> ChatTool {
+        ChatTool(
+            name: AgentBuiltInTool.loadSkillResourceName,
+            description: "Read a listed references/ or text assets/ file from an already loaded bound SliceAI skill.",
+            inputSchema: [
+                "type": .string("object"),
+                "properties": .object([
+                    "name": .object([
+                        "type": .string("string"),
+                        "description": .string("Exact skill name from the metadata block")
+                    ]),
+                    "path": .object([
+                        "type": .string("string"),
+                        "description": .string("Exact resource path listed in the skill metadata block")
+                    ])
+                ]),
+                "required": .array([.string("name"), .string("path")]),
                 "additionalProperties": .bool(false)
             ]
         )
@@ -146,6 +173,10 @@ enum AgentBuiltInTool {
     static let loadSkillName = "sliceai_load_skill"
     /// UI/lifecycle synthetic ref；表达概念上的 `sliceai.load_skill`。
     static let loadSkillRef = MCPToolRef(server: "sliceai", tool: "load_skill")
+    /// Provider-visible function name；用于只读加载 supporting file。
+    static let loadSkillResourceName = "sliceai_load_skill_resource"
+    /// UI/lifecycle synthetic ref；表达概念上的 `sliceai.load_skill_resource`。
+    static let loadSkillResourceRef = MCPToolRef(server: "sliceai", tool: "load_skill_resource")
 }
 
 /// Agent 可调用 MCP tool catalog。
@@ -160,6 +191,9 @@ struct AgentToolCatalog: Sendable {
     func ref(forToolName name: String) -> MCPToolRef {
         if name == AgentBuiltInTool.loadSkillName {
             return AgentBuiltInTool.loadSkillRef
+        }
+        if name == AgentBuiltInTool.loadSkillResourceName {
+            return AgentBuiltInTool.loadSkillResourceRef
         }
         return allowlistedByName[name] ?? MCPToolRef(server: "<redacted>", tool: name)
     }

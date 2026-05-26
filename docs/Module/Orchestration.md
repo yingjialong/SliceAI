@@ -10,7 +10,7 @@
 - 上下文采集：`ContextCollector`、`ContextProviderRegistry`。Phase 1 M2 Task 7 后，Capabilities 已提供 `selection`、`app.windowTitle`、`app.url`、`clipboard.current`、`file.read` 五个核心 provider，可通过 registry 注入 collector。
 - 权限闭环：`PermissionGraph`、`PermissionBroker`、`PermissionConsentPresenting`、`PermissionGrantStore`、`EffectivePermissions`。Phase 1 M2 Task 6 后，`EffectivePermissions.undeclared` 使用 case-aware coverage；Task 8 后，生产 `PermissionBroker` 通过 UI-free presenter 在 broker 内部解析 consent，不再把运行期确认需求直接交给 `ExecutionEngine`；Task 9 后，App target 提供 `AppPermissionConsentPresenter` 作为真实 AppKit presenter。
 - Provider 解析：`ProviderResolver`、`DefaultProviderResolver`。
-- Prompt 执行：`PromptExecutor`，负责 prompt 渲染、Keychain 取 key、调用 `LLMProviderFactory` 和流式 provider。
+- Prompt / Agent 执行：`PromptExecutor` 负责 prompt 渲染、Keychain 取 key、调用 `LLMProviderFactory` 和流式 provider；`AgentExecutor` 负责 OpenAI-compatible tool calling、MCP allowlist、ReAct loop、tool-call lifecycle 和 skill 渐进式加载。
 - 输出派发：`OutputDispatcher`、`WindowSinkProtocol`、`InvocationGate`。
 - 遥测：`CostAccounting`、`JSONLAuditLog`、`InvocationReport`、`ExecutionEvent`。
 
@@ -25,7 +25,7 @@
 3. `PermissionBroker.gate` 对权限集合做授权决策；cacheable grant 命中时直接放行，否则通过 App 层注入的 `PermissionConsentPresenting` 获取 approve / deny。
 4. `ContextCollector.resolve` 并发解析 `ContextRequest`；内置 provider 可采集 seed/app 快照、剪贴板和 `PathSandbox` 允许的文件内容。
 5. `ProviderResolver.resolve` 解析 `ProviderSelection`。
-6. `.prompt` 工具进入 `PromptExecutor`；`.agent` / `.pipeline` 在 v0.2.0 返回 not implemented。
+6. `.prompt` 工具进入 `PromptExecutor`；`.agent` 工具进入 `AgentExecutor`；`.pipeline` 仍返回 not implemented。
 7. LLM chunk 通过 `OutputDispatcher` 投递到 window sink。
 8. `OutputBinding.sideEffects` 逐条 gate。
 9. `CostAccounting` 写 token / USD 估算。
@@ -45,7 +45,8 @@
 | `PermissionConsentPresenting.requestConsent(_:)` | UI-free runtime consent 边界；App 层实现 presenter，Orchestration 不 import AppKit。 |
 | `PermissionGrantStore` | actor 隔离的 session grant store；只缓存 cacheable permissions，拒绝 MCP / network / shell / AppIntents。 |
 | `PromptExecutor.run(...)` | prompt 渲染 + LLM provider stream。 |
-| `OutputDispatcher.handle(chunk:mode:invocationId:)` | 按 `DisplayMode` 派发输出；v0.2.0 non-window mode fallback 到 window。 |
+| `AgentExecutor.run(...)` | Agent ReAct loop；按 MCP allowlist 暴露 tool catalog，执行 MCP tool call，并支持 `sliceai.load_skill` / `sliceai.load_skill_resource` pseudo-tool 按需加载绑定 skill 指令和只读 supporting files。 |
+| `OutputDispatcher.handle(chunk:mode:invocationId:)` | 按 `DisplayMode` 派发输出；当前 non-window mode fallback 到 window。 |
 | `InvocationGate` | single-flight 状态唯一来源，阻止旧 invocation 污染新结果。 |
 | `AuditLogProtocol.append(_:)` | 审计日志抽象，生产实现为 JSONL append。 |
 
@@ -74,8 +75,10 @@
 
 `SliceAIApp.AppContainer` 在启动期创建真实 `ContextProviderRegistry`，注册 `selection`、`app.windowTitle`、`app.url`、`clipboard.current`、`file.read` 五个 provider，并让 `ContextCollector` 与 `PermissionGraph` 共享该 registry。运行期权限确认由 AppKit `NSAlert` presenter 完成；presenter 只返回 `.oneTime` 或 `.session`，persistent grant 仍是 Settings-only。
 
-`OutputDispatcher` 在 v0.2.0 中只有 `.window` 真实 sink。`.bubble`、`.replace`、`.file`、`.silent`、`.structured` 会 fallback 到 window sink 并记录一次去重日志，保证旧配置迁移后用户仍能看到结果，不会因为 Phase 2 UI 未实现而丢输出。
+Agent 执行链会把 allowlist 中的 MCP tool 暴露给支持 tool calling 的 OpenAI-compatible provider，并在每次真实 MCP 调用前走权限 gate。Phase 2 Skill Registry MVP 后，Agent Tool 初始只注入绑定 skills 的 metadata；模型需要完整指令时调用内置 `sliceai.load_skill` pseudo-tool，执行器从 `LocalSkillRegistry` 读取对应 `SKILL.md`。Task 62 后，metadata 还会列出可读 supporting files；模型必须先加载 skill，再用 `sliceai.load_skill_resource` 读取 `references/` 或文本型 `assets/`。`scripts/` 仍不读取、不执行。
+
+`OutputDispatcher` 当前只有 `.window` 真实 sink。`.bubble`、`.replace`、`.file`、`.silent`、`.structured` 会 fallback 到 window sink 并记录一次去重日志，保证旧配置迁移后用户仍能看到结果，不会因为 Phase 2 UI 未实现而丢输出。
 
 ## 代码实现说明
 
-核心源码位于 `SliceAIKit/Sources/Orchestration/`。测试位于 `SliceAIKit/Tests/OrchestrationTests/`，重点覆盖 `InvocationGate`、事件顺序、single-writer 输出契约、OutputDispatcher fallback、PromptExecutor 错误分类、InvocationReport 和权限闭环。
+核心源码位于 `SliceAIKit/Sources/Orchestration/`。测试位于 `SliceAIKit/Tests/OrchestrationTests/`，重点覆盖 `InvocationGate`、事件顺序、single-writer 输出契约、OutputDispatcher fallback、PromptExecutor 错误分类、AgentExecutor MCP / skill tool-call 行为、InvocationReport 和权限闭环。

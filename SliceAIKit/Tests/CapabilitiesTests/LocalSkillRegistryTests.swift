@@ -55,6 +55,71 @@ final class LocalSkillRegistryTests: XCTestCase {
         XCTAssertTrue(payload.instructions.contains("Use active voice."))
     }
 
+    /// snapshot 应索引可读 supporting files，并跳过 scripts、二进制 assets 和越界 symlink。
+    func test_snapshotIndexesReadableSupportingFilesAndSkipsUnsafeResources() async throws {
+        let root = try makeTempRoot()
+        let skillDir = root.appendingPathComponent("writing", isDirectory: true)
+        try writeSkill(skillDir.appendingPathComponent("SKILL.md"), name: "writing", description: "Write.")
+        try writeText("Style guide", to: skillDir.appendingPathComponent("references/style.md"))
+        try writeText("Template", to: skillDir.appendingPathComponent("assets/template.md"))
+        try writeText("#!/bin/sh\necho unsafe", to: skillDir.appendingPathComponent("scripts/check.sh"))
+        try Data([0x89, 0x50, 0x4E, 0x47]).write(to: skillDir.appendingPathComponent("assets/logo.png"))
+        let outside = root.appendingPathComponent("outside.md")
+        try "Outside".write(to: outside, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(
+            at: skillDir.appendingPathComponent("references/outside.md"),
+            withDestinationURL: outside
+        )
+        let registry = LocalSkillRegistry(settingsProvider: {
+            SkillSettings(sources: [source(root)], overrides: [:])
+        })
+
+        let snapshot = try await registry.snapshot()
+        let resources = try XCTUnwrap(snapshot.skills.first?.resources)
+
+        XCTAssertEqual(resources.map(\.relativePath).sorted(), [
+            "assets/template.md",
+            "references/style.md"
+        ])
+        XCTAssertEqual(resources.first { $0.relativePath == "references/style.md" }?.mimeType, "text/markdown")
+    }
+
+    /// loadSkillResource 应只读取已索引的 UTF-8 supporting file。
+    func test_loadSkillResourceReturnsIndexedUtf8Content() async throws {
+        let root = try makeTempRoot()
+        let skillDir = root.appendingPathComponent("writing", isDirectory: true)
+        try writeSkill(skillDir.appendingPathComponent("SKILL.md"), name: "writing", description: "Write.")
+        try writeText("Use active voice.", to: skillDir.appendingPathComponent("references/style.md"))
+        let registry = LocalSkillRegistry(settingsProvider: {
+            SkillSettings(sources: [source(root)], overrides: [:])
+        })
+
+        let payload = try await registry.loadSkillResource(id: "writing", relativePath: "references/style.md")
+
+        XCTAssertEqual(payload.canonicalName, "writing")
+        XCTAssertEqual(payload.relativePath, "references/style.md")
+        XCTAssertEqual(payload.mimeType, "text/markdown")
+        XCTAssertEqual(payload.content, "Use active voice.")
+    }
+
+    /// scripts 与路径穿越必须被拒绝，避免 supporting files 只读能力扩大到任意文件读取。
+    func test_loadSkillResourceRejectsScriptsAndTraversal() async throws {
+        let root = try makeTempRoot()
+        let skillDir = root.appendingPathComponent("writing", isDirectory: true)
+        try writeSkill(skillDir.appendingPathComponent("SKILL.md"), name: "writing", description: "Write.")
+        try writeText("#!/bin/sh\necho unsafe", to: skillDir.appendingPathComponent("scripts/check.sh"))
+        let registry = LocalSkillRegistry(settingsProvider: {
+            SkillSettings(sources: [source(root)], overrides: [:])
+        })
+
+        try await assertThrows {
+            _ = try await registry.loadSkillResource(id: "writing", relativePath: "scripts/check.sh")
+        }
+        try await assertThrows {
+            _ = try await registry.loadSkillResource(id: "writing", relativePath: "../outside.md")
+        }
+    }
+
     /// 缺失 description 时默认禁用并产生诊断，除非用户显式 override on。
     func test_missingDescriptionIsDefaultDisabledAndDiagnosed() async throws {
         let root = try makeTempRoot()
@@ -186,4 +251,18 @@ private func writeOversizeSkill(_ url: URL) throws {
     ---
     \(body)
     """.write(to: url, atomically: true, encoding: .utf8)
+}
+
+private func writeText(_ text: String, to url: URL) throws {
+    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try text.write(to: url, atomically: true, encoding: .utf8)
+}
+
+private func assertThrows(_ operation: () async throws -> Void) async throws {
+    do {
+        try await operation()
+        XCTFail("expected operation to throw")
+    } catch {
+        // Expected.
+    }
 }

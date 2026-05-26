@@ -15,10 +15,10 @@
 
 | 字段 | 值 |
 |---|---|
-| 最后更新 | 2026-05-24 |
+| 最后更新 | 2026-05-26 |
 | 当前 Phase | **Phase 2 Skill + 多 DisplayMode** |
-| 当前 Milestone | **Task 58 Skill Registry MVP 已完成** |
-| 下一个动作 | 启动真实 Skill E2E 兼容性验证：用 3 个本地 Claude / Codex 风格 skill 验证扫描、启停、Agent 绑定和 `sliceai.load_skill` 运行链路 |
+| 当前 Milestone | **Task 62 supporting files 只读加载已完成；下一切片待启动** |
+| 下一个动作 | 建议进入 DisplayMode 设计切片或 Skill scripts 策略冻结；TTS / English Tutor 仍需独立 spec |
 | 阻塞 | 无已知产品代码阻塞；`v0.3.0` draft release 已生成并校验通过，但用户已决定暂缓人工发布 |
 
 **Milestone 状态**
@@ -35,6 +35,9 @@
 | 1 | M3 | ✅ 已完成：tool calling contract、AgentExecutor ReAct loop、ResultPanel tool-call lifecycle、`web-search-summarize` |
 | 1 | M4 | ✅ Task 57 release prep 已完成；直接 MCP E2E 已通过，DeepSeek/权限/finalization 缺陷、自定义 Agent Tool 编辑器、MCP allowlist、通用 tool-call policy 和 review 发现的 release blocker 均已修复；最终 gate、本地 DMG 预检、CI draft release 和 artifact SHA 校验通过 |
 | 2 | Skill Registry MVP | ✅ 已完成并推送 `main` / `origin/main`（commit `1411e88`）；用户已完成 App 手测且未反馈问题 |
+| 2 | Skill E2E Validation | ✅ 已完成：3 个本地 Claude / Codex 风格 skill E2E 与 full gate 均通过 |
+| 2 | Public Skill Repository Smoke | ✅ 已完成：3 个公开仓库 / 9 个真实 skill 的扫描、解析、启用和 `SKILL.md` 加载 smoke 通过 |
+| 2 | Supporting Files Read-Only Loading | ✅ 已完成：`references/` 与文本型 `assets/` 可按需只读加载；`scripts/` 仍不读取、不执行 |
 | 3–5 | — | 🟦 Directional，进入前需重新 spec |
 
 ---
@@ -65,13 +68,13 @@
 
 ## 2. 全项目 Phase 全景
 
-（摘自 v2 roadmap spec §4.1，状态按 2026-04-25 本文件编写时实际为准）
+（摘自 v2 roadmap spec §4.1，状态按 2026-05-24 当前源码与发布记录更新）
 
 | Phase | 主题 | 状态 | 时长（人天） | 对外可见新功能 | 关键产出 |
 |---|---|---|---|---|---|
-| **0** | 底层重构 | **Freeze，实施中**（M1 完成等 merge） | 15–21 (M1+M2+M3) | **无**（只重构） | Orchestration + Capabilities 骨架、Tool 三态、ExecutionSeed/ResolvedContext、Permission + Provenance + PermissionGraph + PathSandbox hook、v2 schema + 独立 config 路径 |
-| **1** | MCP + Context 主干 | **Freeze，实施中** | 20–30 | MCP 支持 / 5 个核心 ContextProvider / Per-Tool Hotkey / 基础自定义 Agent Tool | MCPClient（stdio + Streamable HTTP）+ MCPServersPage + AgentExecutor + Agent Tool 编辑器 + `web-search-summarize` 首个真 Agent Tool |
-| **2** | Skill + 多 DisplayMode | Directional | — | Skill 接入 / replace / bubble / structured / TTS | 进入前重新 spec；Skill 不再算 Phase 1 blocker |
+| **0** | 底层重构 | ✅ 已完成并正式发布 `v0.2.0` | 15–21 (M1+M2+M3) | **无**（只重构） | Orchestration + Capabilities 骨架、Tool 三态、ExecutionSeed/ResolvedContext、Permission + Provenance + PermissionGraph + PathSandbox hook、v2 schema + 独立 config 路径 |
+| **1** | MCP + Context 主干 | ✅ 已完成；`v0.3.0` tag + GitHub draft release 已生成，人工发布暂缓 | 20–30 | MCP 支持 / 5 个核心 ContextProvider / Per-Tool Hotkey / 基础自定义 Agent Tool | MCPClient（stdio + Streamable HTTP）+ MCPServersPage + AgentExecutor + Agent Tool 编辑器 + `web-search-summarize` 首个真 Agent Tool |
+| **2** | Skill + 多 DisplayMode | 🟨 已完成 Skill Registry MVP、本地 Skill E2E、公开仓库 smoke 与 supporting files 只读加载；多 DisplayMode 尚未实现 | — | Skill 接入 / replace / bubble / structured / TTS | Skill registry 已合入；DisplayMode、scripts 策略、English Tutor、TTS 仍需重新 spec |
 | **3** | Prompt IDE + 本地模型 | Directional | — | Playground / A-B / Ollama & Anthropic 原生 / Memory | 进入前重新 spec |
 | **4** | 生态与分享 | Directional | — | Tool Pack / Marketplace / SliceAI as MCP server / Shortcuts / Services | 进入前重新 spec；Pack 签名体系在 §3.9.4 已埋 hook |
 | **5** | 高级编排 | Directional | — | Pipeline / 智能路由 / Smart Actions | 进入前重新 spec |
@@ -163,7 +166,7 @@
 **关键交付物**：
 
 - [x] `Orchestration` target：`ExecutionEngine` / `ExecutionEvent` / `ContextCollector` / `PermissionGraph` / `PermissionBroker` / `PromptExecutor` / `OutputDispatcher`
-- [x] `Capabilities` target：`PathSandbox` / `MCPClientProtocol` / `SkillRegistryProtocol` / production-side mock
+- [x] `Capabilities` target：`PathSandbox` / `MCPClientProtocol` / `SkillRegistryProtocol` / production-side mock（M2 当时状态；后续 Phase 1 / 2 已填实 MCP client、ContextProviders 和 LocalSkillRegistry）
 - [x] `CostAccounting` sqlite append + `JSONLAuditLog` jsonl append + 脱敏
 - [x] M2 保持 app 启动链路 zero-touch；M3 才接入 `ExecutionEngine`
 
@@ -176,11 +179,11 @@
 
 ---
 
-### 3.3 M3：切换 + 删旧 + 端到端回归 ⏳ **实施中**
+### 3.3 M3：切换 + 删旧 + 端到端回归 ✅ **已完成并发布**
 
 **目标**：把 AppContainer / 触发通路切到 `ExecutionEngine`；删除旧 `ToolExecutor`；配置改读 `config-v2.json`；端到端回归通过。
 
-**当前分支 / worktree**：`feature/phase-0-m3-switch-to-v2`，worktree `.worktrees/phase-0-m3`
+**分支 / worktree 状态**：原 `feature/phase-0-m3-switch-to-v2` 已合入并清理；当前事实以 `main` 为准。
 
 **权威文档**：
 
@@ -309,7 +312,7 @@ fi
 
 **目标**：把 Phase 0 的 `ContextProvider` / `MCPClient` / `AgentExecutor` 填实；用户可以在 Settings 加 MCP server，并在 Tool 勾选哪些 MCP tool 可用；Per-Tool Hotkey 生效。
 
-**状态**：**M1-M4 主干已实施**，当前 worktree `feature/phase-1-mcp-context` 已完成 Task 16 release readiness review，并完成 Task 17 release E2E validation 的主体验证。自动化 gate 已通过；真实 5-server 直接 MCP E2E 已通过。App 实测发现的 DeepSeek thinking-mode finalize、Brave 搜索 MCP 授权范围、Agent maxSteps 无最终回答、最终回合 DSML 标记误作为正文输出缺陷已修复；基础自定义 Agent Tool 编辑器、MCP allowlist 文本配置和通用 MCP tool-call policy 已完成代码实现；用户已基本复测 App 场景且未反馈阻塞问题。
+**状态**：**M1-M4 主干已完成**。原 `feature/phase-1-mcp-context` worktree 已清理；Task 57 release prep 已完成，`v0.3.0` tag 与 GitHub draft release 已生成并校验通过，但用户已明确暂缓人工发布。自动化 gate、真实 5-server 直接 MCP E2E、本地 DMG 预检和 CI artifact SHA 校验均已通过。App 实测发现的 DeepSeek thinking-mode finalize、Brave 搜索 MCP 授权范围、Agent maxSteps 无最终回答、最终回合 DSML 标记误作为正文输出缺陷已修复；基础自定义 Agent Tool 编辑器、MCP allowlist 文本配置和通用 MCP tool-call policy 已完成代码实现；用户已基本复测 App 场景且未反馈阻塞问题。
 
 **Entry criteria**（Phase 1 实施启动前置条件）：
 
@@ -351,7 +354,7 @@ fi
 - [x] 用户可从 Settings 创建基础 Agent Tool，并用 `server.tool` 文本配置 MCP allowlist 和调用策略
 - [x] AgentExecutor 使用独立 `AgentToolCallPolicy` 控制总调用数、单轮调用数、重复参数和 rate limit 停止
 - [x] 新增文档 `docs/Module/MCPClient.md` `docs/Module/ContextProviders.md`
-- [ ] 发布 **v0.3** tag
+- [x] 发布 **v0.3.0** tag；GitHub draft release 已由 CI 生成并校验通过，人工发布暂缓
 
 **Phase 1 预计人天**：20–30；加 20% buffer → 24–36 人天。
 
@@ -391,7 +394,7 @@ fi
 | M2 Task 6 | PermissionGraph Case-Aware Coverage | ✅ 已完成 | `EffectivePermissions.undeclared` 改为 declared covers effective；支持文件 exact / 目录前缀 / glob、PathSandbox hard-deny、MCP nil/superset、shellExec exact |
 | M2 Task 7 | Five ContextProviders | ✅ 已完成 | 新增 `selection` / `app.windowTitle` / `app.url` / `clipboard.current` / `file.read`；剪贴板和文件 IO 支持取消检查，文件读取先经 `PathSandbox`，并按 chunk 读取且默认 1 MiB 上限 |
 | M2 Task 8 | Permission Grant Persistence And UI-Gate Protocol | ✅ 已完成 | 新增 UI-free consent boundary、session grant cache、persistent permission-grants store；默认 MCP / network / shell / AppIntents 不缓存；Task 17 仅对白名单内置 `brave-search.brave_web_search` 开启 session / persistent grant |
-| M2 Task 9 | AppContainer Wires Real Context And Permission UI | ✅ 已完成 | `AppContainer` 注册真实 provider registry，接入 AppKit presenter、`permission-grants.json` persistent store、`mcp.json` + stdio/routing MCP client；`.agent` stub 保持不变 |
+| M2 Task 9 | AppContainer Wires Real Context And Permission UI | ✅ 已完成 | `AppContainer` 注册真实 provider registry，接入 AppKit presenter、`permission-grants.json` persistent store、`mcp.json` + stdio/routing MCP client；当时 `.agent` 仍为 stub，后续 M3 已接入真实 AgentExecutor |
 
 **Task 6 验证**：
 
@@ -479,7 +482,7 @@ fi
 - [x] filesystem 安全测试目录
 - [x] Safari / Notes / Slack 等真实 App 场景基本复测（用户反馈无阻塞；未沉淀逐项截图 / 日志证据）
 
-**下一步**：用户已决定暂缓人工发布 `v0.3.0` GitHub Release draft；进入 Phase 2 前先启动 Skill Registry MVP spec。
+**当前后续**：Phase 0 已以 `v0.2.0` 正式发布。Phase 1 已完成 `v0.3.0` release prep，用户已决定暂缓人工发布 GitHub Release draft；Phase 2 Skill Registry MVP 已在后续任务中完成。
 
 ---
 
@@ -495,11 +498,78 @@ fi
 > 5. plan 完成后再过一轮 Codex 评审，直到 APPROVED / COMMENT（与 §8 阶段 2 对齐）
 > 6. 本文件的 §0 Dashboard 更新 + 在对应 phase 章节展开子任务
 
+### 5.0 从当前到 v1.0 的剩余任务总表
+
+> 这张表按当前 spec / 源码事实把剩余工作拆成 **60 个主任务**。Phase 3–5 仍是 Directional，所以这些条目是 v1.0 路线图级任务，不是已经冻结的实施 plan；真正开工前仍必须重新 spec、review、拆成更细的开发任务。
+
+| # | Phase | 任务 | 交付结果 | 状态 |
+|---|---|---|---|---|
+| 1 | 2 | 真实本地 Skill E2E 兼容性验证 | 用 3 个本地 Claude / Codex 风格 skill 验证扫描、启停、Agent 绑定和 `sliceai.load_skill` 链路 | 完成：focused E2E、full SwiftPM 796 tests、SwiftLint strict 和 `git diff --check` 均通过 |
+| 2 | 2 | 公开 Anthropic / Codex Skill 仓库兼容性验证 | 至少 3 个公开 skill 仓库在 SliceAI 中能扫描、解析、启用并加载核心 `SKILL.md` 指令 | 完成：3 个公开仓库 / 9 个真实 skill 的 opt-in smoke 通过；不含 scripts / supporting files / 真实模型执行 |
+| 3 | 2 | Skill 诊断与 `allowed-tools` UX 硬化 | 解析错误、shadowed、禁用、too large、allowed-tools 不授权等状态在 Settings 中可解释 | 待做 |
+| 4 | 2 | Skill supporting files 只读加载 | `references/`、文本型 `assets/` 资源支持按需读取，继续遵守 root sandbox | 完成：`sliceai_load_skill_resource` 支持已加载 bound skill 的只读资源读取；`scripts/` 仍不读取、不执行 |
+| 5 | 2 | Skill scripts 策略冻结 | 明确 scripts 是否执行、如何授权、如何审计；未冻结前保持不执行 | 待做 |
+| 6 | 2 | DisplayMode 设计冻结与 app 成功率矩阵 | 完成 `setSelectedText` 在 Safari / Notes / Xcode / VSCode / Slack / Figma / Discord 的实测表 | 待做 |
+| 7 | 2 | `Windowing/BubblePanel` | 小气泡展示、自动消失、定位、降级行为和测试 | 待做 |
+| 8 | 2 | `Windowing/InlineReplaceOverlay` | AX `setSelectedText`、paste fallback、确认 / 撤销浮条 | 待做 |
+| 9 | 2 | `Windowing/StructuredResultView` | JSON Schema / structured output 的动态表单或表格渲染 | 待做 |
+| 10 | 2 | `OutputDispatcher` 多 sink 落地 | `.bubble`、`.replace`、`.file`、`.silent`、`.structured` 不再 fallback 到 window | 待做 |
+| 11 | 2 | `Capabilities/TTSCapability` | AVSpeech 与远端 TTS provider 切换、权限和错误处理 | 待做 |
+| 12 | 2 | `english-tutor` 官方 Tool Pack | 语法分析、改写、朗读、结构化结果和 skill 绑定 | 待做 |
+| 13 | 2 | Phase 2 E2E / 文档 / 回归 | Skill、DisplayMode、TTS、English Tutor 的自动化与实机回归 | 待做 |
+| 14 | 2 | Phase 2 release | 建议 `v0.4.0` tag / DMG / release notes，版本号需发布前确认 | 待做 |
+| 15 | 3 | `ToolEditor v2` 信息架构 | 左侧配置、右侧 Playground、kind-aware 编辑器和保存规则 | 待做 |
+| 16 | 3 | Prompt Playground 运行器 | 在 Settings 内运行 selection sample、展示 streaming / tool call / structured output | 待做 |
+| 17 | 3 | 测试样本与 expected output 管理 | 保存 selection、上下文、期望输出和回归结果 | 待做 |
+| 18 | 3 | A/B 双栏对比 | 同一 Tool 并排跑不同 provider / model / prompt version | 待做 |
+| 19 | 3 | Tool version history | 每次保存生成 snapshot，支持查看、回滚和 diff | 待做 |
+| 20 | 3 | 原生 `AnthropicProvider` | Messages API、Prompt Caching、Extended Thinking、错误映射 | 待做 |
+| 21 | 3 | 原生 `GeminiProvider` | Gemini API、Grounding、JSON Schema output、错误映射 | 待做 |
+| 22 | 3 | `OllamaProvider` | 本地模型、可用性检测、function calling 能力验证 | 待做 |
+| 23 | 3 | Provider capability / cascade 产品化 | `ProviderSelection.capability` / `.cascade` 从数据模型变成可靠运行时策略 | 待做 |
+| 24 | 3 | Tool Memory 存储与检索 | jsonl + FTS index、permission、注入 prompt 和清理策略 | 待做 |
+| 25 | 3 | `SettingsUI/Pages/MemoryPage` | 查看、搜索、删除、按 Tool 管理 memory | 待做 |
+| 26 | 3 | Cost Panel | 成本聚合、provider 账单偏差校验、sqlite 迁移策略 | 待做 |
+| 27 | 3 | `privacy: local-only` 执行闭环 | local-only Tool 禁止远端 provider，无 Ollama 时明确报错 | 待做 |
+| 28 | 4 | `.slicepack` 格式冻结 | 包结构、manifest、schema、兼容版本和校验规则 | 待做 |
+| 29 | 4 | Tool / Skill Pack import-export | 打包、导入、冲突处理、权限预览和回滚 | 待做 |
+| 30 | 4 | Signing / Notarization 决策 | 是否签名、公证、证书策略和 release 影响 | 待做 |
+| 31 | 4 | Pack 安装权限审阅 | 安装时集中展示 MCP / file / network / shell / memory 等风险 | 待做 |
+| 32 | 4 | `SettingsUI/Pages/MarketplacePage` | 浏览、安装、更新、禁用和来源展示 | 待做 |
+| 33 | 4 | `tools.sliceai.app` 静态站 | Marketplace metadata、索引构建、GitHub Pages 发布 | 待做 |
+| 34 | 4 | 6 个官方 Starter Packs | 翻译、写作、代码、研究、英语学习、工作流等初始包 | 待做 |
+| 35 | 4 | 远端安装与自动更新 | 版本检查、更新提示、签名校验和失败回滚 | 待做 |
+| 36 | 4 | SliceAI as MCP server | 通过 stdio 暴露 SliceAI Tool 给 Claude Desktop 等外部宿主 | 待做 |
+| 37 | 4 | Shortcuts AppIntents | macOS Shortcuts 中出现 SliceAI Action | 待做 |
+| 38 | 4 | macOS Services 菜单 | 右键 Services 调用 SliceAI Tool，并验证 unsigned 限制 | 待做 |
+| 39 | 4 | URL Scheme | 外部 URL 调用 Tool / pack install / settings deep link | 待做 |
+| 40 | 4 | Phase 4 安全评审与文档 | 对 sideload、签名、远端更新、MCP server 做安全复核 | 待做 |
+| 41 | 4 | Phase 4 release | 建议 `v0.6.0` / `v0.7.0` 分段发布，版本号需发布前确认 | 待做 |
+| 42 | 5 | `Orchestration/PipelineExecutor` | `.pipeline` ToolKind 真正执行，不再返回 not implemented | 待做 |
+| 43 | 5 | Pipeline schema validation / runtime graph | step 引用、分支、失败策略、循环防护和权限聚合 | 待做 |
+| 44 | 5 | Pipeline 可视化编辑器 | 节点图编辑、连接校验、预览和版本化 | 待做 |
+| 45 | 5 | `ContentClassifier` | 规则 + 可选本地小模型，识别代码、URL、论文、普通文本等 | 待做 |
+| 46 | 5 | Smart Actions 动态排序 | 浮条根据内容类型、App、历史使用动态推荐工具 | 待做 |
+| 47 | 5 | Provider cascade runtime 完整化 | 长文本、代码、隐私等条件路由与 fallback 可观测 | 待做 |
+| 48 | 5 | Agent step callback 接入 Pipeline 进度 | tool-call / stepCompleted / progress 映射到 UI | 待做 |
+| 49 | 5 | 内置 Pipeline 工具 | Translate→Anki、Commit→Push、Paper→Notion 等至少 3 个 | 待做 |
+| 50 | 5 | Phase 5 E2E / release | Pipeline、Smart Actions、cascade 的自动化和实机回归，建议 `v0.8.0` / `v0.9.0` | 待做 |
+| 51 | v1.0 | 全 Phase DoD 审计 | Phase 0–5 DoD 全部逐项复核并关闭遗留项 | 待做 |
+| 52 | v1.0 | 文档 / spec / schema 同步 | README、AGENTS、CLAUDE、模块文档、schema、task history 全部与源码一致 | 待做 |
+| 53 | v1.0 | 全量回归矩阵 | Apps、providers、MCP servers、skills、DisplayModes、permissions、migration 全覆盖 | 待做 |
+| 54 | v1.0 | Accessibility / privacy / security review | AX、剪贴板、文件、MCP、远端更新、日志脱敏最终审计 | 待做 |
+| 55 | v1.0 | CI / release hardening | release workflow、artifact 校验、崩溃日志策略和失败回滚 | 待做 |
+| 56 | v1.0 | 安装包与签名收尾 | DMG、签名、公证、首次启动体验和权限引导 | 待做 |
+| 57 | v1.0 | 官网 / Homepage / Release Notes | 对外说明、安装指引、功能列表、限制说明 | 待做 |
+| 58 | v1.0 | 迁移与向后兼容 smoke | v0.1 / v0.2 / v0.3 配置迁移和旧配置读取复核 | 待做 |
+| 59 | v1.0 | Bug bash / 性能 / 可用性打磨 | 真实使用场景压力测试、启动速度、内存、长输出、取消行为 | 待做 |
+| 60 | v1.0 | `v1.0.0` 发布 | tag、DMG、release、公告和发布后 smoke | 待做 |
+
 ### 5.1 Phase 2：Skill + 多 DisplayMode
 
 **目标**：把 Anthropic Skills 规范的 skill 包引入；`replace / bubble / structured / silent` 四种 DisplayMode 真正可用。
 
-**当前启动切片**：先做 Skill Registry MVP，不直接铺开全部 Phase 2。原因是 skill 包发现、`SKILL.md` 解析、资源目录边界、Settings 可见性、Tool 引用关系和权限语义是后续 DisplayMode / English Tutor 的前置能力；如果先做 English Tutor 或 replace/structured UI，容易把未冻结的 Skill 抽象写死。
+**当前进度**：Skill Registry MVP、真实本地 Skill E2E、公开 skill 仓库 smoke 和 supporting files 只读加载已完成。下一步仍不应直接宣称 Phase 2 完成；DisplayMode、Skill scripts 策略、TTS 和 English Tutor 都还需要独立 spec / plan / review。
 
 **已实现的 MVP 边界**：
 
@@ -511,19 +581,21 @@ fi
 - [x] 单元测试覆盖解析成功、解析失败、禁用、too large、missing description、missing source、shadowed 和 pseudo-tool 加载场景。
 - [x] 完整 gate 已通过：SwiftPM 795 tests、SwiftLint strict、App Debug build 和 `git diff --check`。
 - [x] 已合入并推送 `main` / `origin/main`（commit `1411e88`）；用户已完成 App 手测且未反馈问题。
-- [x] 暂不实现 marketplace、远端安装、skill 内脚本执行、supporting files 读取、复杂 DisplayMode、English Tutor 全流程。
+- [x] 暂不实现 marketplace、远端安装、skill 内脚本执行、复杂 DisplayMode、English Tutor 全流程；supporting files 已先落地只读读取，不包含 scripts。
 
 **关键交付**（粗粒度，进入前重新 spec）：
 
 - [x] `Capabilities/SkillRegistry`（扫目录、解析 SKILL.md、生成 snapshot 和按需加载 body）
 - [x] `SettingsUI/Pages/SkillsPage`
-- [ ] 真实 Skill E2E 兼容性验证（3 个本地 Claude / Codex 风格 skill）
+- [x] 真实 Skill E2E 兼容性验证（3 个本地 Claude / Codex 风格 skill）— focused E2E 与 full gate 均通过
+- [x] 公开 Skill 仓库兼容性 smoke（`anthropics/skills`、`openai/skills`、`jMerta/codex-skills` 3 个仓库 / 9 个真实 skill）
+- [x] Skill supporting files 只读加载（`references/` 与文本型 `assets/`，通过 `sliceai_load_skill_resource` 渐进式读取）
 - [ ] `Windowing/BubblePanel`（小气泡、2.5s 自动消失）
 - [ ] `Windowing/InlineReplaceOverlay`（AX `setSelectedText` + 确认撤销浮条）
 - [ ] `Windowing/StructuredResultView`（JSONSchema → SwiftUI 表单）
 - [ ] `Capabilities/TTSCapability`（AVSpeech + OpenAI TTS 切换）
 - [ ] `Orchestration/OutputDispatcher` 填充所有 DisplayMode
-- [ ] Anthropic Skills 兼容性测试（`obra/superpowers` 等公开仓库）
+- [x] Anthropic / OpenAI / Codex Skills 仓库 smoke（扫描、解析、启用和 `SKILL.md` 加载）
 - [ ] 新内置 Tool Pack：`english-tutor`
 
 **Definition of Done**（抄自 spec §4.4.3，进入前可重写）：
@@ -1020,3 +1092,39 @@ fi
 - 用户已完成 App 手测且未反馈问题。
 - 已提交 `1411e88 feat: add skill registry mvp`，并推送到 `origin/main`；本地 `HEAD`、`main`、`origin/main` 均指向 `1411e88`。
 - 下一步建议启动真实 Skill E2E 兼容性验证，再根据真实缺口决定 supporting files 只读加载、DisplayMode 或 marketplace 的优先级。
+
+### 2026-05-24 — 项目状态审计与剩余任务总表完成
+
+- 新增项目级 `AGENTS.md`，把当前 Swift/macOS 项目事实、必读顺序、模块边界、已落地功能、未完成能力、常用命令、配置路径和测试门槛写成 agent 入口文档。
+- 本文件 §5.0 已补齐从当前到 `v1.0.0` 的 60 项剩余主任务；Phase 3–5 仍是 Directional，真正开工前需要重新 spec / review / plan。
+- 修复当前文档漂移：Phase 0 / Phase 1 状态、`CLAUDE.md`、`README.md`、`docs/Module/SliceCore.md`、`docs/Module/Orchestration.md` 均已同步 AgentExecutor、Skill Registry MVP 和 DisplayMode / Pipeline 未完成边界。
+- `config.schema.json` 已从旧 schemaVersion 1 / v1 扁平 Tool schema 更新到当前 schemaVersion 3 / v2 ToolKind / SkillSettings schema。
+- 验证通过：`jq empty config.schema.json`、`git diff --check`、`swift test --package-path SliceAIKit`（795 tests）和 `swiftlint lint --strict`。
+- 下一步仍建议先做真实 Skill E2E 兼容性验证（3 个本地 Claude / Codex 风格 skill）。
+
+### 2026-05-24 — Phase 2 真实本地 Skill E2E 兼容性验证完成
+
+- 新增 `AgentExecutorSkillE2ETests`，用真实临时 skill root 和生产 `LocalSkillRegistry` 覆盖 `skills/`、`.claude/skills/`、`.agents/skills/` 三种本地目录形态。
+- 已验证 3 个 Claude / Codex 风格 skill 的 `allowed-tools`、`disable-model-invocation`、`user-invocable` 兼容字段解析，Agent Tool 绑定，初始 metadata 暴露，以及 `sliceai_load_skill` 按需加载真实 `SKILL.md`。
+- Supporting files 当前仍只保留目录兼容性：`references/`、`assets/`、`scripts/` 和 `agents/openai.yaml` 不进入模型 payload，也不会被执行。
+- full gate 首次暴露既有 prompt stream cancellation 测试调度竞态；已通过专用可取消 dispatcher 测试夹具收紧断言，未修改生产逻辑。
+- 验证通过：focused Skill E2E、focused cancellation regression、`swift test --package-path SliceAIKit`（796 tests）、`swiftlint lint --strict` 和 `git diff --check`。
+- 下一步建议进入公开 Anthropic / Codex skill 兼容性验证；supporting files 只读加载、DisplayMode、TTS 和 English Tutor 仍是后续 Phase 2 任务。
+
+### 2026-05-24 — Phase 2 公开 Skill 仓库兼容性 smoke 完成
+
+- 新增 `scripts/phase2-public-skill-smoke.sh`：固定 commit sparse checkout 公开仓库样本，写入 manifest，并以 opt-in env 运行 `PublicSkillRepositorySmokeTests`。
+- 新增 `PublicSkillRepositorySmokeTests`：默认无 `SLICEAI_PUBLIC_SKILL_SMOKE_MANIFEST` 时 skip，保证常规 `swift test` 不联网。
+- 已验证 3 个公开仓库 / 9 个真实 skill：`anthropics/skills@690f15c`、`openai/skills@b0401f0`、`jMerta/codex-skills@1be063d`。
+- 发现并修复真实兼容缺口：OpenAI 官方仓库使用 `skills/.curated/<skill>/SKILL.md` 布局；`SkillDirectoryScanner` 现在有界支持 `skills/.curated` 与 `skills/.system` 直接子 skill，仍不做任意递归。
+- 验证通过：scanner 红绿测试、public smoke、`swift test --package-path SliceAIKit`（798 tests，1 skipped）、`swiftlint lint --strict` 和 `git diff --check`。
+- 下一步建议做 supporting files 只读加载设计；scripts 执行、marketplace、DisplayMode、TTS 和 English Tutor 仍未完成。
+
+### 2026-05-26 — Phase 2 supporting files 只读加载完成
+
+- 新增 `SkillResourcePayload` 与 `SkillRegistryProtocol.loadSkillResource(id:relativePath:)`；`LocalSkillRegistry` 会索引 enabled skill 内的 `references/` 和文本型 `assets/`。
+- 新增 provider-visible `sliceai_load_skill_resource` pseudo-tool；模型必须先调用 `sliceai_load_skill` 加载同名 bound skill，才能读取 metadata 中列出的 supporting file。
+- 安全边界：只接受相对路径，拒绝绝对路径、`..`、未索引资源、symlink 越界、非 UTF-8 和超过 64 KiB 的单文件；`scripts/` 不读取、不执行。
+- E2E 已覆盖真实临时 skill root：`references/style.md` 可按需进入模型 tool message，`scripts/check.sh` 仍不会进入 payload。
+- 验证通过：focused registry / Agent / Skill E2E、公开仓库 smoke（3 repositories / 9 public skills）、`swift test --package-path SliceAIKit`（803 tests，1 skipped）、`swiftlint lint --strict`、`git diff --check` 和 App Debug build。
+- 下一步建议进入 DisplayMode 设计切片或 Skill scripts 策略冻结；TTS、English Tutor、marketplace 仍未实现。

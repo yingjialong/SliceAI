@@ -181,7 +181,7 @@ public actor LocalSkillRegistry: SkillRegistryProtocol {
             path: candidate.directory,
             skillFile: candidate.skillFile,
             manifest: result.manifest,
-            resources: [],
+            resources: indexedResources(in: candidate.directory),
             provenance: .selfManaged(userAcknowledgedAt: Date()),
             source: sourceRef,
             state: state(for: result, settings: settings)
@@ -256,4 +256,194 @@ public actor LocalSkillRegistry: SkillRegistryProtocol {
             message: message
         )
     }
+}
+
+extension LocalSkillRegistry {
+    /// 单个 supporting file 进入模型上下文前的最大字节数。
+    private static var maxResourceBytes: Int { 64 * 1024 }
+
+    /// 加载 enabled skill 内已索引 supporting file 的 UTF-8 文本。
+    public func loadSkillResource(id: String, relativePath: String) async throws -> SkillResourcePayload {
+        guard let skill = try await findSkill(id: id) else {
+            throw SliceError.configuration(.validationFailed("Skill resource not loadable: <redacted>"))
+        }
+        let normalizedPath = try normalizedResourcePath(relativePath)
+        guard let resource = skill.resources.first(where: { $0.relativePath == normalizedPath }) else {
+            throw SliceError.configuration(.validationFailed("Skill resource not indexed: <redacted>"))
+        }
+        let fileURL = skill.path.appendingPathComponent(normalizedPath, isDirectory: false).standardizedFileURL
+        let content = try readResourceContent(fileURL: fileURL, skillRoot: skill.path)
+        logger.debug("loaded SliceAI skill resource \(normalizedPath, privacy: .public)")
+        return SkillResourcePayload(
+            id: skill.id,
+            canonicalName: skill.canonicalName,
+            relativePath: normalizedPath,
+            fileURL: fileURL,
+            mimeType: resource.mimeType,
+            content: content
+        )
+    }
+
+    /// 执行 supporting file 的安全读取。
+    private func readResourceContent(fileURL: URL, skillRoot: URL) throws -> String {
+        let resolvedFileURL = fileURL.resolvingSymlinksInPath()
+        guard isPath(resolvedFileURL, inside: skillRoot.resolvingSymlinksInPath()) else {
+            throw SliceError.configuration(.validationFailed("Skill resource escaped root: <redacted>"))
+        }
+        let attributes = try FileManager.default.attributesOfItem(atPath: resolvedFileURL.path)
+        if let fileSize = attributes[.size] as? NSNumber,
+           fileSize.intValue > Self.maxResourceBytes {
+            throw SliceError.configuration(.validationFailed("Skill resource too large: <redacted>"))
+        }
+        let data = try Data(contentsOf: resolvedFileURL)
+        guard data.count <= Self.maxResourceBytes else {
+            throw SliceError.configuration(.validationFailed("Skill resource too large: <redacted>"))
+        }
+        guard let content = String(data: data, encoding: .utf8) else {
+            throw SliceError.configuration(.validationFailed("Skill resource is not valid UTF-8: <redacted>"))
+        }
+        return content
+    }
+}
+
+/// 常见 UTF-8 文本 supporting file 扩展名到 MIME 类型的映射。
+private let skillTextResourceMIMETypes: [String: String] = [
+    "bash": "text/x-shellscript",
+    "c": "text/x-c",
+    "cpp": "text/x-c++",
+    "css": "text/css",
+    "csv": "text/csv",
+    "html": "text/html",
+    "htm": "text/html",
+    "ini": "text/plain",
+    "js": "text/javascript",
+    "json": "application/json",
+    "md": "text/markdown",
+    "markdown": "text/markdown",
+    "mjs": "text/javascript",
+    "py": "text/x-python",
+    "rb": "text/x-ruby",
+    "rst": "text/x-rst",
+    "sh": "text/x-shellscript",
+    "swift": "text/x-swift",
+    "toml": "application/toml",
+    "ts": "text/typescript",
+    "tsx": "text/typescript",
+    "txt": "text/plain",
+    "xml": "application/xml",
+    "yaml": "application/yaml",
+    "yml": "application/yaml",
+    "zsh": "text/x-shellscript"
+]
+
+/// 扫描 skill 目录中可读 supporting files。
+/// - Parameter skillDirectory: 单个 skill 根目录。
+/// - Returns: 可暴露给 Agent 的只读资源索引。
+private func indexedResources(in skillDirectory: URL) -> [SkillResource] {
+    let roots = [
+        skillDirectory.appendingPathComponent("references", isDirectory: true),
+        skillDirectory.appendingPathComponent("assets", isDirectory: true)
+    ]
+    let resolvedSkillRoot = skillDirectory.resolvingSymlinksInPath()
+    var resources: [SkillResource] = []
+
+    for root in roots {
+        resources.append(contentsOf: indexedResources(
+            in: root,
+            skillDirectory: skillDirectory,
+            resolvedRoot: resolvedSkillRoot
+        ))
+    }
+    return resources.sorted { $0.relativePath < $1.relativePath }
+}
+
+/// 扫描一个 supporting file 子目录。
+private func indexedResources(in root: URL, skillDirectory: URL, resolvedRoot: URL) -> [SkillResource] {
+    var isDirectory: ObjCBool = false
+    guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+        return []
+    }
+    guard let enumerator = FileManager.default.enumerator(
+        at: root,
+        includingPropertiesForKeys: [.isRegularFileKey],
+        options: [.skipsHiddenFiles, .skipsPackageDescendants]
+    ) else {
+        return []
+    }
+
+    var resources: [SkillResource] = []
+    for case let fileURL as URL in enumerator {
+        guard let resource = indexedResource(
+            fileURL,
+            skillDirectory: skillDirectory,
+            resolvedRoot: resolvedRoot
+        ) else {
+            continue
+        }
+        resources.append(resource)
+    }
+    return resources
+}
+
+/// 将单个文件转为 SkillResource；不满足只读安全边界时返回 nil。
+private func indexedResource(_ fileURL: URL, skillDirectory: URL, resolvedRoot: URL) -> SkillResource? {
+    guard let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey]),
+          values.isRegularFile == true else {
+        return nil
+    }
+    let resolvedURL = fileURL.resolvingSymlinksInPath()
+    guard isPath(resolvedURL, inside: resolvedRoot) else {
+        return nil
+    }
+    let fileExtension = fileURL.pathExtension.lowercased()
+    guard let mimeType = skillTextResourceMIMETypes[fileExtension],
+          let relativePath = relativePath(from: skillDirectory, to: fileURL),
+          isLoadableResourcePath(relativePath) else {
+        return nil
+    }
+    return SkillResource(relativePath: relativePath, mimeType: mimeType)
+}
+
+/// 标准化并校验模型请求的 resource 相对路径。
+private func normalizedResourcePath(_ relativePath: String) throws -> String {
+    guard !relativePath.isEmpty,
+          !relativePath.hasPrefix("/"),
+          !relativePath.contains("\\"),
+          !relativePath.contains("\0") else {
+        throw SliceError.configuration(.validationFailed("Invalid skill resource path: <redacted>"))
+    }
+    let parts = relativePath.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+    guard !parts.contains(""),
+          !parts.contains("."),
+          !parts.contains(".."),
+          isLoadableResourcePath(relativePath) else {
+        throw SliceError.configuration(.validationFailed("Invalid skill resource path: <redacted>"))
+    }
+    return parts.joined(separator: "/")
+}
+
+/// 判断相对路径是否属于本切片允许读取的 supporting file 范围。
+private func isLoadableResourcePath(_ relativePath: String) -> Bool {
+    relativePath.hasPrefix("references/") || relativePath.hasPrefix("assets/")
+}
+
+/// 计算 file 相对 skill 根目录的稳定 POSIX 风格路径。
+private func relativePath(from root: URL, to file: URL) -> String? {
+    let rootComponents = root.standardizedFileURL.pathComponents
+    let fileComponents = file.standardizedFileURL.pathComponents
+    guard fileComponents.count > rootComponents.count,
+          Array(fileComponents.prefix(rootComponents.count)) == rootComponents else {
+        return nil
+    }
+    return fileComponents.dropFirst(rootComponents.count).joined(separator: "/")
+}
+
+/// 使用 pathComponents 判断包含关系，避免 `/tmp/root2` 被误判为 `/tmp/root` 子路径。
+private func isPath(_ child: URL, inside root: URL) -> Bool {
+    let childComponents = child.standardizedFileURL.pathComponents
+    let rootComponents = root.standardizedFileURL.pathComponents
+    guard childComponents.count >= rootComponents.count else {
+        return false
+    }
+    return Array(childComponents.prefix(rootComponents.count)) == rootComponents
 }

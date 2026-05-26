@@ -4,6 +4,42 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 
 ---
 
+## Task 62 · Phase 2 Skill Supporting Files Read-Only Loading
+
+- **时间**：2026-05-26
+- **描述**：继续 Phase 2，设计并实现 skill supporting files 只读加载。目标是在已绑定 skill 的渐进式加载链路中，安全读取 `references/` 与文本型 `assets/`，同时继续禁止执行 `scripts/`。
+- **详情**：[docs/Task-detail/2026-05-26-phase-2-skill-supporting-files-readonly.md](Task-detail/2026-05-26-phase-2-skill-supporting-files-readonly.md)
+- **结果**：完成。已新增 `SkillResourcePayload` 与 `SkillRegistryProtocol.loadSkillResource(id:relativePath:)`，`LocalSkillRegistry` 现在索引并只读加载 enabled skill 内的 `references/` 与文本型 `assets/`；AgentExecutor 新增 provider-visible `sliceai_load_skill_resource` pseudo-tool，要求先加载同名 bound skill 后才能读取资源。安全边界继续拒绝 `scripts/`、未索引路径、绝对路径、`..`、symlink 越界、非 UTF-8 和超过 64 KiB 的单文件。验证通过 focused tests、公开仓库 smoke（3 repositories / 9 public skills）、全量 SwiftPM 803 tests（1 skipped）、SwiftLint strict、`git diff --check` 和 App Debug build。
+
+---
+
+## Task 61 · Phase 2 Public Skill Repository Compatibility
+
+- **时间**：2026-05-24
+- **描述**：继续 Phase 2，按“自动化 smoke + 文档证据 + 必要代码修复”的方式验证公开 Anthropic / Codex skill 仓库兼容性。固定 3 个公开仓库 commit，拉取真实 `SKILL.md` 样本，使用生产 `LocalSkillRegistry` 验证扫描、解析、启用和按需加载。
+- **详情**：[docs/Task-detail/2026-05-24-phase-2-public-skill-repository-compatibility.md](Task-detail/2026-05-24-phase-2-public-skill-repository-compatibility.md)
+- **结果**：完成。已新增有界 collection 布局兼容：`SkillDirectoryScanner` 现在支持公开 OpenAI 仓库常见的 `skills/.curated/<skill>/SKILL.md` 和 `skills/.system/<skill>/SKILL.md`，同时继续避免任意递归。已新增 opt-in `PublicSkillRepositorySmokeTests` 和 `scripts/phase2-public-skill-smoke.sh`，默认测试不联网，脚本固定拉取 `anthropics/skills@690f15c`、`openai/skills@b0401f0`、`jMerta/codex-skills@1be063d` 并验证 9 个公开 skill 可扫描、启用和加载 `SKILL.md`。验证通过 scanner 红绿测试、public smoke、全量 SwiftPM 798 tests（1 skipped）、SwiftLint strict 和 `git diff --check`。
+
+---
+
+## Task 60 · Phase 2 Skill E2E Validation
+
+- **时间**：2026-05-24
+- **描述**：继续 Phase 2，执行真实 Skill E2E 兼容性验证：用 3 个本地 Claude / Codex 风格 skill 验证文件系统扫描、`SKILL.md` 解析、Settings override、Agent Tool 绑定和 `sliceai_load_skill` 渐进式加载链路。
+- **详情**：[docs/Task-detail/2026-05-24-phase-2-skill-e2e-validation.md](Task-detail/2026-05-24-phase-2-skill-e2e-validation.md)
+- **结果**：完成。已新增真实文件系统 E2E 自动化测试，覆盖 3 个 Claude / Codex 风格 skill 从 `LocalSkillRegistry` 到 AgentExecutor `sliceai_load_skill` 的贯通链路；验证 `allowed-tools`、`disable-model-invocation`、`user-invocable` 兼容字段、metadata 暴露、按需加载真实 `SKILL.md`、supporting files 不进入模型 payload，以及 pseudo-tool 不触发 MCP。full gate 首次暴露既有取消测试调度竞态，已通过专用可取消 dispatcher 测试夹具收紧。验证通过 focused E2E、focused cancellation regression、全量 SwiftPM 796 tests、SwiftLint strict 和 `git diff --check`。
+
+---
+
+## Task 59 · Project State And Agent Doc Audit
+
+- **时间**：2026-05-24
+- **描述**：基于当前源码、README、master todolist、Phase 2 Skill Registry spec / plan 和模块文档，盘点 SliceAI 实际项目状态，新增项目级 `AGENTS.md`，并整理已完成功能、当前阶段、后续任务以及代码实现与 spec / 文档之间的偏差。
+- **详情**：[docs/Task-detail/2026-05-24-project-state-agent-doc-audit.md](Task-detail/2026-05-24-project-state-agent-doc-audit.md)
+- **结果**：完成。已新增项目级 `AGENTS.md`，明确当前 Swift/macOS 项目事实、必读顺序、模块边界、常用命令、配置路径、开发约束、已落地功能和未完成能力。审计确认 Phase 2 Skill Registry MVP 已在代码层落地；已在 master todolist 补齐从当前到 v1.0 的 60 项剩余主任务，并修复 Phase 0 / Phase 1 / Phase 2 状态口径。已修复主要偏差：`config.schema.json` 从旧 schemaVersion 1 更新到当前 schemaVersion 3 / v2 Tool / SkillSettings 模型；`CLAUDE.md` 更新到 Phase 2 Skill Registry MVP 状态；`README.md`、`docs/Module/SliceCore.md`、`docs/Module/Orchestration.md` 已同步 AgentExecutor、Skills 页面和未完成 DisplayMode / Pipeline 边界。验证：`jq empty config.schema.json`、`git diff --check`、`swift test --package-path SliceAIKit`（795 tests）和 `swiftlint lint --strict` 均通过。
+
+---
+
 ## Task 58 · Phase 2 Skill Registry MVP Spec Kickoff
 
 - **时间**：2026-05-20

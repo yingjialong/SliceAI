@@ -15,6 +15,13 @@ public protocol SkillRegistryProtocol: Sendable {
     /// - Parameter id: skill 稳定 id，MVP 中等于 canonicalName。
     /// - Returns: 指令 payload；不可加载时抛出配置错误。
     func loadSkillInstructions(id: String) async throws -> SkillInstructionPayload
+
+    /// 加载 skill 内已索引 supporting file 的 UTF-8 内容。
+    /// - Parameters:
+    ///   - id: skill 稳定 id，MVP 中等于 canonicalName。
+    ///   - relativePath: 相对 skill 根目录的资源路径。
+    /// - Returns: supporting file payload；不可加载时抛出配置错误。
+    func loadSkillResource(id: String, relativePath: String) async throws -> SkillResourcePayload
 }
 
 /// Registry 当前快照，供 Settings 和运行时读取。
@@ -59,6 +66,33 @@ public struct SkillInstructionPayload: Sendable, Codable, Equatable {
         self.skillFile = skillFile
         self.frontmatterSummary = frontmatterSummary
         self.instructions = instructions
+    }
+}
+
+/// 按需加载 supporting file 后返回给 AgentExecutor 的只读资源 payload。
+public struct SkillResourcePayload: Sendable, Codable, Equatable {
+    public let id: String
+    public let canonicalName: String
+    public let relativePath: String
+    public let fileURL: URL
+    public let mimeType: String
+    public let content: String
+
+    /// 构造 SkillResourcePayload。
+    public init(
+        id: String,
+        canonicalName: String,
+        relativePath: String,
+        fileURL: URL,
+        mimeType: String,
+        content: String
+    ) {
+        self.id = id
+        self.canonicalName = canonicalName
+        self.relativePath = relativePath
+        self.fileURL = fileURL
+        self.mimeType = mimeType
+        self.content = content
     }
 }
 

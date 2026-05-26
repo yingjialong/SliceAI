@@ -108,6 +108,14 @@ private func candidateParentDirectories(root: URL) -> [URL] {
     ]
 }
 
+/// 返回公开 skill 仓库常见的二级 collection 父目录。
+private func nestedCollectionParentDirectories(root: URL) -> [URL] {
+    [
+        root.appendingPathComponent("skills/.curated", isDirectory: true),
+        root.appendingPathComponent("skills/.system", isDirectory: true)
+    ]
+}
+
 /// 标准化后的 source root。
 private struct ResolvedSkillSourceRoot {
     let url: URL
@@ -191,7 +199,8 @@ private func appendRootSkillIfPresent(root: URL, builder: inout SkillDirectorySc
 
 /// 扫描各个支持的父目录，并追加一层子 skill 候选。
 private func appendChildSkillCandidates(root: URL, builder: inout SkillDirectoryScanBuilder) throws {
-    for parent in candidateParentDirectories(root: root) {
+    let parents = candidateParentDirectories(root: root) + nestedCollectionParentDirectories(root: root)
+    for parent in parents {
         let children = try directChildrenWithSkillFiles(parent: parent)
         for child in children {
             builder.appendCandidateIfAllowed(directory: child.directory, skillFile: child.skillFile)

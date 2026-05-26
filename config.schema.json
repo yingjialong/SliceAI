@@ -1,103 +1,1270 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/<owner>/SliceAI/blob/main/config.schema.json",
+  "$id": "https://github.com/yingjialong/SliceAI/blob/main/config.schema.json",
   "title": "SliceAI Configuration",
+  "description": "Schema for ~/Library/Application Support/SliceAI/config-v2.json. This file tracks SliceCore.Configuration.currentSchemaVersion = 3.",
   "type": "object",
-  "required": ["schemaVersion", "providers", "tools", "hotkeys", "triggers", "telemetry", "appBlocklist"],
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "providers",
+    "tools",
+    "hotkeys",
+    "triggers",
+    "telemetry",
+    "appBlocklist",
+    "appearance",
+    "skillSettings"
+  ],
   "properties": {
-    "schemaVersion": { "type": "integer", "const": 1 },
-    "appearance": {
-      "type": "string",
-      "enum": ["auto", "light", "dark"],
-      "default": "auto",
-      "description": "应用主题：跟随系统 / 浅色 / 深色"
+    "schemaVersion": {
+      "type": "integer",
+      "const": 3
     },
     "providers": {
       "type": "array",
       "items": {
-        "type": "object",
-        "required": ["id", "name", "baseURL", "apiKeyRef", "defaultModel"],
-        "properties": {
-          "id": { "type": "string" },
-          "name": { "type": "string" },
-          "baseURL": { "type": "string", "format": "uri" },
-          "apiKeyRef": { "type": "string", "pattern": "^keychain:" },
-          "defaultModel": { "type": "string" }
-        }
+        "$ref": "#/$defs/provider"
       }
     },
     "tools": {
       "type": "array",
       "items": {
-        "type": "object",
-        "required": ["id", "name", "icon", "userPrompt", "providerId", "displayMode", "variables"],
-        "properties": {
-          "id": { "type": "string" },
-          "name": { "type": "string" },
-          "icon": { "type": "string" },
-          "description": { "type": ["string", "null"] },
-          "systemPrompt": { "type": ["string", "null"] },
-          "userPrompt": { "type": "string" },
-          "providerId": { "type": "string" },
-          "modelId": { "type": ["string", "null"] },
-          "temperature": { "type": ["number", "null"] },
-          "displayMode": { "type": "string", "enum": ["window", "bubble", "replace"] },
-          "variables": {
-            "type": "object",
-            "additionalProperties": { "type": "string" }
+        "$ref": "#/$defs/tool"
+      }
+    },
+    "hotkeys": {
+      "$ref": "#/$defs/hotkeyBindings"
+    },
+    "triggers": {
+      "$ref": "#/$defs/triggerSettings"
+    },
+    "telemetry": {
+      "$ref": "#/$defs/telemetrySettings"
+    },
+    "appBlocklist": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "appearance": {
+      "type": "string",
+      "enum": ["auto", "light", "dark"],
+      "default": "auto"
+    },
+    "skillSettings": {
+      "$ref": "#/$defs/skillSettings"
+    }
+  },
+  "$defs": {
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "name", "apiKeyRef", "defaultModel", "capabilities"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["openAICompatible", "anthropic", "gemini", "ollama"]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "baseURL": {
+          "type": ["string", "null"],
+          "format": "uri"
+        },
+        "apiKeyRef": {
+          "type": "string",
+          "pattern": "^keychain:.+"
+        },
+        "defaultModel": {
+          "type": "string",
+          "minLength": 1
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/providerCapability"
           },
-          "labelStyle": {
-            "type": "string",
-            "enum": ["icon", "name", "iconAndName"],
-            "default": "icon",
-            "description": "浮条上的显示样式：icon 仅图标 / name 仅名称 / iconAndName 图标+名称（名称按 4 个中文字或 1 个英文单词截断）"
+          "uniqueItems": true
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": ["openAICompatible", "ollama"]
+              }
+            },
+            "required": ["kind"]
+          },
+          "then": {
+            "required": ["baseURL"],
+            "properties": {
+              "baseURL": {
+                "type": "string",
+                "format": "uri"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "providerCapability": {
+      "type": "string",
+      "enum": [
+        "promptCaching",
+        "toolCalling",
+        "vision",
+        "extendedThinking",
+        "grounding",
+        "jsonSchemaOutput",
+        "longContext"
+      ]
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "icon",
+        "kind",
+        "displayMode",
+        "permissions",
+        "provenance",
+        "labelStyle",
+        "tags"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "icon": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": ["string", "null"]
+        },
+        "kind": {
+          "$ref": "#/$defs/toolKind"
+        },
+        "visibleWhen": {
+          "$ref": "#/$defs/toolMatcher"
+        },
+        "displayMode": {
+          "$ref": "#/$defs/displayMode"
+        },
+        "outputBinding": {
+          "$ref": "#/$defs/outputBinding"
+        },
+        "permissions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/permission"
+          }
+        },
+        "provenance": {
+          "$ref": "#/$defs/provenance"
+        },
+        "budget": {
+          "$ref": "#/$defs/toolBudget"
+        },
+        "hotkey": {
+          "type": ["string", "null"]
+        },
+        "labelStyle": {
+          "type": "string",
+          "enum": ["icon", "name", "iconAndName"],
+          "default": "icon"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
           }
         }
       }
     },
-    "hotkeys": {
+    "toolKind": {
       "type": "object",
-      "required": ["toggleCommandPalette"],
-      "properties": { "toggleCommandPalette": { "type": "string" } }
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "required": ["prompt"],
+          "properties": {
+            "prompt": {
+              "$ref": "#/$defs/promptTool"
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["agent"],
+          "properties": {
+            "agent": {
+              "$ref": "#/$defs/agentTool"
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["pipeline"],
+          "properties": {
+            "pipeline": {
+              "$ref": "#/$defs/pipelineTool"
+            }
+          }
+        }
+      ]
     },
-    "triggers": {
+    "promptTool": {
       "type": "object",
-      "required": ["floatingToolbarEnabled", "commandPaletteEnabled", "minimumSelectionLength", "triggerDelayMs"],
+      "additionalProperties": false,
+      "required": ["userPrompt", "contexts", "provider", "variables"],
       "properties": {
-        "floatingToolbarEnabled": { "type": "boolean" },
-        "commandPaletteEnabled": { "type": "boolean" },
-        "minimumSelectionLength": { "type": "integer", "minimum": 1 },
-        "triggerDelayMs": { "type": "integer", "minimum": 0, "maximum": 5000 },
+        "systemPrompt": {
+          "type": ["string", "null"]
+        },
+        "userPrompt": {
+          "type": "string"
+        },
+        "contexts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/contextRequest"
+          }
+        },
+        "provider": {
+          "$ref": "#/$defs/providerSelection"
+        },
+        "temperature": {
+          "type": ["number", "null"]
+        },
+        "maxTokens": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "variables": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "agentTool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "initialUserPrompt",
+        "contexts",
+        "provider",
+        "skills",
+        "mcpAllowlist",
+        "builtinCapabilities",
+        "maxSteps",
+        "stopCondition"
+      ],
+      "properties": {
+        "systemPrompt": {
+          "type": ["string", "null"]
+        },
+        "initialUserPrompt": {
+          "type": "string"
+        },
+        "contexts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/contextRequest"
+          }
+        },
+        "provider": {
+          "$ref": "#/$defs/providerSelection"
+        },
+        "skills": {
+          "type": "array",
+          "maxItems": 5,
+          "items": {
+            "$ref": "#/$defs/skillReference"
+          }
+        },
+        "mcpAllowlist": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/mcpToolRef"
+          }
+        },
+        "builtinCapabilities": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["filesystem", "shell", "vision", "tts", "memory", "screen"]
+          }
+        },
+        "maxSteps": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "stopCondition": {
+          "type": "string",
+          "enum": ["finalAnswerProvided", "maxStepsReached", "noToolCall"]
+        },
+        "toolCallPolicy": {
+          "$ref": "#/$defs/agentToolCallPolicy"
+        }
+      }
+    },
+    "pipelineTool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["steps", "onStepFail"],
+      "properties": {
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pipelineStep"
+          }
+        },
+        "onStepFail": {
+          "type": "string",
+          "enum": ["abort", "skip"]
+        }
+      }
+    },
+    "providerSelection": {
+      "type": "object",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "required": ["fixed"],
+          "properties": {
+            "fixed": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["providerId"],
+              "properties": {
+                "providerId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "modelId": {
+                  "type": ["string", "null"]
+                }
+              }
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["capability"],
+          "properties": {
+            "capability": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["requires", "prefer"],
+              "properties": {
+                "requires": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/providerCapability"
+                  },
+                  "uniqueItems": true
+                },
+                "prefer": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["cascade"],
+          "properties": {
+            "cascade": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/cascadeRule"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "cascadeRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["when", "providerId"],
+      "properties": {
+        "when": {
+          "$ref": "#/$defs/conditionExpr"
+        },
+        "providerId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "modelId": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "conditionExpr": {
+      "type": "object",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "required": ["always"],
+          "properties": {
+            "always": {
+              "type": "object",
+              "maxProperties": 0
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["selectionLengthGreaterThan"],
+          "properties": {
+            "selectionLengthGreaterThan": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["isCode"],
+          "properties": {
+            "isCode": {
+              "type": "object",
+              "maxProperties": 0
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["languageEquals"],
+          "properties": {
+            "languageEquals": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["appBundleIdEquals"],
+          "properties": {
+            "appBundleIdEquals": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "contextRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "provider", "args", "cachePolicy", "requiredness"],
+      "properties": {
+        "key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "provider": {
+          "type": "string",
+          "minLength": 1
+        },
+        "args": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "cachePolicy": {
+          "$ref": "#/$defs/cachePolicy"
+        },
+        "requiredness": {
+          "type": "string",
+          "enum": ["required", "optional"]
+        }
+      }
+    },
+    "cachePolicy": {
+      "type": "object",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "required": ["none"],
+          "properties": {
+            "none": {
+              "type": "object",
+              "maxProperties": 0
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["session"],
+          "properties": {
+            "session": {
+              "type": "object",
+              "maxProperties": 0
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["ttl"],
+          "properties": {
+            "ttl": {
+              "type": "number",
+              "minimum": 0
+            }
+          }
+        }
+      ]
+    },
+    "skillReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pinVersion": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "agentToolCallPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxTotalCalls": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "maxCallsPerTurn": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "perToolLimits": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["ref", "maxCalls"],
+            "properties": {
+              "ref": {
+                "$ref": "#/$defs/mcpToolRef"
+              },
+              "maxCalls": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        },
+        "duplicateArgumentStrategy": {
+          "type": "string",
+          "enum": ["allow", "skipExactArguments"]
+        },
+        "stopOnRateLimit": {
+          "type": "boolean"
+        }
+      }
+    },
+    "pipelineStep": {
+      "type": "object",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "required": ["tool"],
+          "properties": {
+            "tool": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["toolRef", "input"],
+              "properties": {
+                "toolRef": {
+                  "type": "string"
+                },
+                "input": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["prompt"],
+          "properties": {
+            "prompt": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["inline", "input"],
+              "properties": {
+                "inline": {
+                  "$ref": "#/$defs/promptTool"
+                },
+                "input": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["mcp"],
+          "properties": {
+            "mcp": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["ref", "args"],
+              "properties": {
+                "ref": {
+                  "$ref": "#/$defs/mcpToolRef"
+                },
+                "args": {
+                  "$ref": "#/$defs/mcpJsonObject"
+                }
+              }
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["transform"],
+          "properties": {
+            "transform": {
+              "$ref": "#/$defs/transformOp"
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["branch"],
+          "properties": {
+            "branch": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["condition", "onTrue", "onFalse"],
+              "properties": {
+                "condition": {
+                  "$ref": "#/$defs/conditionExpr"
+                },
+                "onTrue": {
+                  "type": "string"
+                },
+                "onFalse": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "transformOp": {
+      "type": "object",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "required": ["jq"],
+          "properties": {
+            "jq": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["regex"],
+          "properties": {
+            "regex": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["pattern", "replacement"],
+              "properties": {
+                "pattern": {
+                  "type": "string"
+                },
+                "replacement": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["jsonPath"],
+          "properties": {
+            "jsonPath": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "toolMatcher": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "appAllowlist": {
+          "type": ["array", "null"],
+          "items": {
+            "type": "string"
+          }
+        },
+        "appDenylist": {
+          "type": ["array", "null"],
+          "items": {
+            "type": "string"
+          }
+        },
+        "contentTypes": {
+          "type": ["array", "null"],
+          "items": {
+            "type": "string",
+            "enum": ["prose", "code", "url", "email", "json", "commitHash", "date", "other"]
+          }
+        },
+        "languageAllowlist": {
+          "type": ["array", "null"],
+          "items": {
+            "type": "string"
+          }
+        },
+        "minLength": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "maxLength": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "regex": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "displayMode": {
+      "type": "string",
+      "enum": ["window", "bubble", "replace", "file", "silent", "structured"]
+    },
+    "outputBinding": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["primary", "sideEffects"],
+      "properties": {
+        "primary": {
+          "$ref": "#/$defs/displayMode"
+        },
+        "sideEffects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sideEffect"
+          }
+        }
+      }
+    },
+    "sideEffect": {
+      "type": "object",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "required": ["appendToFile"],
+          "properties": {
+            "appendToFile": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path"],
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "header": {
+                  "type": ["string", "null"]
+                }
+              }
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["copyToClipboard"],
+          "properties": {
+            "copyToClipboard": {
+              "type": "object",
+              "maxProperties": 0
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["notify"],
+          "properties": {
+            "notify": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["title", "body"],
+              "properties": {
+                "title": {
+                  "type": "string"
+                },
+                "body": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["runAppIntent"],
+          "properties": {
+            "runAppIntent": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["bundleId", "intent", "params"],
+              "properties": {
+                "bundleId": {
+                  "type": "string"
+                },
+                "intent": {
+                  "type": "string"
+                },
+                "params": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["callMCP"],
+          "properties": {
+            "callMCP": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["ref", "params"],
+              "properties": {
+                "ref": {
+                  "$ref": "#/$defs/mcpToolRef"
+                },
+                "params": {
+                  "$ref": "#/$defs/mcpJsonObject"
+                }
+              }
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["writeMemory"],
+          "properties": {
+            "writeMemory": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["tool", "entry"],
+              "properties": {
+                "tool": {
+                  "type": "string"
+                },
+                "entry": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["tts"],
+          "properties": {
+            "tts": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "voice": {
+                  "type": ["string", "null"]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "permission": {
+      "type": "object",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "required": ["network"],
+          "properties": {
+            "network": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["fileRead"],
+          "properties": {
+            "fileRead": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["fileWrite"],
+          "properties": {
+            "fileWrite": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["clipboard"],
+          "properties": {
+            "clipboard": {
+              "type": "object",
+              "maxProperties": 0
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["clipboardHistory"],
+          "properties": {
+            "clipboardHistory": {
+              "type": "object",
+              "maxProperties": 0
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["shellExec"],
+          "properties": {
+            "shellExec": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["mcp"],
+          "properties": {
+            "mcp": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["server"],
+              "properties": {
+                "server": {
+                  "type": "string"
+                },
+                "tools": {
+                  "type": ["array", "null"],
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["screen"],
+          "properties": {
+            "screen": {
+              "type": "object",
+              "maxProperties": 0
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["systemAudio"],
+          "properties": {
+            "systemAudio": {
+              "type": "object",
+              "maxProperties": 0
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["memoryAccess"],
+          "properties": {
+            "memoryAccess": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["appIntents"],
+          "properties": {
+            "appIntents": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "provenance": {
+      "type": "object",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "required": ["firstParty"],
+          "properties": {
+            "firstParty": {
+              "type": "object",
+              "maxProperties": 0
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["communitySigned"],
+          "properties": {
+            "communitySigned": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["publisher", "signedAt"],
+              "properties": {
+                "publisher": {
+                  "type": "string"
+                },
+                "signedAt": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["selfManaged"],
+          "properties": {
+            "selfManaged": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["userAcknowledgedAt"],
+              "properties": {
+                "userAcknowledgedAt": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["unknown"],
+          "properties": {
+            "unknown": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["importedAt"],
+              "properties": {
+                "importedFrom": {
+                  "type": ["string", "null"],
+                  "format": "uri"
+                },
+                "importedAt": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "toolBudget": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "dailyUSD": {
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "perCallUSD": {
+          "type": ["number", "null"],
+          "minimum": 0
+        }
+      }
+    },
+    "mcpToolRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["server", "tool"],
+      "properties": {
+        "server": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tool": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "mcpJsonObject": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "hotkeyBindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["toggleCommandPalette", "tools"],
+      "properties": {
+        "toggleCommandPalette": {
+          "type": "string"
+        },
+        "tools": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "triggerSettings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "floatingToolbarEnabled",
+        "commandPaletteEnabled",
+        "minimumSelectionLength",
+        "triggerDelayMs",
+        "floatingToolbarMaxTools",
+        "floatingToolbarSize",
+        "floatingToolbarAutoDismissSeconds"
+      ],
+      "properties": {
+        "floatingToolbarEnabled": {
+          "type": "boolean"
+        },
+        "commandPaletteEnabled": {
+          "type": "boolean"
+        },
+        "minimumSelectionLength": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "triggerDelayMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5000
+        },
         "floatingToolbarMaxTools": {
           "type": "integer",
           "minimum": 2,
           "maximum": 20,
-          "default": 6,
-          "description": "悬浮工具栏最多直接展示的工具按钮数（不含溢出时额外追加的「⋯ 更多」按钮）"
+          "default": 6
         },
         "floatingToolbarSize": {
           "type": "string",
           "enum": ["compact", "regular"],
-          "default": "compact",
-          "description": "悬浮工具栏尺寸档位：compact 22pt / regular 30pt"
+          "default": "compact"
         },
         "floatingToolbarAutoDismissSeconds": {
           "type": "integer",
           "minimum": 0,
           "maximum": 60,
-          "default": 5,
-          "description": "悬浮工具栏自动消失倒计时（秒）；0 表示永不自动消失，仅靠选中工具或点击外部关闭"
+          "default": 5
         }
       }
     },
-    "telemetry": {
+    "telemetrySettings": {
       "type": "object",
+      "additionalProperties": false,
       "required": ["enabled"],
-      "properties": { "enabled": { "type": "boolean" } }
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
     },
-    "appBlocklist": {
-      "type": "array",
-      "items": { "type": "string" }
+    "skillSettings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sources", "overrides"],
+      "properties": {
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/skillSource"
+          }
+        },
+        "overrides": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "enum": ["on", "off"]
+          }
+        }
+      }
+    },
+    "skillSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "displayName", "rootPath", "isEnabled", "order"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rootPath": {
+          "type": "string",
+          "minLength": 1
+        },
+        "isEnabled": {
+          "type": "boolean"
+        },
+        "order": {
+          "type": "integer"
+        }
+      }
     }
   }
 }

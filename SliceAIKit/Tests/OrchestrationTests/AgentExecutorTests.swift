@@ -267,7 +267,8 @@ final class AgentExecutorTests: XCTestCase {
     private func makeSkill(
         name: String,
         description: String = "Use when editing prose.",
-        skillFile: URL? = nil
+        skillFile: URL? = nil,
+        resources: [SkillResource] = []
     ) -> Skill {
         let actualSkillFile = skillFile ?? URL(fileURLWithPath: "/tmp/skills/\(name)/SKILL.md")
         return Skill(
@@ -280,7 +281,7 @@ final class AgentExecutorTests: XCTestCase {
                 description: description,
                 instructionsCharacterCount: 120
             ),
-            resources: [],
+            resources: resources,
             provenance: .selfManaged(userAcknowledgedAt: Date(timeIntervalSince1970: 0)),
             source: SkillSourceRef(sourceId: "source-test", rootPath: "/tmp/skills"),
             state: .enabled
@@ -307,6 +308,27 @@ final class AgentExecutorTests: XCTestCase {
                 instructionsCharacterCount: instructions.count
             ),
             instructions: instructions
+        )
+    }
+
+    /// 构造 supporting file payload fixture。
+    /// - Parameters:
+    ///   - name: skill canonical name。
+    ///   - relativePath: supporting file 相对 skill 根的路径。
+    ///   - content: 文件内容。
+    /// - Returns: 测试用 SkillResourcePayload。
+    private func makeSkillResourcePayload(
+        name: String,
+        relativePath: String,
+        content: String
+    ) -> SkillResourcePayload {
+        SkillResourcePayload(
+            id: name,
+            canonicalName: name,
+            relativePath: relativePath,
+            fileURL: URL(fileURLWithPath: "/tmp/skills/\(name)/\(relativePath)"),
+            mimeType: "text/markdown",
+            content: content
         )
     }
 
@@ -355,6 +377,98 @@ final class AgentExecutorTests: XCTestCase {
         } ?? false)
         let prompt = llm.capturedToolRequests.first?.messages.compactMap(\.content).joined(separator: "\n")
         XCTAssertTrue(prompt?.contains("Available SliceAI skills for this tool:") ?? false)
+    }
+
+    /// 已加载的 bound skill 可以通过只读 pseudo-tool 读取 metadata 中列出的 supporting file。
+    func test_loadedSkillCanReadSupportingResourceWithoutMCP() async throws {
+        let resource = SkillResource(relativePath: "references/style.md", mimeType: "text/markdown")
+        let skill = makeSkill(name: "writing", resources: [resource])
+        let registry = MockSkillRegistry(
+            skills: [skill],
+            instructions: ["writing": makeSkillPayload(name: "writing")],
+            resources: [
+                "writing:references/style.md": makeSkillResourcePayload(
+                    name: "writing",
+                    relativePath: "references/style.md",
+                    content: "Use active voice."
+                )
+            ]
+        )
+        let mcp = makeMCPClient()
+        let llm = MockToolCallingLLMProvider(turns: [
+            toolCallTurn(id: "skill-1", name: "sliceai_load_skill", arguments: "{\"name\":\"writing\"}"),
+            toolCallTurn(
+                id: "resource-1",
+                name: "sliceai_load_skill_resource",
+                arguments: "{\"name\":\"writing\",\"path\":\"references/style.md\"}"
+            ),
+            finalAnswerTurn("Done")
+        ])
+        let executor = makeExecutor(llm: llm, mcpClient: mcp, skillRegistry: registry)
+        let agent = makeAgent(allowlist: [], skills: [SkillReference(id: "writing", pinVersion: nil)])
+
+        let events = await collectEvents(from: await executor.run(
+            tool: makeTool(agent: agent),
+            agent: agent,
+            resolved: makeResolvedContext(),
+            provider: MockProvider.openAIStub()
+        ))
+
+        XCTAssertTrue(llm.capturedToolRequests.first?.tools.contains {
+            $0.name == AgentBuiltInTool.loadSkillResourceName
+        } ?? false)
+        let initialPrompt = try XCTUnwrap(llm.capturedToolRequests.first?.messages.compactMap(\.content).joined())
+        XCTAssertTrue(initialPrompt.contains("references/style.md"))
+        let toolMessages = llm.capturedToolRequests.last?.messages.filter { $0.role == .tool } ?? []
+        XCTAssertTrue(toolMessages.contains { $0.content?.contains("Use active voice.") == true })
+        XCTAssertTrue(events.contains { event in
+            if case .toolCallProposed(_, AgentBuiltInTool.loadSkillResourceRef, _) = event { return true }
+            return false
+        })
+        let mcpCallCount = await mcp.callCount
+        XCTAssertEqual(mcpCallCount, 0)
+    }
+
+    /// supporting file 读取必须在 `sliceai_load_skill` 之后发生，避免模型跳过 skill 主说明。
+    func test_loadSkillResourceRejectsBeforeSkillIsLoaded() async throws {
+        let resource = SkillResource(relativePath: "references/style.md", mimeType: "text/markdown")
+        let skill = makeSkill(name: "writing", resources: [resource])
+        let registry = MockSkillRegistry(
+            skills: [skill],
+            instructions: ["writing": makeSkillPayload(name: "writing")],
+            resources: [
+                "writing:references/style.md": makeSkillResourcePayload(
+                    name: "writing",
+                    relativePath: "references/style.md",
+                    content: "Use active voice."
+                )
+            ]
+        )
+        let mcp = makeMCPClient()
+        let llm = MockToolCallingLLMProvider(turns: [
+            toolCallTurn(
+                id: "resource-1",
+                name: "sliceai_load_skill_resource",
+                arguments: "{\"name\":\"writing\",\"path\":\"references/style.md\"}"
+            ),
+            finalAnswerTurn("Done")
+        ])
+        let executor = makeExecutor(llm: llm, mcpClient: mcp, skillRegistry: registry)
+        let agent = makeAgent(allowlist: [], skills: [SkillReference(id: "writing", pinVersion: nil)])
+
+        let events = await collectEvents(from: await executor.run(
+            tool: makeTool(agent: agent),
+            agent: agent,
+            resolved: makeResolvedContext(),
+            provider: MockProvider.openAIStub()
+        ))
+
+        XCTAssertTrue(events.contains { event in
+            if case .toolCallError(_, let summary) = event { return summary.contains("load skill first") }
+            return false
+        })
+        let mcpCallCount = await mcp.callCount
+        XCTAssertEqual(mcpCallCount, 0)
     }
 
     /// 未绑定的 skill 名称必须本地拒绝，且不能走 MCP allowlist/gate/call。
@@ -1452,5 +1566,10 @@ private actor CountingSkillRegistry: SkillRegistryProtocol {
     func loadSkillInstructions(id: String) async throws -> SkillInstructionPayload {
         loadCount += 1
         return payload
+    }
+
+    /// 本测试 registry 不覆盖 supporting file 加载。
+    func loadSkillResource(id: String, relativePath: String) async throws -> SkillResourcePayload {
+        throw SliceError.configuration(.validationFailed("not implemented in CountingSkillRegistry"))
     }
 }

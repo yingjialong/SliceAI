@@ -269,6 +269,13 @@ extension AgentExecutor {
                 toolCallState: &toolCallState
             )
         }
+        if call.name == AgentBuiltInTool.loadSkillResourceName {
+            return await handleLoadSkillResource(
+                context,
+                catalog: catalog,
+                toolCallState: toolCallState
+            )
+        }
         guard catalog.isAllowed(ref) else { return denyToolCall(context) }
         guard let args = call.arguments else {
             return failToolCall(context, summary: "invalid tool arguments", content: "invalid tool arguments")

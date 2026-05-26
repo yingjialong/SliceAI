@@ -7,22 +7,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 SliceAI 是 macOS 原生、开源的划词触发 LLM 工具栏。划词后弹出浮条工具栏（PopClip 风格），或按 `⌥Space` 调出命令面板（Raycast 风格），通过 OpenAI 兼容协议调用大模型并流式渲染结果。
 
 - 平台：macOS 14 Sonoma+，Xcode 26+，Swift 6.0
-- 状态：v0.2.0 Phase 0 底层重构完成本地验收（unsigned，不上架 App Store，需 Accessibility 权限）
+- 状态：Phase 2 Skill Registry MVP、真实本地 Skill E2E、公开 skill 仓库 smoke 与 supporting files 只读加载已完成；`v0.2.0` 已正式发布，`v0.3.0` tag 与 GitHub draft release 已生成但用户暂缓人工发布（unsigned，不上架 App Store，需 Accessibility 权限）
 
 ## 常用命令
 
-所有 Swift 包命令在 `SliceAIKit/` 子目录执行；App target 命令在仓库根目录执行。
+SwiftPM 命令可从仓库根目录用 `--package-path SliceAIKit` 执行；App target、lint 和 release 命令在仓库根目录执行。
 
 ```bash
-# 构建 SliceAIKit（领域库 + 9 个功能子模块）
-cd SliceAIKit && swift build
+# 构建 SliceAIKit（领域库 + 10 个功能子模块）
+swift build --package-path SliceAIKit
 
 # 跑全部单元测试（并行 + 覆盖率）
-cd SliceAIKit && swift test --parallel --enable-code-coverage
+swift test --package-path SliceAIKit --parallel --enable-code-coverage
 
 # 跑单个 target / 单个测试
-cd SliceAIKit && swift test --filter SliceCoreTests
-cd SliceAIKit && swift test --filter OrchestrationTests.ExecutionStreamOrderingTests
+swift test --package-path SliceAIKit --filter SliceCoreTests
+swift test --package-path SliceAIKit --filter OrchestrationTests.ExecutionStreamOrderingTests
 
 # Lint（CI 用 --strict，本地常规）
 swiftlint lint
@@ -31,9 +31,8 @@ swiftlint lint --strict
 # 构建 App（需要 Xcode）
 xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build
 
-# 打包 unsigned DMG（默认版本 0.1.0；CI 用 tag 触发）
-scripts/build-dmg.sh                # 输出 build/SliceAI-0.1.0.dmg
-scripts/build-dmg.sh 0.2.0          # 自定义版本号
+# 打包 unsigned DMG（CI 用 tag 触发）
+scripts/build-dmg.sh 0.3.0
 ```
 
 ## 架构总览
@@ -47,15 +46,15 @@ SliceAI.app  (Xcode App target, SliceAIApp/)
 
 SliceAIKit  (SliceAIKit/Package.swift, 10 个 library target)
   ├─ SliceCore         领域层，Foundation only，零 UI 依赖；含 canonical Tool/Provider/Configuration
-  ├─ Orchestration     ExecutionEngine + ContextCollector + PermissionGraph/Broker + PromptExecutor + Audit/Cost
-  ├─ Capabilities      PathSandbox + MCPClientProtocol + SkillRegistryProtocol + production-side mock
+  ├─ Orchestration     ExecutionEngine + ContextCollector + PermissionGraph/Broker + PromptExecutor + AgentExecutor + Audit/Cost
+  ├─ Capabilities      PathSandbox + ContextProviders + MCP store/import/client + LocalSkillRegistry
   ├─ LLMProviders      OpenAI 兼容协议 + SSE 流式
   ├─ SelectionCapture  AX 主路径 + Cmd+C 备份恢复路径
   ├─ HotkeyManager     Carbon RegisterEventHotKey 全局热键
   ├─ DesignSystem      颜色/字体/间距/圆角 token + ThemeManager + 共享组件（IconButton/PillButton/SectionCard…）
   ├─ Windowing         FloatingToolbar / CommandPalette / ResultPanel（依赖 DesignSystem）
   ├─ Permissions       Accessibility 权限轮询 + Onboarding 视图（依赖 DesignSystem）
-  └─ SettingsUI        SwiftUI 设置界面 + KeychainStore + ConfigurationStore（依赖 DesignSystem）
+  └─ SettingsUI        SwiftUI 设置界面 + Provider / Tool / MCP Servers / Skills 页面（依赖 DesignSystem）
 ```
 
 ### 模块依赖（关键不变量）
@@ -67,7 +66,8 @@ SliceAIKit  (SliceAIKit/Package.swift, 10 个 library target)
 - **配置与密钥严格分离**：`Configuration` 走 JSON（`~/Library/Application Support/SliceAI/config-v2.json`）；旧 `config.json` 只作为 migrator 输入保留。API Key 永远在 Keychain（`service: com.sliceai.app.providers`），通过 `Provider.apiKeyRef = "keychain:<account>"` 间接引用。
 - **Composition Root 集中在 `SliceAIApp/AppContainer.swift`**：所有跨模块依赖在 App 启动时一次性装配，业务层不再分散 init。
 - **主题切换中枢是 `DesignSystem/Theme/ThemeManager`**：读写 `Configuration.appearance`（auto / light / dark），由 `AppContainer` 在启动时注入一次；切换时通过 `onModeChange` 回调把变更持久化回 `ConfigurationStore`。UI 层只读环境里的 `ThemeManager`，不直接碰 `NSApp.appearance`。
-- **ExecutionEngine 是唯一执行入口**：v0.2.0 后生产触发链不再使用旧 `ToolExecutor`；所有工具调用都进入 `Orchestration.ExecutionEngine`，按权限、上下文、provider、prompt、输出、成本和审计顺序闭环。
+- **ExecutionEngine 是唯一执行入口**：生产触发链不再使用旧 `ToolExecutor`；所有工具调用都进入 `Orchestration.ExecutionEngine`。`.prompt` 走 `PromptExecutor`，`.agent` 走 `AgentExecutor` ReAct loop，`.pipeline` 仍是未实现的 Phase 5 占位。
+- **Skill Registry 已接入 Agent Tool**：用户可配置本地 skill roots，Settings Skills 页面展示 registry snapshot；Agent Tool 最多绑定 5 个 enabled skills，运行时通过 `sliceai.load_skill` pseudo-tool 渐进式加载完整 `SKILL.md`，并可通过 `sliceai.load_skill_resource` 只读加载已列出的 `references/` 与文本型 `assets/`。
 
 ### 触发与执行流（核心数据流）
 
@@ -79,7 +79,7 @@ mouseDown → 记录起点 → mouseUp → 算位移 ≥ 5pt → debounce(trigge
   → onPick(tool)
   → SelectionPayload.toExecutionSeed(triggerSource)
   → ExecutionEngine.execute(tool, seed)             // actor，权限闭环 + context + provider + prompt + audit/cost
-  → PromptExecutor.run(...)                         // 渲染 prompt + Keychain + LLMProviderFactory
+  → PromptExecutor.run(...) 或 AgentExecutor.run(...) // prompt 单次调用；agent 使用 ReAct + MCP + skill
   → OpenAICompatibleProvider.stream(request)        // SSE 流
   → OutputDispatcher.handle(..., mode, invocationId)
   → ResultPanelWindowSinkAdapter + InvocationGate   // single-flight chunk gating
@@ -92,7 +92,9 @@ mouseDown → 记录起点 → mouseUp → 算位移 ≥ 5pt → debounce(trigge
 
 两条触发路径（mouseUp 浮条 / ⌥Space 命令面板）都走 `SelectionService.capture()` 的"AX 优先 → Cmd+C fallback 透明降级"链路——spec §1.4 / §3.1 / §7.2 明确要求这样以覆盖 Sublime / VSCode / Figma / Slack 等不暴露 AX 的应用。被动触发（mouseUp）的"虚假浮条"由三道防线挡住：5pt 位移过滤（installMouseMonitor）+ `ClipboardSelectionSource` 的 `changeCount` 校验（无真正选中时 ⌘C 是 no-op、changeCount 不变就返回 nil）+ `minimumSelectionLength` 长度过滤。`SelectionService.captureFromPrimaryOnly()` API 仍保留，作为未来"strict AX-only"策略的入口，当前生产路径不使用。
 
-`ExecutionEngine` 主流程固定为：`.started` → `PermissionGraph.compute` 静态闭环 → `PermissionBroker.gate` → `ContextCollector.resolve` → `ProviderResolver.resolve` → `PromptExecutor` stream → `OutputDispatcher` → side effects gate → `CostAccounting` → `JSONLAuditLog` → `.finished` / `.failed`。App 层只消费事件，不直接拼 prompt、读 Keychain 或写审计日志。
+`ExecutionEngine` 主流程固定为：`.started` → `PermissionGraph.compute` 静态闭环 → `PermissionBroker.gate` → `ContextCollector.resolve` → `ProviderResolver.resolve` → 根据 `ToolKind` 分派到 `PromptExecutor` 或 `AgentExecutor` → `OutputDispatcher` → side effects gate → `CostAccounting` → `JSONLAuditLog` → `.finished` / `.failed`。App 层只消费事件，不直接拼 prompt、读 Keychain、调 MCP 或写审计日志。
+
+当前明确未完成的执行面：`.pipeline` ToolKind 仍返回 not implemented；`DisplayMode` 只有 `.window` 真实 sink，`.bubble`、`.replace`、`.file`、`.silent`、`.structured` 仍 fallback 到 window；Skill `scripts/` 不读取、不执行，二进制 assets、`agents/openai.yaml` 解析、script 授权策略仍未实现。
 
 ### Swift 6 严格并发约定
 
@@ -130,9 +132,12 @@ mouseDown → 记录起点 → mouseUp → 算位移 ≥ 5pt → debounce(trigge
 
 ## 文档与流程
 
+- `AGENTS.md`：当前 Codex / agent 工作指引，状态口径优先于本文件。
+- `README.md`：项目生命周期总览，需反映当前阶段和模块事实。
 - `docs/superpowers/specs/`：设计冻结文档（spec），跨 session 共享设计意图。
 - `docs/superpowers/plans/`：实施计划（按 task 分解），跟踪 MVP 进度。
-- 新增大功能前先查 spec / plan，避免与既有方向冲突。
+- `docs/v2-refactor-master-todolist.md`：从当前到 v1.0 的主任务总表和跨 Phase Dashboard。
+- 新增大功能前先查 AGENTS、README、master todolist、spec / plan，避免与既有方向冲突。
 
 ## CI
 

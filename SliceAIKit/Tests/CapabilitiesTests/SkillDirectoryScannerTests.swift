@@ -26,6 +26,21 @@ final class SkillDirectoryScannerTests: XCTestCase {
         ])
     }
 
+    /// 验证 scanner 兼容 OpenAI 官方公开仓库的 `skills/.curated/<skill>` collection 布局。
+    func test_scannerFindsKnownCollectionLayoutsUnderSkillsDirectory() throws {
+        let root = try makeTempRoot()
+        try writeSkill(root.appendingPathComponent("skills/.curated/openai-docs/SKILL.md"), name: "openai-docs")
+        try writeSkill(root.appendingPathComponent("skills/.system/skill-creator/SKILL.md"), name: "skill-creator")
+
+        let source = SkillSource(id: "root", displayName: "Root", rootPath: root.path, isEnabled: true, order: 0)
+        let candidates = try SkillDirectoryScanner().candidates(in: source)
+
+        XCTAssertEqual(Set(candidates.map(\.directory.lastPathComponent)), [
+            "openai-docs",
+            "skill-creator",
+        ])
+    }
+
     /// 验证 scanner 只扫描一层，避免 root 下深层目录产生不可控 IO。
     func test_scannerDoesNotRecurseDeeply() throws {
         let root = try makeTempRoot()

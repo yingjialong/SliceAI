@@ -87,9 +87,16 @@ enum AgentPromptBuilder {
 
 Use sliceai_load_skill with the exact skill name when a skill is relevant.
 Do not assume instructions from a skill until you load it.
+After loading a skill, use sliceai_load_skill_resource with listed references/ or assets/ paths when needed.
+Do not request scripts or paths that are not listed.
 """
         let fixedEntries = boundSkills.map { skill in
-            "- name: \(skill.canonicalName)\n  description: \n  path: \(skill.skillFile.path)"
+            """
+            - name: \(skill.canonicalName)
+              description:
+              path: \(skill.skillFile.path)
+              resources:
+            """
         }
         let fixedBody = "\n" + fixedEntries.joined(separator: "\n") + footer
         var remaining = maxSkillMetadataCharacters - fixedBody.count
@@ -101,29 +108,61 @@ Do not assume instructions from a skill until you load it.
 
         let entries = boundSkills.map { skill in
             let description = budgetedDescription(skill.manifest.description, remaining: &remaining)
-            return "- name: \(skill.canonicalName)\n  description: \(description)\n  path: \(skill.skillFile.path)"
+            let resources = budgetedResources(skill.resources, remaining: &remaining)
+            let descriptionLine = description.isEmpty ? "  description:" : "  description: \(description)"
+            return [
+                "- name: \(skill.canonicalName)",
+                descriptionLine,
+                "  path: \(skill.skillFile.path)",
+                "  resources:\(resources)"
+            ].joined(separator: "\n")
         }
         return "\n" + entries.joined(separator: "\n") + footer
     }
 
-    /// 从剩余预算中切出 description 文本。
+    /// 从剩余预算中切出 description 文本，并计入 `description: ` 的动态分隔空格。
     /// - Parameters:
     ///   - description: 原始描述。
     ///   - remaining: 可消耗预算；本函数会原地扣减。
     /// - Returns: 原文或带 ASCII `...` 后缀的截断文本。
     private static func budgetedDescription(_ description: String, remaining: inout Int) -> String {
-        guard remaining > 0 else { return "" }
-        guard description.count <= remaining else {
-            if remaining <= 3 {
+        guard remaining > 1 else { return "" }
+        let contentBudget = remaining - 1
+        guard description.count <= contentBudget else {
+            if contentBudget <= 3 {
                 remaining = 0
                 return ""
             }
-            let prefixCount = remaining - 3
+            let prefixCount = contentBudget - 3
             remaining = 0
             return String(description.prefix(prefixCount)) + "..."
         }
-        remaining -= description.count
+        remaining -= description.count + 1
         return description
+    }
+
+    /// 从剩余预算中渲染 supporting file 路径列表。
+    /// - Parameters:
+    ///   - resources: skill 已索引的只读资源。
+    ///   - remaining: 可消耗预算；本函数会原地扣减。
+    /// - Returns: `resources:` 后的路径行；无资源时返回短空列表标记。
+    private static func budgetedResources(_ resources: [SkillResource], remaining: inout Int) -> String {
+        guard !resources.isEmpty else { return "" }
+        var lines = ""
+        for resource in resources.sorted(by: { $0.relativePath < $1.relativePath }) {
+            let line = "\n    - \(resource.relativePath)"
+            guard line.count <= remaining else {
+                let omission = "\n    - ..."
+                if omission.count <= remaining {
+                    lines += omission
+                    remaining -= omission.count
+                }
+                break
+            }
+            lines += line
+            remaining -= line.count
+        }
+        return lines
     }
 
     /// 生成稳定顺序的上下文摘要。

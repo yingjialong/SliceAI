@@ -148,4 +148,13 @@ private actor StaticSkillRegistry: SkillRegistryProtocol {
     func loadSkillInstructions(id: String) async throws -> SkillInstructionPayload {
         throw SliceError.configuration(.validationFailed("not implemented in SettingsUITests"))
     }
+
+    /// 测试不覆盖 supporting file 加载。
+    /// - Parameters:
+    ///   - id: skill id。
+    ///   - relativePath: supporting file 相对路径。
+    /// - Returns: 不会返回。
+    func loadSkillResource(id: String, relativePath: String) async throws -> SkillResourcePayload {
+        throw SliceError.configuration(.validationFailed("not implemented in SettingsUITests"))
+    }
 }
