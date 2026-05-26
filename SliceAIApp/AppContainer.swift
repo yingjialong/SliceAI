@@ -65,6 +65,7 @@ private struct ExecutionEngineDependencies {
     let costAccounting: CostAccounting
     let auditLog: any AuditLogProtocol
     let outputDispatcher: any OutputDispatcherProtocol
+    let sideEffectExecutor: any SideEffectExecutorProtocol
 }
 
 /// 应用的依赖注入组合根（Composition Root）。
@@ -73,11 +74,6 @@ private struct ExecutionEngineDependencies {
 ///   - 在应用启动的单点集中创建所有跨模块依赖，避免在业务层四处分散 `init`；
 ///   - 对外暴露只读属性，让 `AppDelegate` 在整个生命周期内持有并读取；
 ///   - 通过显式依赖注入，使 Swift 6 严格并发下的 `Sendable` 边界清晰可控。
-///
-/// M3.0 Step 1 状态：
-///   - `configStore` 已切到 `ConfigurationStore`；
-///   - 触发链通过 `ExecutionEngine` 执行 Tool；
-///   - 旧配置存储与旧执行器装配已从 App 组合根移除。
 ///
 /// 线程模型：`@MainActor` 限定，保证所有 UI 面板 / 监视器的创建都发生在主线程。
 /// 生命周期：由 `AppDelegate.applicationDidFinishLaunching` 异步调用 `bootstrap()` 创建一次。
@@ -278,6 +274,7 @@ final class AppContainer {
             fileURL: inputs.appSupport.appendingPathComponent("audit.jsonl")
         )
         let outputs = makeOutputDependencies(resultPanel: inputs.resultPanel, bubblePanel: inputs.bubblePanel)
+        let sideEffectExecutor = makeSideEffectExecutor(mcpClient: mcpRuntime.client)
         let engineDependencies = ExecutionEngineDependencies(
             providerRegistry: providerRegistry,
             permissionBroker: permissionBroker,
@@ -288,7 +285,8 @@ final class AppContainer {
             skillRegistry: inputs.skillRegistry,
             costAccounting: costAccounting,
             auditLog: auditLog,
-            outputDispatcher: outputs.outputDispatcher
+            outputDispatcher: outputs.outputDispatcher,
+            sideEffectExecutor: sideEffectExecutor
         )
         let executionEngine = makeExecutionEngine(dependencies: engineDependencies)
 
@@ -321,6 +319,17 @@ final class AppContainer {
             outputDispatcher: outputDispatcher,
             invocationGate: invocationGate,
             resultPanelAdapter: resultPanelAdapter
+        )
+    }
+
+    /// 创建生产 SideEffectExecutor。
+    private static func makeSideEffectExecutor(mcpClient: any MCPClientProtocol) -> any SideEffectExecutorProtocol {
+        SideEffectExecutor(
+            clipboard: AppClipboardWriter(),
+            notifier: AppUserNotifier(),
+            speaker: AVSpeechTTSCapability(),
+            mcpClient: mcpClient,
+            pathSandbox: PathSandbox()
         )
     }
 
@@ -358,7 +367,8 @@ final class AppContainer {
             costAccounting: dependencies.costAccounting,
             auditLog: dependencies.auditLog,
             output: dependencies.outputDispatcher,
-            agentExecutor: dependencies.agentExecutor
+            agentExecutor: dependencies.agentExecutor,
+            sideEffectExecutor: dependencies.sideEffectExecutor
         )
     }
 }

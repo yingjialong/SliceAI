@@ -151,6 +151,28 @@ final class SideEffectExecutorTests: XCTestCase {
         ])
     }
 
+    /// dry-run 下即使 TTS gate 通过，也不能调用真实 side effect executor。
+    func test_ttsSideEffect_dryRunDoesNotSpeak() async throws {
+        let recorder = RecordingSideEffectExecutor()
+        let engine = try makeEngine(sideEffectExecutor: recorder, chunks: [
+            ChatChunk(delta: "Read ", finishReason: nil),
+            ChatChunk(delta: "this", finishReason: nil)
+        ])
+        let tool = makePromptToolWithTTSSideEffect()
+
+        let events = await collectEvents(from: engine.execute(tool: tool, seed: makeSeed(isDryRun: true)))
+
+        let calls = await recorder.calls
+        XCTAssertTrue(calls.isEmpty)
+        let skippedTTS = events.contains { event in
+            if case .sideEffectSkippedDryRun(.tts(let voice)) = event {
+                return voice == "Alex"
+            }
+            return false
+        }
+        XCTAssertTrue(skippedTTS)
+    }
+
     /// 构造 executor。
     private func makeExecutor(
         clipboard: SpyClipboardWriter = SpyClipboardWriter(),
@@ -239,8 +261,36 @@ final class SideEffectExecutorTests: XCTestCase {
         )
     }
 
+    /// 构造带 TTS side effect 的测试 Tool。
+    private func makePromptToolWithTTSSideEffect() -> Tool {
+        Tool(
+            id: "tts-side-effect.tool",
+            name: "TTS Side Effect Tool",
+            icon: "A",
+            description: nil,
+            kind: .prompt(PromptTool(
+                systemPrompt: "system",
+                userPrompt: "user {{selection}}",
+                contexts: [],
+                provider: .fixed(providerId: "test-provider", modelId: nil),
+                temperature: nil,
+                maxTokens: nil,
+                variables: [:]
+            )),
+            visibleWhen: nil,
+            displayMode: .window,
+            outputBinding: OutputBinding(primary: .window, sideEffects: [.tts(voice: "Alex")]),
+            permissions: [.systemAudio],
+            provenance: .firstParty,
+            budget: nil,
+            hotkey: nil,
+            labelStyle: .iconAndName,
+            tags: []
+        )
+    }
+
     /// 构造最小 ExecutionSeed。
-    private func makeSeed() -> ExecutionSeed {
+    private func makeSeed(isDryRun: Bool = false) -> ExecutionSeed {
         ExecutionSeed(
             invocationId: UUID(),
             selection: SelectionSnapshot(
@@ -259,7 +309,7 @@ final class SideEffectExecutorTests: XCTestCase {
             screenAnchor: .zero,
             timestamp: Date(),
             triggerSource: .floatingToolbar,
-            isDryRun: false
+            isDryRun: isDryRun
         )
     }
 
@@ -332,7 +382,7 @@ private actor SpyNotifier: UserNotifying {
 }
 
 /// 测试用 speech adapter。
-private actor SpySpeechSynthesizer: TextSpeaking {
+private actor SpySpeechSynthesizer: TTSCapability {
     struct Call: Sendable, Equatable {
         let text: String
         let voice: String?

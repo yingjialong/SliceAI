@@ -80,6 +80,8 @@ Agent 执行链会把 allowlist 中的 MCP tool 暴露给支持 tool calling 的
 
 `OutputDispatcher` 当前已具备 `.window`、`.silent`、`.file`、`.replace`、`.bubble` 和 `.structured` 的真实行为。`.silent` 消费输出但不写 window；`.file` 在 finish 阶段从 `outputBinding.sideEffects` 读取首个 `appendToFile` 目标并写入 final text，缺少目标时返回配置错误；`.replace` 在 finish 阶段通过 `TextReplacementClient` 替换前台 App 选区，AX 失败时由 App 层复制到剪贴板并通知用户；`.bubble` 与 `.structured` 在 chunk 阶段均不写 window，finish 阶段分别调用 `BubbleOutputSink` 和 `StructuredOutputSink`。缺少对应 sink 时会返回配置错误，避免静默丢输出或退回旧 window fallback。
 
+`SideEffectExecutor` 当前已接入生产 `ExecutionEngine`。App 层注入剪贴板写入、用户通知、routing MCP client、`PathSandbox` 和 `AVSpeechTTSCapability`；`.tts` 在 permission gate 通过后朗读 final text，dry-run 只发 `.sideEffectSkippedDryRun`，不会调用真实 TTS。
+
 ## 代码实现说明
 
 核心源码位于 `SliceAIKit/Sources/Orchestration/`。测试位于 `SliceAIKit/Tests/OrchestrationTests/`，重点覆盖 `InvocationGate`、事件顺序、single-writer 输出契约、OutputDispatcher lifecycle / final-only sink、SideEffectExecutor、PromptExecutor 错误分类、AgentExecutor MCP / skill tool-call 行为、InvocationReport 和权限闭环。

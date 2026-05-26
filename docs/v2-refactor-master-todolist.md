@@ -17,8 +17,8 @@
 |---|---|
 | 最后更新 | 2026-05-26 |
 | 当前 Phase | **Phase 2 Skill + 多 DisplayMode** |
-| 当前 Milestone | **Task 63 Phase 2 completion 进行中；Output lifecycle / SideEffect executor / `.silent` / `.file` / `.replace` / `.bubble` / `.structured` 已完成** |
-| 下一个动作 | 按 TDD 实施 TTS capability，然后加入 English Tutor |
+| 当前 Milestone | **Task 63 Phase 2 completion 进行中；Output lifecycle / SideEffect executor / `.silent` / `.file` / `.replace` / `.bubble` / `.structured` / 本地 TTS 已完成** |
+| 下一个动作 | 按 TDD 实施 English Tutor，然后跑最终 smoke / gate |
 | 阻塞 | 无已知产品代码阻塞；`v0.3.0` draft release 已生成并校验通过，但用户已决定暂缓人工发布 |
 
 **Milestone 状态**
@@ -38,7 +38,7 @@
 | 2 | Skill E2E Validation | ✅ 已完成：3 个本地 Claude / Codex 风格 skill E2E 与 full gate 均通过 |
 | 2 | Public Skill Repository Smoke | ✅ 已完成：3 个公开仓库 / 9 个真实 skill 的扫描、解析、启用和 `SKILL.md` 加载 smoke 通过 |
 | 2 | Supporting Files Read-Only Loading | ✅ 已完成：`references/` 与文本型 `assets/` 可按需只读加载；`scripts/` 仍不读取、不执行 |
-| 2 | Phase 2 Completion | 🟨 Task 63 进行中：Output lifecycle、SideEffect executor、`.silent`、`.file`、`.replace`、`.bubble`、`.structured` 已完成；TTS、English Tutor 和最终 smoke 待做 |
+| 2 | Phase 2 Completion | 🟨 Task 63 进行中：Output lifecycle、SideEffect executor、`.silent`、`.file`、`.replace`、`.bubble`、`.structured` 和本地 TTS 已完成；English Tutor 和最终 smoke 待做 |
 | 3–5 | — | 🟦 Directional，进入前需重新 spec |
 
 ---
@@ -75,7 +75,7 @@
 |---|---|---|---|---|---|
 | **0** | 底层重构 | ✅ 已完成并正式发布 `v0.2.0` | 15–21 (M1+M2+M3) | **无**（只重构） | Orchestration + Capabilities 骨架、Tool 三态、ExecutionSeed/ResolvedContext、Permission + Provenance + PermissionGraph + PathSandbox hook、v2 schema + 独立 config 路径 |
 | **1** | MCP + Context 主干 | ✅ 已完成；`v0.3.0` tag + GitHub draft release 已生成，人工发布暂缓 | 20–30 | MCP 支持 / 5 个核心 ContextProvider / Per-Tool Hotkey / 基础自定义 Agent Tool | MCPClient（stdio + Streamable HTTP）+ MCPServersPage + AgentExecutor + Agent Tool 编辑器 + `web-search-summarize` 首个真 Agent Tool |
-| **2** | Skill + 多 DisplayMode | 🟨 已完成 Skill Registry MVP、本地 Skill E2E、公开仓库 smoke、supporting files 只读加载、Output lifecycle、SideEffect executor、`.silent`、`.file`、`.replace`、`.bubble`、`.structured` | — | Skill 接入 / replace / bubble / structured / TTS | Skill registry 和多 DisplayMode 已在本分支推进；TTS、English Tutor 和最终 smoke 仍待做 |
+| **2** | Skill + 多 DisplayMode | 🟨 已完成 Skill Registry MVP、本地 Skill E2E、公开仓库 smoke、supporting files 只读加载、Output lifecycle、SideEffect executor、`.silent`、`.file`、`.replace`、`.bubble`、`.structured`、本地 TTS | — | Skill 接入 / replace / bubble / structured / TTS | Skill registry、多 DisplayMode 和本地 TTS 已在本分支推进；English Tutor 和最终 smoke 仍待做 |
 | **3** | Prompt IDE + 本地模型 | Directional | — | Playground / A-B / Ollama & Anthropic 原生 / Memory | 进入前重新 spec |
 | **4** | 生态与分享 | Directional | — | Tool Pack / Marketplace / SliceAI as MCP server / Shortcuts / Services | 进入前重新 spec；Pack 签名体系在 §3.9.4 已埋 hook |
 | **5** | 高级编排 | Directional | — | Pipeline / 智能路由 / Smart Actions | 进入前重新 spec |
@@ -514,8 +514,8 @@ fi
 | 7 | 2 | `Windowing/BubblePanel` | 小气泡展示、自动消失、定位、降级行为和测试 | 待做 |
 | 8 | 2 | `Windowing/InlineReplaceOverlay` | AX `setSelectedText`、paste fallback、确认 / 撤销浮条 | 部分完成：AX 替换与复制通知 fallback 已完成；确认 / 撤销浮条待做 |
 | 9 | 2 | `Windowing/StructuredResultView` | 顶层 JSON object 的结构化字段渲染；后续 English Tutor 会验证真实输出契约 | 完成 |
-| 10 | 2 | `OutputDispatcher` 多 sink 落地 | `.silent`、`.file`、`.replace`、`.bubble`、`.structured` 已不再 fallback；TTS 仍待接入真实 capability | 进行中 |
-| 11 | 2 | `Capabilities/TTSCapability` | AVSpeech 与远端 TTS provider 切换、权限和错误处理 | 待做 |
+| 10 | 2 | `OutputDispatcher` 多 sink 落地 | `.silent`、`.file`、`.replace`、`.bubble`、`.structured` 已不再 fallback；TTS side effect 已通过 SideEffectExecutor 执行 | 完成 |
+| 11 | 2 | `Capabilities/TTSCapability` | 本地 AVSpeech、权限和 dry-run 防误发声已完成；远端 TTS provider 切换留到后续重新 spec | 完成 |
 | 12 | 2 | `english-tutor` 官方 Tool Pack | 语法分析、改写、朗读、结构化结果和 skill 绑定 | 待做 |
 | 13 | 2 | Phase 2 E2E / 文档 / 回归 | Skill、DisplayMode、TTS、English Tutor 的自动化与实机回归 | 待做 |
 | 14 | 2 | Phase 2 release | 建议 `v0.4.0` tag / DMG / release notes，版本号需发布前确认 | 待做 |
@@ -570,7 +570,7 @@ fi
 
 **目标**：把 Anthropic Skills 规范的 skill 包引入；`replace / bubble / structured / silent` 四种 DisplayMode 真正可用。
 
-**当前进度**：Skill Registry MVP、真实本地 Skill E2E、公开 skill 仓库 smoke、supporting files 只读加载、Output lifecycle、SideEffect executor、`.silent`、`.file`、`.replace`、`.bubble` 与 `.structured` DisplayMode 已完成。Task 63 已冻结 Phase 2 completion spec / plan；当前目标是按 TDD 完成 TTS 和 English Tutor。Skill scripts 执行明确不进入 Phase 2 completion。
+**当前进度**：Skill Registry MVP、真实本地 Skill E2E、公开 skill 仓库 smoke、supporting files 只读加载、Output lifecycle、SideEffect executor、`.silent`、`.file`、`.replace`、`.bubble`、`.structured` DisplayMode 与本地 TTS capability 已完成。Task 63 已冻结 Phase 2 completion spec / plan；当前目标是按 TDD 完成 English Tutor 和最终 smoke。Skill scripts 执行明确不进入 Phase 2 completion。
 
 **已实现的 MVP 边界**：
 
@@ -592,10 +592,10 @@ fi
 - [x] 公开 Skill 仓库兼容性 smoke（`anthropics/skills`、`openai/skills`、`jMerta/codex-skills` 3 个仓库 / 9 个真实 skill）
 - [x] Skill supporting files 只读加载（`references/` 与文本型 `assets/`，通过 `sliceai_load_skill_resource` 渐进式读取）
 - [x] Phase 2 completion spec / implementation plan（严格 Roadmap 范围，不包含 scripts 执行和 marketplace）
-- [ ] `Windowing/BubblePanel`（小气泡、2.5s 自动消失）
+- [x] `Windowing/BubblePanel`（小气泡、2.5s 自动消失）
 - [ ] `Windowing/InlineReplaceOverlay`（AX `setSelectedText` + 确认撤销浮条）
-- [ ] `Windowing/StructuredResultView`（JSONSchema → SwiftUI 表单）
-- [ ] `Capabilities/TTSCapability`（AVSpeech + OpenAI TTS 切换）
+- [x] `Windowing/StructuredResultView`（顶层 JSON object → SwiftUI 字段视图）
+- [x] `Capabilities/TTSCapability`（本地 AVSpeech；OpenAI TTS 切换留到后续重新 spec）
 - [x] `Orchestration/OutputDispatcher` 填充所有 Phase 2 DisplayMode（`.silent`、`.file`、`.replace`、`.bubble`、`.structured` 已完成）
 - [x] Anthropic / OpenAI / Codex Skills 仓库 smoke（扫描、解析、启用和 `SKILL.md` 加载）
 - [ ] 新内置 Tool Pack：`english-tutor`
@@ -1160,3 +1160,11 @@ fi
 - ResultPanel 可显示 structured 字段视图；`.bubble` 不再提前打开空 ResultPanel，finish 后展示自动消失气泡。
 - Settings Tool Editor 已开放 `.structured` 展示模式；`.file` / `.silent` 因依赖高级 outputBinding，暂不在基础编辑器暴露。
 - 验证通过 Windowing / OutputDispatcher / OutputLifecycle focused tests 和 App Debug build。
+
+### 2026-05-26 — Phase 2 本地 TTS side effect 完成
+
+- 新增 `TTSCapability`、`TTSRequest` 和 `AVSpeechTTSCapability`，生产实现使用 macOS AVFoundation `AVSpeechSynthesizer` 朗读 final text。
+- `SideEffectExecutor` 已依赖 `Capabilities.TTSCapability`；`.tts` 继续由 `SideEffect.inferredPermissions` 推导 `.systemAudio`，空 final text 返回失败。
+- AppContainer 已把真实 `SideEffectExecutor` 注入生产 `ExecutionEngine`，并提供 App 层剪贴板写入、用户通知、MCP client、文件沙箱和本地 TTS。
+- 新增 dry-run 回归：TTS side effect 在 dry-run 下只发 `.sideEffectSkippedDryRun`，不会调用真实 executor。
+- 验证通过 `swift test --package-path SliceAIKit --filter 'CapabilitiesTests.TTSCapabilityTests|OrchestrationTests.SideEffectExecutorTests'` 和 `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`。

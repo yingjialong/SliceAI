@@ -44,21 +44,12 @@ public protocol UserNotifying: Sendable {
     func notify(title: String, body: String) async throws
 }
 
-/// 文本朗读边界。
-public protocol TextSpeaking: Sendable {
-    /// 朗读文本。
-    /// - Parameters:
-    ///   - text: 要朗读的文本。
-    ///   - voice: 可选 voice 名称。
-    func speak(_ text: String, voice: String?) async throws
-}
-
 /// 默认 SideEffect 执行器。
 public struct SideEffectExecutor: SideEffectExecutorProtocol {
 
     private let clipboard: any ClipboardWriting
     private let notifier: any UserNotifying
-    private let speaker: any TextSpeaking
+    private let speaker: any TTSCapability
     private let mcpClient: any MCPClientProtocol
     private let fileAppender: any FinalTextFileAppending
     private let logger = Logger(subsystem: "com.sliceai.app", category: "side-effects")
@@ -73,7 +64,7 @@ public struct SideEffectExecutor: SideEffectExecutorProtocol {
     public init(
         clipboard: any ClipboardWriting,
         notifier: any UserNotifying,
-        speaker: any TextSpeaking,
+        speaker: any TTSCapability,
         mcpClient: any MCPClientProtocol,
         pathSandbox: PathSandbox
     ) {

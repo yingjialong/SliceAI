@@ -35,7 +35,7 @@ Task 58-62 已完成 Phase 2 前半段：Skill Registry MVP、真实本地 skill
 - [x] 按 TDD 实施 `.silent` 与 `.file`。
 - [x] 按 TDD 实施 `.replace`。
 - [x] 按 TDD 实施 `.bubble` 与 `.structured`。
-- [ ] 按 TDD 实施 TTS capability。
+- [x] 按 TDD 实施 TTS capability。
 - [ ] 按 TDD 实施 `english-tutor` 默认工具。
 - [ ] 完成 App wiring 和真实手工 smoke。
 - [ ] 跑最终 automated gate 并更新文档结果。
@@ -99,6 +99,13 @@ Task 58-62 已完成 Phase 2 前半段：Skill Registry MVP、真实本地 skill
   - 绿灯：`swiftlint lint --strict`，190 files，0 violations。
   - 绿灯：`git diff --check`，passed。
   - 绿灯：`xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`，BUILD SUCCEEDED。
+- TTS capability：
+  - 红灯：`swift test --package-path SliceAIKit --filter 'CapabilitiesTests.TTSCapabilityTests|OrchestrationTests.SideEffectExecutorTests'` 首次因 `SpeechSynthesizing`、`TTSRequest`、`AVSpeechTTSCapability` 缺失编译失败。
+  - 绿灯：`swift test --package-path SliceAIKit --filter 'CapabilitiesTests.TTSCapabilityTests|OrchestrationTests.SideEffectExecutorTests'`，12 tests，0 failures。
+  - 红灯：`xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build` 首次因 App target 默认 `MainActor` 隔离导致文件级 logger 被非隔离 side-effect adapter 访问而失败。
+  - 绿灯：局部 logger 修复后，`xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`，BUILD SUCCEEDED。
+  - 绿灯：`swiftlint lint --strict`，192 files，0 violations。
+  - 绿灯：`git diff --check`，passed。
 
 ## 已完成实现细节
 
@@ -137,6 +144,16 @@ Task 58-62 已完成 Phase 2 前半段：Skill Registry MVP、真实本地 skill
 - `AppBubbleOutputSink` / `AppStructuredOutputSink` 已在 AppContainer 注入；`.bubble` 不再提前打开空 ResultPanel，finish 后展示自动消失气泡。
 - Settings Tool Editor 已开放 `.structured` 展示模式；`.file` / `.silent` 仍不在基础编辑器暴露，因为它们依赖高级 outputBinding / side effect 配置。
 
+### TTS capability
+
+- 新增 `TTSCapability`、`TTSRequest`、`TTSCapabilityError` 和 `AVSpeechTTSCapability`。
+- `AVSpeechTTSCapability` 通过注入的 `SpeechSynthesizing` 便于单测，生产默认使用 `AVFoundationSpeechSynthesizer`。
+- `AVFoundationSpeechSynthesizer` 在主线程提交 `AVSpeechUtterance`，支持按 voice identifier 或 voice name 解析系统 voice；找不到 voice 时降级到系统默认 voice。
+- `SideEffectExecutor` 已从临时 `TextSpeaking` 协议收敛到 `Capabilities.TTSCapability`，避免 Orchestration 重复定义 TTS 抽象。
+- 新增 `MockTTSCapability`，用于测试和预览记录请求，不触发真实发声。
+- App 层新增 `AppClipboardWriter` 与 `AppUserNotifier`，并在 `AppContainer` 中把真实 `SideEffectExecutor` 注入 `ExecutionEngine`。
+- dry-run 下 TTS side effect 会 yield `.sideEffectSkippedDryRun`，不会调用真实 executor 或发声。
+
 ## 变动文件清单
 
 - `SliceAIKit/Sources/Orchestration/Output/OutputDispatcherProtocol.swift`
@@ -145,6 +162,8 @@ Task 58-62 已完成 Phase 2 前半段：Skill Registry MVP、真实本地 skill
 - `SliceAIKit/Sources/Orchestration/Output/SideEffectExecutor.swift`
 - `SliceAIKit/Sources/Orchestration/Output/TextReplacementClient.swift`
 - `SliceAIKit/Sources/Orchestration/Output/FinalDisplaySinks.swift`
+- `SliceAIKit/Sources/Capabilities/TTS/TTSCapability.swift`
+- `SliceAIKit/Sources/Capabilities/TTS/MockTTSCapability.swift`
 - `SliceAIKit/Sources/Orchestration/Engine/ExecutionEngine.swift`
 - `SliceAIKit/Sources/Orchestration/Engine/ExecutionEngine+OutputLifecycle.swift`
 - `SliceAIKit/Sources/Orchestration/Engine/ExecutionEngine+Steps.swift`
@@ -160,6 +179,7 @@ Task 58-62 已完成 Phase 2 前半段：Skill Registry MVP、真实本地 skill
 - `SliceAIKit/Tests/OrchestrationTests/Output/OutputDispatcherFallbackTests.swift`
 - `SliceAIKit/Tests/OrchestrationTests/Output/ReplaceDisplayModeTests.swift`
 - `SliceAIKit/Tests/OrchestrationTests/Output/BubbleStructuredDisplayModeTests.swift`
+- `SliceAIKit/Tests/CapabilitiesTests/TTSCapabilityTests.swift`
 - `SliceAIKit/Tests/OrchestrationTests/OutputDispatcherTests.swift`
 - `SliceAIKit/Tests/WindowingTests/StructuredResultViewStateTests.swift`
 - `SliceAIApp/AppContextAdapters.swift`
@@ -171,4 +191,4 @@ Task 58-62 已完成 Phase 2 前半段：Skill Registry MVP、真实本地 skill
 
 ## 下一步
 
-提交 `.bubble/.structured` 后进入 plan Task 6：TTS capability。
+提交 TTS capability 后进入 plan Task 7：English Tutor 默认工具。

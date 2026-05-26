@@ -335,7 +335,7 @@ git commit -m "feat: add bubble and structured display modes"
 
 ## Task 6: TTS Capability
 
-- [ ] **Step 1: Write failing TTS tests**
+- [x] **Step 1: Write failing TTS tests**
 
 Add tests:
 
@@ -345,13 +345,13 @@ func test_localTTS_speaksProvidedFinalText() async throws
 func test_ttsSideEffect_dryRunDoesNotSpeak() async throws
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `swift test --package-path SliceAIKit --filter 'CapabilitiesTests.TTSCapabilityTests|OrchestrationTests.SideEffectExecutorTests'`
 
 Expected: compile failure because TTS capability does not exist.
 
-- [ ] **Step 3: Add TTS protocol and AVSpeech adapter**
+- [x] **Step 3: Add TTS protocol and AVSpeech adapter**
 
 Create `TTSCapability.swift`:
 
@@ -363,17 +363,17 @@ public protocol TTSCapability: Sendable {
 
 Implement `AVSpeechTTSCapability` in a macOS-safe target using `AVFoundation`. Keep text logging disabled.
 
-- [ ] **Step 4: Wire side effect executor**
+- [x] **Step 4: Wire side effect executor**
 
 `SideEffect.tts(voice:)` calls injected TTS with final text. If final text is empty, return `.failed(reason: "No text to speak")`.
 
-- [ ] **Step 5: Run focused tests**
+- [x] **Step 5: Run focused tests**
 
 Run: `swift test --package-path SliceAIKit --filter 'CapabilitiesTests.TTSCapabilityTests|OrchestrationTests.SideEffectExecutorTests'`
 
 Expected: pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add SliceAIKit/Sources/Capabilities SliceAIKit/Sources/Orchestration SliceAIKit/Tests

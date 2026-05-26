@@ -8,7 +8,7 @@ SliceAI 让你在任何 Mac 应用里选中文字后，通过快捷工具栏或 
 
 v0.2.0 Phase 0 底层重构已正式发布：v2 数据模型、Orchestration 执行引擎、Capabilities 能力边界已接入真实 App 触发链。Release: <https://github.com/yingjialong/SliceAI/releases/tag/v0.2.0>。
 
-Phase 1 MCP + Context 主干已完成 `v0.3` release prep：stdio / Streamable HTTP MCP client、MCP Servers 设置页、五个核心 ContextProvider、PermissionBroker UI gate、AgentExecutor tool calling、ResultPanel tool-call lifecycle、`web-search-summarize`、per-tool hotkey 和基础自定义 Agent Tool 配置均已落地。Task 17 已完成真实 release E2E 主体验证；filesystem / postgres / brave-search / git / sqlite 五项本地 MCP server 已完成直接 JSON-RPC `tools/list` 与安全只读 / 低风险 `tools/call`，用户已基本复测 App 场景且未反馈阻塞问题。最终 Claude review loop Round 2 approve；review 中发现并修复了两项发布阻塞：长 MCP tool result 不再以 `<truncated:N>` 回填给 LLM，stdio MCP server 在 command / args / env 变化后会重启旧 session。最终 gate 已通过 SwiftPM 758 tests、SwiftLint strict、`git diff --check`、App Debug build、本地 unsigned DMG 构建和 DMG 挂载结构校验。`v0.3.0` tag 已推送，GitHub Actions Release run `26168050987` 已成功生成 draft release；CI DMG SHA256 为 `cf63e4e50b8eeda63e38f04c85ff485d11cdfa939038d7555b72ae61ad96f0e0`。用户已明确暂缓人工发布，draft release 保持草稿；Phase 2 Skill Registry MVP 已完成并推送到 `main` / `origin/main`（commit `1411e88`）：支持本地 skill roots、`SKILL.md` parser/scanner、Settings Skills 页面、Agent Tool 最多 5 个 skill 绑定，以及 `sliceai.load_skill` 渐进式加载。Task 60 真实本地 Skill E2E 已完成；Task 61 公开仓库 smoke 已完成；Task 62 supporting files 只读加载已实现：支持索引并按需读取 `references/` 与文本型 `assets/`，继续禁止执行或读取 `scripts/`。Task 63 Phase 2 completion 正在推进，已完成 Output lifecycle、SideEffect executor、`.silent` / `.file` / `.replace` / `.bubble` / `.structured` DisplayMode；下一步是 TTS 和 English Tutor。参见 [docs/v2-refactor-master-todolist.md](docs/v2-refactor-master-todolist.md) 跟踪后续 Phase。
+Phase 1 MCP + Context 主干已完成 `v0.3` release prep：stdio / Streamable HTTP MCP client、MCP Servers 设置页、五个核心 ContextProvider、PermissionBroker UI gate、AgentExecutor tool calling、ResultPanel tool-call lifecycle、`web-search-summarize`、per-tool hotkey 和基础自定义 Agent Tool 配置均已落地。Task 17 已完成真实 release E2E 主体验证；filesystem / postgres / brave-search / git / sqlite 五项本地 MCP server 已完成直接 JSON-RPC `tools/list` 与安全只读 / 低风险 `tools/call`，用户已基本复测 App 场景且未反馈阻塞问题。最终 Claude review loop Round 2 approve；review 中发现并修复了两项发布阻塞：长 MCP tool result 不再以 `<truncated:N>` 回填给 LLM，stdio MCP server 在 command / args / env 变化后会重启旧 session。最终 gate 已通过 SwiftPM 758 tests、SwiftLint strict、`git diff --check`、App Debug build、本地 unsigned DMG 构建和 DMG 挂载结构校验。`v0.3.0` tag 已推送，GitHub Actions Release run `26168050987` 已成功生成 draft release；CI DMG SHA256 为 `cf63e4e50b8eeda63e38f04c85ff485d11cdfa939038d7555b72ae61ad96f0e0`。用户已明确暂缓人工发布，draft release 保持草稿；Phase 2 Skill Registry MVP 已完成并推送到 `main` / `origin/main`（commit `1411e88`）：支持本地 skill roots、`SKILL.md` parser/scanner、Settings Skills 页面、Agent Tool 最多 5 个 skill 绑定，以及 `sliceai.load_skill` 渐进式加载。Task 60 真实本地 Skill E2E 已完成；Task 61 公开仓库 smoke 已完成；Task 62 supporting files 只读加载已实现：支持索引并按需读取 `references/` 与文本型 `assets/`，继续禁止执行或读取 `scripts/`。Task 63 Phase 2 completion 正在推进，已完成 Output lifecycle、SideEffect executor、`.silent` / `.file` / `.replace` / `.bubble` / `.structured` DisplayMode 和本地 TTS capability；下一步是 English Tutor 与最终 smoke。参见 [docs/v2-refactor-master-todolist.md](docs/v2-refactor-master-todolist.md) 跟踪后续 Phase。
 
 ## Current Features
 
@@ -21,6 +21,7 @@ Phase 1 MCP + Context 主干已完成 `v0.3` release prep：stdio / Streamable H
 - 自定义 Prompt / Agent 工具、供应商、模型和 Agent MCP allowlist / 调用策略
 - 本地 Skills 注册表、Skills 设置页、Agent Tool 最多 5 个 skill 绑定、`sliceai_load_skill` 渐进式加载和 `sliceai_load_skill_resource` supporting file 只读加载
 - Output lifecycle、`.silent`、`.file` final text 写入、`.replace` 选区替换、`.bubble` final text 气泡和 `.structured` JSON 结构化渲染
+- 本地 TTS side effect：permission gate 通过后用 macOS AVSpeech 朗读 final text，dry-run 不发声
 - API Key 存 macOS Keychain
 
 ## Build from source
@@ -141,6 +142,18 @@ open SliceAI.xcodeproj
 - Settings Tool Editor 已把 `.structured` 加入可编辑展示模式；`.file` / `.silent` 仍不在基础编辑器暴露，因为它们需要高级 outputBinding / side effect 配置。
 
 **验证状态**：已通过 Windowing / OutputDispatcher / OutputLifecycle focused tests 和 App Debug build。
+
+### 2026-05-26 · Phase 2 Local TTS Side Effect
+
+**范围**：Task 63 Phase 2 completion 的本地 TTS capability 与生产 side effect wiring
+
+**当前状态**：
+- 新增 `TTSCapability`、`TTSRequest` 和 `AVSpeechTTSCapability`，使用 macOS AVFoundation `AVSpeechSynthesizer` 朗读 final text。
+- `SideEffectExecutor` 已从临时 `TextSpeaking` 边界收敛到 `Capabilities.TTSCapability`；`.tts` 继续要求 `.systemAudio` 权限，空 final text 返回失败。
+- AppContainer 已把真实 `SideEffectExecutor` 注入 `ExecutionEngine`，生产路径支持剪贴板写入、通知、MCP side effect、文件 append 和本地 TTS。
+- dry-run 下 TTS side effect 只发 `.sideEffectSkippedDryRun`，不会调用真实朗读。
+
+**验证状态**：已通过 TTS / SideEffect focused tests 和 App Debug build。
 
 ### 2026-05-20 · Phase 2 Skill Registry MVP Spec Kickoff
 

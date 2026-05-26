@@ -29,6 +29,66 @@ enum AppContextAdapters {
     }
 }
 
+/// App 层剪贴板写入适配器。
+///
+/// 该类型只接收 SideEffectExecutor 已批准的 final text，并在主线程写入系统剪贴板；
+/// 日志只记录文本长度，避免把用户内容写入诊断输出。
+final class AppClipboardWriter: ClipboardWriting, @unchecked Sendable {
+
+    /// 默认构造器。
+    init() {}
+
+    /// 写入纯文本到系统剪贴板。
+    /// - Parameter text: 要写入的文本。
+    func writeString(_ text: String) async throws {
+        let logger = Logger(subsystem: "com.sliceai.app", category: "AppContextAdapters")
+        let copied = await MainActor.run {
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            return pasteboard.setString(text, forType: .string)
+        }
+        guard copied else {
+            logger.error("clipboard side effect write failed")
+            throw SliceError.execution(.unknown("clipboard write failed"))
+        }
+        logger.info("clipboard side effect wrote length=\(text.count, privacy: .public)")
+    }
+}
+
+/// App 层用户通知适配器。
+///
+/// 通知内容来自 tool 配置中的 `SideEffect.notify`，不会自动拼接 selection 或 LLM final text。
+final class AppUserNotifier: UserNotifying, @unchecked Sendable {
+
+    /// 默认构造器。
+    init() {}
+
+    /// 发送本地用户通知。
+    /// - Parameters:
+    ///   - title: 通知标题。
+    ///   - body: 通知正文。
+    func notify(title: String, body: String) async throws {
+        let logger = Logger(subsystem: "com.sliceai.app", category: "AppContextAdapters")
+        let center = UNUserNotificationCenter.current()
+        let granted = try await center.requestAuthorization(options: [.alert, .sound])
+        guard granted else {
+            logger.info("notification side effect skipped because permission denied")
+            return
+        }
+
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        let request = UNNotificationRequest(
+            identifier: "sliceai.sideeffect.\(UUID().uuidString)",
+            content: content,
+            trigger: nil
+        )
+        try await center.add(request)
+        logger.info("notification side effect delivered titleLength=\(title.count, privacy: .public)")
+    }
+}
+
 /// AppKit / Accessibility 文本替换适配器。
 ///
 /// 该类型只接收 final text，不处理 streaming chunk。直接替换失败时写入剪贴板并发送本地通知，
