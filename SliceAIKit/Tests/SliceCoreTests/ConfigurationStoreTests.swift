@@ -44,7 +44,7 @@ final class ConfigurationStoreTests: XCTestCase {
         let store = ConfigurationStore(fileURL: v2URL, legacyFileURL: v1URL)
         let cfg = try await store.load()
 
-        XCTAssertEqual(cfg.schemaVersion, 3)
+        XCTAssertEqual(cfg.schemaVersion, 4)
         XCTAssertEqual(cfg.tools.count, 1)
 
         // v2 文件已被写入
@@ -116,9 +116,37 @@ final class ConfigurationStoreTests: XCTestCase {
         try await store.update(loaded)
 
         let written = try JSONDecoder().decode(Configuration.self, from: Data(contentsOf: v2URL))
-        XCTAssertEqual(loaded.schemaVersion, 3)
-        XCTAssertEqual(written.schemaVersion, 3)
+        XCTAssertEqual(loaded.schemaVersion, 4)
+        XCTAssertEqual(written.schemaVersion, 4)
         XCTAssertEqual(written.skillSettings.sources.first?.id, "source")
+    }
+
+    /// schema v3 配置加载时应补入 English Tutor，且不会重复添加。
+    func test_load_withExistingSchema3_appendsEnglishTutorOnce() async throws {
+        let v2URL = tempDir.appendingPathComponent("config-v2.json")
+        let existing = makeSchema3ConfigurationWithoutEnglishTutor()
+        try JSONEncoder().encode(existing).write(to: v2URL, options: .atomic)
+        let store = ConfigurationStore(fileURL: v2URL, legacyFileURL: nil)
+
+        let loaded = try await store.current()
+        let loadedAgain = try await store.current()
+
+        XCTAssertEqual(loaded.schemaVersion, 4)
+        XCTAssertEqual(loaded.tools.filter { $0.id == "english-tutor" }.count, 1)
+        XCTAssertEqual(loadedAgain.tools.filter { $0.id == "english-tutor" }.count, 1)
+    }
+
+    /// schema v4 用户如果删除 English Tutor，后续加载不得重新添加。
+    func test_load_withExistingSchema4WithoutEnglishTutor_doesNotReaddEnglishTutor() async throws {
+        let v2URL = tempDir.appendingPathComponent("config-v2.json")
+        let existing = makeSchema3ConfigurationWithoutEnglishTutor(schemaVersion: 4)
+        try JSONEncoder().encode(existing).write(to: v2URL, options: .atomic)
+        let store = ConfigurationStore(fileURL: v2URL, legacyFileURL: nil)
+
+        let loaded = try await store.current()
+
+        XCTAssertEqual(loaded.schemaVersion, 4)
+        XCTAssertFalse(loaded.tools.contains { $0.id == "english-tutor" })
     }
 
     func test_load_withNeither_returnsDefaultV2() async throws {
@@ -128,8 +156,8 @@ final class ConfigurationStoreTests: XCTestCase {
         let store = ConfigurationStore(fileURL: v2URL, legacyFileURL: v1URL)
         let cfg = try await store.load()
 
-        XCTAssertEqual(cfg.schemaVersion, 3)
-        XCTAssertEqual(cfg.tools.count, 5)  // 4 个 prompt 工具 + 1 个 Agent 工具（DefaultConfiguration）
+        XCTAssertEqual(cfg.schemaVersion, 4)
+        XCTAssertEqual(cfg.tools.count, 6)  // 4 个 prompt 工具 + 2 个 Agent 工具（DefaultConfiguration）
     }
 
     /// 两个配置文件都不存在时，load/current 必须返回默认 v2 并只创建 config-v2.json
@@ -304,7 +332,7 @@ final class ConfigurationStoreTests: XCTestCase {
         let cfg = try await store.current()
 
         XCTAssertEqual(cfg.schemaVersion, Configuration.currentSchemaVersion)
-        XCTAssertEqual(cfg.tools.count, 5)  // DefaultConfiguration 4 个 prompt 工具 + 1 个 Agent 工具
+        XCTAssertEqual(cfg.tools.count, 6)  // DefaultConfiguration 4 个 prompt 工具 + 2 个 Agent 工具
     }
 
     // MARK: - 写入边界 validation（第八轮 P2-1/P2-2 修复）
@@ -407,5 +435,27 @@ final class ConfigurationStoreTests: XCTestCase {
             throw CocoaError(.fileNoSuchFile)
         }
         return try Data(contentsOf: url)
+    }
+
+    /// 构造旧 schema 配置，模拟 English Tutor 发布前的 v3 文件。
+    private func makeSchema3ConfigurationWithoutEnglishTutor(schemaVersion: Int = 3) -> Configuration {
+        let template = DefaultConfiguration.initial()
+        return Configuration(
+            schemaVersion: schemaVersion,
+            providers: template.providers,
+            tools: [
+                DefaultConfiguration.translate,
+                DefaultConfiguration.polish,
+                DefaultConfiguration.summarize,
+                DefaultConfiguration.explain,
+                DefaultConfiguration.webSearchSummarize
+            ],
+            hotkeys: template.hotkeys,
+            triggers: template.triggers,
+            telemetry: template.telemetry,
+            appBlocklist: template.appBlocklist,
+            appearance: template.appearance,
+            skillSettings: template.skillSettings
+        )
     }
 }

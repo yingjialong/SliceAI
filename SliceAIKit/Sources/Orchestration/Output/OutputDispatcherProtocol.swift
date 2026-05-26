@@ -7,7 +7,7 @@ import SliceCore
 /// 两态模型：
 /// - `.delivered`：chunk 已成功投递到对应 sink
 /// - `.notImplemented(reason:)`：保留给自定义 dispatcher 或后续真实 sink 缺失场景；
-///   M3.0 默认 OutputDispatcher 对 non-window mode 已 fallback 到 `.window`
+///   默认 OutputDispatcher 当前已覆盖 Phase 2 的 non-window modes。
 public enum DispatchOutcome: Sendable, Equatable {
     /// chunk 已成功投递到对应 sink
     case delivered
@@ -76,7 +76,7 @@ public protocol OutputDispatcherProtocol: Sendable {
     ///     （`outputBinding.primary` 仅 Tool decoder 用作冗余一致性校验字段）
     ///   - invocationId: 当前 invocation 的唯一标识，用于 sink 路由 / 关联 cancel
     /// - Returns: `DispatchOutcome`；默认实现对 6 种 mode 都应返回 `.delivered`。
-    ///   仅自定义 dispatcher 明确无法 fallback 时才返回 `.notImplemented`。
+    ///   仅自定义 dispatcher 明确无法处理时才返回 `.notImplemented`。
     /// - Throws: 当 sink 自身抛错（如文件 IO 失败）时透传
     func handle(
         chunk: String,

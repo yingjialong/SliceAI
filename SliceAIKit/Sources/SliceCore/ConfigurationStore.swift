@@ -180,13 +180,14 @@ public actor ConfigurationStore {
 
     /// 将旧 v2 schema 归一化为当前版本，避免新增字段写回时仍保留旧 schemaVersion。
     private func normalizeSchemaVersion(_ configuration: Configuration) -> Configuration {
-        guard configuration.schemaVersion != Configuration.currentSchemaVersion else {
+        let tools = migratedTools(from: configuration)
+        guard configuration.schemaVersion != Configuration.currentSchemaVersion || tools != configuration.tools else {
             return configuration
         }
         return Configuration(
             schemaVersion: Configuration.currentSchemaVersion,
             providers: configuration.providers,
-            tools: configuration.tools,
+            tools: tools,
             hotkeys: configuration.hotkeys,
             triggers: configuration.triggers,
             telemetry: configuration.telemetry,
@@ -194,5 +195,14 @@ public actor ConfigurationStore {
             appearance: configuration.appearance,
             skillSettings: configuration.skillSettings
         )
+    }
+
+    /// 根据 schema 版本追加新增的首方默认工具；当前 v4 只补 English Tutor。
+    private func migratedTools(from configuration: Configuration) -> [Tool] {
+        guard configuration.schemaVersion < 4,
+              !configuration.tools.contains(where: { $0.id == EnglishTutorToolFactory.toolId }) else {
+            return configuration.tools
+        }
+        return configuration.tools + [EnglishTutorToolFactory.make()]
     }
 }

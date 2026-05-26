@@ -3,19 +3,19 @@ import XCTest
 
 final class ConfigurationTests: XCTestCase {
 
-    func test_configuration_currentSchemaVersion_is3() {
-        XCTAssertEqual(Configuration.currentSchemaVersion, 3)
+    func test_configuration_currentSchemaVersion_is4() {
+        XCTAssertEqual(Configuration.currentSchemaVersion, 4)
     }
 
-    func test_defaultConfiguration_usesSchemaVersion3() {
+    func test_defaultConfiguration_usesSchemaVersion4() {
         let cfg = DefaultConfiguration.initial()
-        XCTAssertEqual(cfg.schemaVersion, 3)
+        XCTAssertEqual(cfg.schemaVersion, 4)
         XCTAssertEqual(cfg.skillSettings, .empty)
     }
 
-    func test_defaultConfiguration_hasFiveFirstPartyToolsAndLegacyPromptsRemainPrompt() {
+    func test_defaultConfiguration_hasSixFirstPartyToolsAndLegacyPromptsRemainPrompt() {
         let cfg = DefaultConfiguration.initial()
-        XCTAssertEqual(cfg.tools.count, 5)
+        XCTAssertEqual(cfg.tools.count, 6)
 
         let legacyPromptToolIds = Set(["translate", "polish", "summarize", "explain"])
         for tool in cfg.tools where legacyPromptToolIds.contains(tool.id) {
@@ -24,6 +24,46 @@ final class ConfigurationTests: XCTestCase {
                 XCTFail("tool \(tool.id) is not .prompt kind"); continue
             }
         }
+    }
+
+    /// 默认配置应内置 English Tutor，作为 Phase 2 structured + TTS 端到端示例。
+    func test_defaultConfiguration_containsEnglishTutor() throws {
+        let cfg = DefaultConfiguration.initial()
+
+        let tool = try XCTUnwrap(cfg.tools.first { $0.id == "english-tutor" })
+
+        XCTAssertEqual(tool.name, "English Tutor")
+        XCTAssertEqual(tool.displayMode, .structured)
+        XCTAssertEqual(tool.outputBinding, OutputBinding(primary: .structured, sideEffects: [.tts(voice: nil)]))
+        XCTAssertEqual(tool.permissions, [.systemAudio])
+        XCTAssertEqual(tool.provenance, .firstParty)
+        guard case .agent(let agent) = tool.kind else {
+            XCTFail("english-tutor should be an agent tool")
+            return
+        }
+        XCTAssertEqual(agent.skills, [SkillReference(id: "english-tutor", pinVersion: nil)])
+        XCTAssertEqual(agent.mcpAllowlist, [])
+        XCTAssertEqual(agent.maxSteps, 3)
+        XCTAssertEqual(agent.stopCondition, .finalAnswerProvided)
+    }
+
+    /// English Tutor 必须声明 structured 主输出、TTS side effect 和 tool-calling provider。
+    func test_englishTutor_declaresStructuredAndTTSRequirements() throws {
+        let cfg = DefaultConfiguration.initial()
+        let tool = try XCTUnwrap(cfg.tools.first { $0.id == "english-tutor" })
+
+        XCTAssertEqual(tool.displayMode, .structured)
+        XCTAssertEqual(tool.outputBinding?.primary, .structured)
+        XCTAssertEqual(tool.outputBinding?.sideEffects, [.tts(voice: nil)])
+        XCTAssertTrue(tool.permissions.contains(.systemAudio))
+
+        guard case .agent(let agent) = tool.kind,
+              case .capability(let requires, let prefer) = agent.provider else {
+            XCTFail("english-tutor should use capability provider selection")
+            return
+        }
+        XCTAssertEqual(requires, [.toolCalling])
+        XCTAssertEqual(prefer, [])
     }
 
     /// 默认配置应内置 Web Search Summarize Agent，给 Phase 1 Agent 功能提供可试用入口。

@@ -4,6 +4,29 @@ import SliceCore
 
 final class LocalSkillRegistryTests: XCTestCase {
 
+    /// 默认 registry 应包含首方 English Tutor skill，供内置 English Tutor Agent Tool 绑定。
+    func test_snapshotIncludesBundledEnglishTutorByDefault() async throws {
+        let registry = LocalSkillRegistry(settingsProvider: { .empty })
+
+        let snapshot = try await registry.snapshot()
+        let skill = try XCTUnwrap(snapshot.skills.first { $0.id == "english-tutor" })
+
+        XCTAssertEqual(skill.canonicalName, "english-tutor")
+        XCTAssertEqual(skill.provenance, .firstParty)
+        XCTAssertEqual(skill.state, .enabled)
+    }
+
+    /// 内置 English Tutor skill 必须能通过 registry 按需加载完整说明。
+    func test_loadSkillInstructionsReturnsBundledEnglishTutor() async throws {
+        let registry = LocalSkillRegistry(settingsProvider: { .empty })
+
+        let payload = try await registry.loadSkillInstructions(id: "english-tutor")
+
+        XCTAssertEqual(payload.canonicalName, "english-tutor")
+        XCTAssertTrue(payload.instructions.contains("Return a JSON object"))
+        XCTAssertTrue(payload.instructions.contains("ttsText"))
+    }
+
     /// 配置 source 后，snapshot 应返回 enabled skill。
     func test_snapshotReturnsEnabledSkillFromConfiguredSource() async throws {
         let root = try makeTempRoot()
@@ -13,8 +36,8 @@ final class LocalSkillRegistryTests: XCTestCase {
 
         let snapshot = try await registry.snapshot()
 
-        XCTAssertEqual(snapshot.skills.map(\.canonicalName), ["writing"])
-        XCTAssertEqual(snapshot.skills.first?.state, .enabled)
+        XCTAssertEqual(snapshot.skills.map(\.canonicalName), ["english-tutor", "writing"])
+        XCTAssertEqual(snapshot.skills.first { $0.id == "writing" }?.state, .enabled)
     }
 
     /// 同名 skill 按 source order 保留第一个 enabled，后续 enabled 标记为 shadowed。
@@ -31,8 +54,9 @@ final class LocalSkillRegistryTests: XCTestCase {
 
         let snapshot = try await registry.snapshot()
 
-        XCTAssertEqual(snapshot.skills.filter { $0.state == .enabled }.count, 1)
-        XCTAssertEqual(snapshot.skills.filter { $0.state == .shadowed }.count, 1)
+        let writingSkills = snapshot.skills.filter { $0.canonicalName == "writing" }
+        XCTAssertEqual(writingSkills.filter { $0.state == .enabled }.count, 1)
+        XCTAssertEqual(writingSkills.filter { $0.state == .shadowed }.count, 1)
         XCTAssertTrue(snapshot.diagnostics.contains { $0.code == .duplicateName })
     }
 
@@ -75,7 +99,7 @@ final class LocalSkillRegistryTests: XCTestCase {
         })
 
         let snapshot = try await registry.snapshot()
-        let resources = try XCTUnwrap(snapshot.skills.first?.resources)
+        let resources = try XCTUnwrap(snapshot.skills.first { $0.id == "writing" }?.resources)
 
         XCTAssertEqual(resources.map(\.relativePath).sorted(), [
             "assets/template.md",
@@ -130,7 +154,7 @@ final class LocalSkillRegistryTests: XCTestCase {
 
         let snapshot = try await registry.snapshot()
 
-        XCTAssertEqual(snapshot.skills.first?.state, .defaultDisabled)
+        XCTAssertEqual(snapshot.skills.first { $0.id == "writing" }?.state, .defaultDisabled)
         XCTAssertTrue(snapshot.diagnostics.contains { $0.code == .missingDescription })
     }
 
@@ -144,7 +168,7 @@ final class LocalSkillRegistryTests: XCTestCase {
 
         let snapshot = try await registry.snapshot()
 
-        XCTAssertEqual(snapshot.skills.first?.state, .tooLarge)
+        XCTAssertEqual(snapshot.skills.first { $0.id == "huge" }?.state, .tooLarge)
         do {
             _ = try await registry.loadSkillInstructions(id: "huge")
             XCTFail("expected oversize skill to be unloadable")
@@ -169,7 +193,7 @@ final class LocalSkillRegistryTests: XCTestCase {
         let snapshot = try await registry.snapshot()
         let payload = try await registry.loadSkillInstructions(id: "writing")
 
-        XCTAssertEqual(snapshot.skills.first?.state, .enabled)
+        XCTAssertEqual(snapshot.skills.first { $0.id == "writing" }?.state, .enabled)
         XCTAssertEqual(payload.canonicalName, "writing")
     }
 
@@ -190,7 +214,7 @@ final class LocalSkillRegistryTests: XCTestCase {
 
         let snapshot = try await registry.snapshot()
 
-        XCTAssertEqual(snapshot.skills.first?.state, .parseError)
+        XCTAssertEqual(snapshot.skills.first { $0.id == "broken" }?.state, .parseError)
         XCTAssertTrue(snapshot.diagnostics.contains { $0.code == .parseError })
         do {
             _ = try await registry.loadSkillInstructions(id: "broken")
@@ -210,7 +234,7 @@ final class LocalSkillRegistryTests: XCTestCase {
 
         let snapshot = try await registry.snapshot()
 
-        XCTAssertTrue(snapshot.skills.isEmpty)
+        XCTAssertEqual(snapshot.skills.map(\.id), ["english-tutor"])
         XCTAssertTrue(snapshot.diagnostics.contains { $0.code == .sourceUnreadable })
     }
 }

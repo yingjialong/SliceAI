@@ -2,7 +2,7 @@ import Foundation
 
 /// v2 默认配置（migrator 无 v1 文件时 fallback，以及 ConfigurationStore 首次启动使用）
 ///
-/// 内容沿用 legacy 默认配置语义：1 个 OpenAI Provider + 4 个内置 Prompt Tool。
+/// 内容沿用 legacy 默认配置语义，并追加当前版本的首方 Agent Tool。
 /// 直接用 v2 `Tool` / `Provider` 类型构造，不复用旧配置模型的 Codable 产物。
 public enum DefaultConfiguration {
 
@@ -12,7 +12,7 @@ public enum DefaultConfiguration {
         Configuration(
             schemaVersion: Configuration.currentSchemaVersion,
             providers: [openAIDefault],
-            tools: [translate, polish, summarize, explain, webSearchSummarize],
+            tools: [translate, polish, summarize, explain, webSearchSummarize, EnglishTutorToolFactory.make()],
             hotkeys: HotkeyBindings(toggleCommandPalette: "option+space"),
             triggers: TriggerSettings(
                 floatingToolbarEnabled: true,
@@ -45,7 +45,7 @@ public enum DefaultConfiguration {
         capabilities: [.toolCalling]
     )
 
-    // MARK: - Tools（4 个 prompt 工具 + 1 个 Phase 1 Agent 工具）
+    // MARK: - Tools（4 个 prompt 工具 + Phase 1/2 Agent 工具）
 
     /// 翻译工具：将选中文字翻译为 variables["language"] 指定的语言
     public static let translate = makePromptTool(

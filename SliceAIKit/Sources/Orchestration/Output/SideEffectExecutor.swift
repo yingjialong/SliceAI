@@ -126,15 +126,27 @@ public struct SideEffectExecutor: SideEffectExecutorProtocol {
 
     /// 朗读 final text。
     private func speak(finalText: String, voice: String?) async -> SideEffectExecutionOutcome {
-        guard !finalText.isEmpty else {
+        let speechText = preferredSpeechText(from: finalText)
+        guard !speechText.isEmpty else {
             return .failed(reason: "No text to speak")
         }
         do {
-            try await speaker.speak(finalText, voice: voice)
+            try await speaker.speak(speechText, voice: voice)
             return .executed
         } catch {
             return .failed(reason: "tts side effect failed")
         }
+    }
+
+    /// structured JSON 输出包含 `ttsText` 时优先朗读该字段。
+    private func preferredSpeechText(from finalText: String) -> String {
+        guard let data = finalText.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let ttsText = object["ttsText"] as? String,
+              !ttsText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return finalText
+        }
+        return ttsText
     }
 
     /// 输出脱敏诊断日志。

@@ -29,8 +29,8 @@ public actor LocalSkillRegistry: SkillRegistryProtocol {
     /// 生成 registry 快照。
     public func snapshot() async throws -> SkillRegistrySnapshot {
         let settings = await settingsProvider()
-        var skills: [Skill] = []
         var diagnostics: [SkillRegistryDiagnostic] = []
+        var skills = makeBundledSkills(diagnostics: &diagnostics)
 
         for source in settings.sources.sorted(by: { $0.order < $1.order }) where source.isEnabled {
             appendSource(source, settings: settings, skills: &skills, diagnostics: &diagnostics)
@@ -54,6 +54,9 @@ public actor LocalSkillRegistry: SkillRegistryProtocol {
 
     /// 加载 enabled skill 的 SKILL.md 指令正文。
     public func loadSkillInstructions(id: String) async throws -> SkillInstructionPayload {
+        if let payload = try loadBundledSkillInstructions(id: id) {
+            return payload
+        }
         guard let skill = try await findSkill(id: id) else {
             throw SliceError.configuration(.validationFailed("Skill not loadable: <redacted>"))
         }
@@ -72,6 +75,32 @@ public actor LocalSkillRegistry: SkillRegistryProtocol {
             frontmatterSummary: result.manifest,
             instructions: result.instructions
         )
+    }
+
+    /// 构造所有内置首方 skill；解析失败时只输出脱敏诊断，避免阻断外部 skill。
+    private func makeBundledSkills(diagnostics: inout [SkillRegistryDiagnostic]) -> [Skill] {
+        BundledSkillCatalog.all.compactMap { definition in
+            do {
+                return try definition.makeSkill(using: parser)
+            } catch {
+                logger.error("bundled skill parse failed id=\(definition.id, privacy: .public)")
+                diagnostics.append(SkillRegistryDiagnostic(
+                    code: .parseError,
+                    sourceId: "sliceai-bundled",
+                    path: definition.skillFileURL.path,
+                    message: "内置 Skill 解析失败。"
+                ))
+                return nil
+            }
+        }
+    }
+
+    /// 加载内置首方 skill 的说明；内置 skill 不做磁盘读取。
+    private func loadBundledSkillInstructions(id: String) throws -> SkillInstructionPayload? {
+        guard let definition = BundledSkillCatalog.all.first(where: { $0.id == id }) else {
+            return nil
+        }
+        return try definition.makeInstructionPayload(using: parser)
     }
 
     /// 扫描并追加单个 source 的 skill 候选。

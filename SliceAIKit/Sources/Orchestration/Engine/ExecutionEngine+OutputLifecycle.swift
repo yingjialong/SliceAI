@@ -9,7 +9,7 @@ extension ExecutionEngine {
     ///   - outputContext: 当前输出生命周期上下文。
     ///   - context: 当前 flow context。
     ///   - finalText: 调用方累积的最终文本。
-    ///   - notImplementedYielded: non-window fallback 提示是否已发送。
+    ///   - notImplementedYielded: 自定义 dispatcher 未实现提示是否已发送。
     /// - Returns: false 表示 consumer 已终止或调用已取消。
     func dispatchPromptChunk(
         _ chunk: String,

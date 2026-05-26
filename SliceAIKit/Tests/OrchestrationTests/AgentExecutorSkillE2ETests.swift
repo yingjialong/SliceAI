@@ -31,7 +31,9 @@ final class AgentExecutorSkillE2ETests: XCTestCase {
         let registry = LocalSkillRegistry(settingsProvider: { settings })
 
         let snapshot = try await registry.snapshot()
-        let enabledSkills = snapshot.skills.filter { $0.state == .enabled }
+        let enabledSkills = snapshot.skills.filter {
+            $0.state == .enabled && $0.source.sourceId == "project-skills"
+        }
 
         XCTAssertEqual(Set(enabledSkills.map(\.canonicalName)), [
             "prose-polisher",

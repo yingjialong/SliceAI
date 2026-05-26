@@ -14,8 +14,8 @@ public struct Configuration: Sendable, Codable, Equatable {
     public var appearance: AppearanceMode
     public var skillSettings: SkillSettings
 
-    /// 当前 v2 schema 版本
-    public static let currentSchemaVersion = 3
+    /// 当前 v2 schema 版本。
+    public static let currentSchemaVersion = 4
 
     /// 构造 Configuration
     public init(

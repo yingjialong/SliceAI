@@ -98,6 +98,19 @@ final class SideEffectExecutorTests: XCTestCase {
         XCTAssertEqual(calls, [SpySpeechSynthesizer.Call(text: "Read this", voice: "Alex")])
     }
 
+    /// structured JSON 包含 ttsText 时，TTS 应朗读该字段而不是整个 JSON。
+    func test_execute_tts_prefersStructuredTTSText() async throws {
+        let speaker = SpySpeechSynthesizer()
+        let executor = makeExecutor(speaker: speaker)
+        let finalText = #"{"correctedText":"I am ready.","ttsText":"I am ready.","practice":["Say it twice."]}"#
+
+        let outcome = await executor.execute(SideEffect.tts(voice: nil), finalText: finalText, invocationId: UUID())
+
+        XCTAssertEqual(outcome, .executed)
+        let calls = await speaker.calls
+        XCTAssertEqual(calls, [SpySpeechSynthesizer.Call(text: "I am ready.", voice: nil)])
+    }
+
     /// writeMemory 在 Phase 2 必须是显式 unsupported，不能假装成功。
     func test_execute_writeMemory_returnsUnsupported() async throws {
         let executor = makeExecutor()
