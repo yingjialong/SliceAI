@@ -61,11 +61,15 @@ struct ResultContent: View {
                 .padding(.vertical, SliceSpacing.xl)
 
         case .streaming, .finished:
-            // 流式渲染：isStreaming = true 时 StreamingMarkdownView 会追加闪烁光标
-            StreamingMarkdownView(
-                text: viewModel.text,
-                isStreaming: viewModel.streamingState == .streaming
-            )
+            if let fields = viewModel.structuredFields {
+                StructuredResultView(fields: fields)
+            } else {
+                // 流式渲染：isStreaming = true 时 StreamingMarkdownView 会追加闪烁光标
+                StreamingMarkdownView(
+                    text: viewModel.text,
+                    isStreaming: viewModel.streamingState == .streaming
+                )
+            }
 
         case .error:
             // 错误态：用 ErrorBlock 展示错误信息 + 可选重试/设置按钮

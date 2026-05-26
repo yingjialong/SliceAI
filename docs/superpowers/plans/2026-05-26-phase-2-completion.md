@@ -279,7 +279,7 @@ git commit -m "feat: add replace display mode"
 
 ## Task 5: Bubble And Structured DisplayModes
 
-- [ ] **Step 1: Write failing Windowing state tests**
+- [x] **Step 1: Write failing Windowing state tests**
 
 Add `StructuredResultViewStateTests`:
 
@@ -289,13 +289,13 @@ func test_parseStructuredObject_returnsFailureForInvalidJSON() throws
 func test_bubbleState_autoDismissesAfterFinishDelay() async throws
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `swift test --package-path SliceAIKit --filter WindowingTests.StructuredResultViewStateTests`
 
 Expected: compile failure because parser/view state types do not exist.
 
-- [ ] **Step 3: Implement structured parser/state**
+- [x] **Step 3: Implement structured parser/state**
 
 Add pure state types first:
 
@@ -312,21 +312,21 @@ public enum StructuredValue: Sendable, Equatable {
 
 Parse final text as JSON. If the top-level value is not an object, show a controlled error state.
 
-- [ ] **Step 4: Implement SwiftUI views**
+- [x] **Step 4: Implement SwiftUI views**
 
 Add `StructuredResultView` and `BubblePanel` using existing DesignSystem tokens. Keep layout compact and non-marketing.
 
-- [ ] **Step 5: Wire AppDelegate UI behavior**
+- [x] **Step 5: Wire AppDelegate UI behavior**
 
 Only open ResultPanel before execution for `.window` and `.structured`. `.bubble` opens the bubble on finish. `.silent`, `.file`, and `.replace` do not open ResultPanel up front.
 
-- [ ] **Step 6: Run focused tests**
+- [x] **Step 6: Run focused tests**
 
 Run: `swift test --package-path SliceAIKit --filter 'WindowingTests|OrchestrationTests.OutputLifecycleTests'`
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add SliceAIApp SliceAIKit/Sources/Windowing SliceAIKit/Sources/Orchestration SliceAIKit/Tests
@@ -563,6 +563,36 @@ Task 2 current verification:
 - Green: `swift test --package-path SliceAIKit --filter 'OrchestrationTests.SideEffectExecutorTests|OrchestrationTests.ExecutionEngineTests|OrchestrationTests.OutputLifecycleTests|OrchestrationTests.AgentExecutorTests'`: 63 tests, 0 failures.
 - Green: touched Swift files `swiftlint lint --strict ...`: 0 violations.
 - Green: `git diff --check`: passed.
+
+Task 3 current verification:
+
+- Red: `swift test --package-path SliceAIKit --filter OrchestrationTests.OutputDispatcherFallbackTests` failed before implementation because `FinalTextFileAppending`, `OutputDispatcher(fileAppender:)` and `OutputInvocationContext.outputBinding` did not exist.
+- Green: `swift test --package-path SliceAIKit --filter OrchestrationTests.OutputDispatcherFallbackTests`: 9 tests, 0 failures.
+- Green: `swift test --package-path SliceAIKit --filter 'OrchestrationTests.OutputDispatcherFallbackTests|OrchestrationTests.OutputDispatcherTests|OrchestrationTests.SideEffectExecutorTests'`: 27 tests, 0 failures.
+- Green: `swift test --package-path SliceAIKit --filter 'OrchestrationTests.OutputLifecycleTests|OrchestrationTests.ExecutionEngineTests|OrchestrationTests.AgentExecutorTests'`: 56 tests, 0 failures.
+- Green: touched Swift files `swiftlint lint --strict ...`: 0 violations.
+- Green: `git diff --check`: passed.
+
+Task 4 current verification:
+
+- Red: `swift test --package-path SliceAIKit --filter OrchestrationTests.ReplaceDisplayModeTests` failed before implementation because `TextReplacementClient`, `TextReplacementResult` and `OutputDispatcher(replacementClient:)` did not exist.
+- Green: `swift test --package-path SliceAIKit --filter OrchestrationTests.ReplaceDisplayModeTests`: 4 tests, 0 failures.
+- Green: `swift test --package-path SliceAIKit --filter 'OrchestrationTests.ReplaceDisplayModeTests|OrchestrationTests.OutputDispatcherFallbackTests|OrchestrationTests.OutputDispatcherTests|OrchestrationTests.OutputLifecycleTests'`: 25 tests, 0 failures.
+- Green: `swift test --package-path SliceAIKit --filter 'OrchestrationTests.ReplaceDisplayModeTests|OrchestrationTests.OutputDispatcherFallbackTests|OrchestrationTests.OutputDispatcherTests|OrchestrationTests.OutputLifecycleTests|OrchestrationTests.ExecutionEngineTests'`: 44 tests, 0 failures.
+- Green: `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`: `BUILD SUCCEEDED`.
+- Green: touched Swift files `swiftlint lint --strict ...`: 0 violations.
+
+Task 5 current verification:
+
+- Red: `swift test --package-path SliceAIKit --filter WindowingTests.StructuredResultViewStateTests` failed before implementation because `StructuredResultParser`, `StructuredField`, `StructuredResultParseError` and `BubblePresentationState` did not exist.
+- Red: `swift test --package-path SliceAIKit --filter OrchestrationTests.BubbleStructuredDisplayModeTests` failed before implementation because `BubbleOutputSink`, `StructuredOutputSink` and `OutputDispatcher` sink injection did not exist.
+- Green: `swift test --package-path SliceAIKit --filter WindowingTests.StructuredResultViewStateTests`: 3 tests, 0 failures.
+- Green: `swift test --package-path SliceAIKit --filter OrchestrationTests.BubbleStructuredDisplayModeTests`: 3 tests, 0 failures.
+- Green: `swift test --package-path SliceAIKit --filter 'WindowingTests|OrchestrationTests.OutputLifecycleTests|OrchestrationTests.BubbleStructuredDisplayModeTests|OrchestrationTests.OutputDispatcherFallbackTests|OrchestrationTests.OutputDispatcherTests'`: 36 tests, 0 failures.
+- Initial App build red: `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build` failed because App target default MainActor isolation made the file-level logger inaccessible from nonisolated sink methods, and `SliceError` required an explicit `SliceCore` import.
+- Green: `swiftlint lint --strict`: 190 files, 0 violations.
+- Green: `git diff --check`: passed.
+- Green: `xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`: `BUILD SUCCEEDED`.
 
 Pre-plan baseline from Task 62 was:
 

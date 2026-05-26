@@ -175,7 +175,7 @@ extension ToolEditorView {
                 .labelsHidden()
             }
 
-            Text("window / replace 已生效；bubble 当前仍暂走窗口展示")
+            Text("window / bubble / replace / structured 已生效；file / silent 需后续高级输出配置")
                 .font(SliceFont.caption)
                 .foregroundColor(SliceColor.textTertiary)
                 .frame(maxWidth: .infinity, alignment: .leading)

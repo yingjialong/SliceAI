@@ -13,6 +13,60 @@ import SettingsUI
 import SliceCore
 import Windowing
 
+/// bootstrap 期间创建出的 UI 依赖集合。
+private struct UIDependencies {
+    let keychain: KeychainStore
+    let selectionService: SelectionService
+    let hotkeyRegistrar: HotkeyRegistrar
+    let floatingToolbar: FloatingToolbarPanel
+    let commandPalette: CommandPalettePanel
+    let bubblePanel: BubblePanel
+    let resultPanel: ResultPanel
+    let accessibilityMonitor: AccessibilityMonitor
+    let settingsViewModel: SettingsViewModel
+    let themeManager: ThemeManager
+}
+
+/// bootstrap 期间创建出的 v2 runtime 依赖集合。
+private struct RuntimeDependencies {
+    let executionEngine: ExecutionEngine
+    let outputDispatcher: any OutputDispatcherProtocol
+    let invocationGate: InvocationGate
+    let resultPanelAdapter: ResultPanelWindowSinkAdapter
+}
+
+/// bootstrap 期间创建出的输出依赖集合。
+private struct OutputDependencies {
+    let outputDispatcher: any OutputDispatcherProtocol
+    let invocationGate: InvocationGate
+    let resultPanelAdapter: ResultPanelWindowSinkAdapter
+}
+
+/// 创建 v2 runtime 所需的输入依赖集合，避免 helper 参数列表持续膨胀。
+private struct V2RuntimeDependencyInputs {
+    let appSupport: URL
+    let configStore: ConfigurationStore
+    let keychain: KeychainStore
+    let llmProviderFactory: any LLMProviderFactory
+    let resultPanel: ResultPanel
+    let bubblePanel: BubblePanel
+    let skillRegistry: any SkillRegistryProtocol
+}
+
+/// 创建 `ExecutionEngine` 所需的内部依赖集合，避免 helper 参数列表继续膨胀。
+private struct ExecutionEngineDependencies {
+    let providerRegistry: ContextProviderRegistry
+    let permissionBroker: any PermissionBrokerProtocol
+    let providerResolver: any ProviderResolverProtocol
+    let promptExecutor: PromptExecutor
+    let agentExecutor: AgentExecutor
+    let mcpClient: any MCPClientProtocol
+    let skillRegistry: any SkillRegistryProtocol
+    let costAccounting: CostAccounting
+    let auditLog: any AuditLogProtocol
+    let outputDispatcher: any OutputDispatcherProtocol
+}
+
 /// 应用的依赖注入组合根（Composition Root）。
 ///
 /// 职责：
@@ -56,6 +110,8 @@ final class AppContainer {
     let floatingToolbar: FloatingToolbarPanel
     /// 命令面板（Option+Space 调出）
     let commandPalette: CommandPalettePanel
+    /// final text 气泡面板（bubble DisplayMode）
+    let bubblePanel: BubblePanel
     /// 流式结果面板
     let resultPanel: ResultPanel
     /// 辅助功能权限轮询监视器
@@ -76,6 +132,7 @@ final class AppContainer {
         hotkeyRegistrar: HotkeyRegistrar,
         floatingToolbar: FloatingToolbarPanel,
         commandPalette: CommandPalettePanel,
+        bubblePanel: BubblePanel,
         resultPanel: ResultPanel,
         accessibilityMonitor: AccessibilityMonitor,
         settingsViewModel: SettingsViewModel,
@@ -92,6 +149,7 @@ final class AppContainer {
         self.hotkeyRegistrar = hotkeyRegistrar
         self.floatingToolbar = floatingToolbar
         self.commandPalette = commandPalette
+        self.bubblePanel = bubblePanel
         self.resultPanel = resultPanel
         self.accessibilityMonitor = accessibilityMonitor
         self.settingsViewModel = settingsViewModel
@@ -100,58 +158,6 @@ final class AppContainer {
         self.outputDispatcher = outputDispatcher
         self.invocationGate = invocationGate
         self.resultPanelAdapter = resultPanelAdapter
-    }
-
-    /// bootstrap 期间创建出的 UI 依赖集合。
-    private struct UIDependencies {
-        let keychain: KeychainStore
-        let selectionService: SelectionService
-        let hotkeyRegistrar: HotkeyRegistrar
-        let floatingToolbar: FloatingToolbarPanel
-        let commandPalette: CommandPalettePanel
-        let resultPanel: ResultPanel
-        let accessibilityMonitor: AccessibilityMonitor
-        let settingsViewModel: SettingsViewModel
-        let themeManager: ThemeManager
-    }
-
-    /// bootstrap 期间创建出的 v2 runtime 依赖集合。
-    private struct RuntimeDependencies {
-        let executionEngine: ExecutionEngine
-        let outputDispatcher: any OutputDispatcherProtocol
-        let invocationGate: InvocationGate
-        let resultPanelAdapter: ResultPanelWindowSinkAdapter
-    }
-
-    /// bootstrap 期间创建出的输出依赖集合。
-    private struct OutputDependencies {
-        let outputDispatcher: any OutputDispatcherProtocol
-        let invocationGate: InvocationGate
-        let resultPanelAdapter: ResultPanelWindowSinkAdapter
-    }
-
-    /// 创建 v2 runtime 所需的输入依赖集合，避免 helper 参数列表持续膨胀。
-    private struct V2RuntimeDependencyInputs {
-        let appSupport: URL
-        let configStore: ConfigurationStore
-        let keychain: KeychainStore
-        let llmProviderFactory: any LLMProviderFactory
-        let resultPanel: ResultPanel
-        let skillRegistry: any SkillRegistryProtocol
-    }
-
-    /// 创建 `ExecutionEngine` 所需的内部依赖集合，避免 helper 参数列表继续膨胀。
-    private struct ExecutionEngineDependencies {
-        let providerRegistry: ContextProviderRegistry
-        let permissionBroker: any PermissionBrokerProtocol
-        let providerResolver: any ProviderResolverProtocol
-        let promptExecutor: PromptExecutor
-        let agentExecutor: AgentExecutor
-        let mcpClient: any MCPClientProtocol
-        let skillRegistry: any SkillRegistryProtocol
-        let costAccounting: CostAccounting
-        let auditLog: any AuditLogProtocol
-        let outputDispatcher: any OutputDispatcherProtocol
     }
 
     /// 异步装配所有依赖，并触发 v2 配置的首次加载 / 迁移 / 默认写盘。
@@ -168,7 +174,6 @@ final class AppContainer {
         _ = try await configStore.current()
 
         let keychain = KeychainStore()
-        let llmProviderFactory: any LLMProviderFactory = OpenAIProviderFactory()
         let skillRegistry = makeSkillRegistry(configStore: configStore)
         let ui = makeUIDependencies(
             configStore: configStore,
@@ -179,8 +184,9 @@ final class AppContainer {
             appSupport: appSupport,
             configStore: configStore,
             keychain: keychain,
-            llmProviderFactory: llmProviderFactory,
+            llmProviderFactory: OpenAIProviderFactory(),
             resultPanel: ui.resultPanel,
+            bubblePanel: ui.bubblePanel,
             skillRegistry: skillRegistry
         ))
 
@@ -192,6 +198,7 @@ final class AppContainer {
             hotkeyRegistrar: ui.hotkeyRegistrar,
             floatingToolbar: ui.floatingToolbar,
             commandPalette: ui.commandPalette,
+            bubblePanel: ui.bubblePanel,
             resultPanel: ui.resultPanel,
             accessibilityMonitor: ui.accessibilityMonitor,
             settingsViewModel: ui.settingsViewModel,
@@ -220,6 +227,7 @@ final class AppContainer {
             hotkeyRegistrar: HotkeyRegistrar(),
             floatingToolbar: FloatingToolbarPanel(),
             commandPalette: CommandPalettePanel(),
+            bubblePanel: BubblePanel(),
             resultPanel: ResultPanel(),
             accessibilityMonitor: AccessibilityMonitor(),
             settingsViewModel: SettingsViewModel(
@@ -269,7 +277,7 @@ final class AppContainer {
         let auditLog: any AuditLogProtocol = try JSONLAuditLog(
             fileURL: inputs.appSupport.appendingPathComponent("audit.jsonl")
         )
-        let outputDependencies = makeOutputDependencies(resultPanel: inputs.resultPanel)
+        let outputs = makeOutputDependencies(resultPanel: inputs.resultPanel, bubblePanel: inputs.bubblePanel)
         let engineDependencies = ExecutionEngineDependencies(
             providerRegistry: providerRegistry,
             permissionBroker: permissionBroker,
@@ -280,27 +288,34 @@ final class AppContainer {
             skillRegistry: inputs.skillRegistry,
             costAccounting: costAccounting,
             auditLog: auditLog,
-            outputDispatcher: outputDependencies.outputDispatcher
+            outputDispatcher: outputs.outputDispatcher
         )
         let executionEngine = makeExecutionEngine(dependencies: engineDependencies)
 
         return RuntimeDependencies(
             executionEngine: executionEngine,
-            outputDispatcher: outputDependencies.outputDispatcher,
-            invocationGate: outputDependencies.invocationGate,
-            resultPanelAdapter: outputDependencies.resultPanelAdapter
+            outputDispatcher: outputs.outputDispatcher,
+            invocationGate: outputs.invocationGate,
+            resultPanelAdapter: outputs.resultPanelAdapter
         )
     }
 
     /// 创建输出相关依赖。
-    /// - Parameter resultPanel: AppContainer 持有的结果面板。
+    /// - Parameters:
+    ///   - resultPanel: AppContainer 持有的结果面板。
+    ///   - bubblePanel: AppContainer 持有的气泡面板。
     /// - Returns: output dispatcher、single-flight gate 与 window sink adapter。
-    private static func makeOutputDependencies(resultPanel: ResultPanel) -> OutputDependencies {
+    private static func makeOutputDependencies(
+        resultPanel: ResultPanel,
+        bubblePanel: BubblePanel
+    ) -> OutputDependencies {
         let invocationGate = InvocationGate()
         let resultPanelAdapter = ResultPanelWindowSinkAdapter(panel: resultPanel, gate: invocationGate)
         let outputDispatcher: any OutputDispatcherProtocol = OutputDispatcher(
             windowSink: resultPanelAdapter,
-            replacementClient: AppTextReplacementClient()
+            replacementClient: AppTextReplacementClient(),
+            bubbleSink: AppBubbleOutputSink(panel: bubblePanel),
+            structuredSink: AppStructuredOutputSink(panel: resultPanel)
         )
         return OutputDependencies(
             outputDispatcher: outputDispatcher,

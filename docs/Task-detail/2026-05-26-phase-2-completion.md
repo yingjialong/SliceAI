@@ -34,7 +34,7 @@ Task 58-62 已完成 Phase 2 前半段：Skill Registry MVP、真实本地 skill
 - [x] 按 TDD 实施 SideEffect executor。
 - [x] 按 TDD 实施 `.silent` 与 `.file`。
 - [x] 按 TDD 实施 `.replace`。
-- [ ] 按 TDD 实施 `.bubble` 与 `.structured`。
+- [x] 按 TDD 实施 `.bubble` 与 `.structured`。
 - [ ] 按 TDD 实施 TTS capability。
 - [ ] 按 TDD 实施 `english-tutor` 默认工具。
 - [ ] 完成 App wiring 和真实手工 smoke。
@@ -90,6 +90,15 @@ Task 58-62 已完成 Phase 2 前半段：Skill Registry MVP、真实本地 skill
   - 绿灯：`swift test --package-path SliceAIKit --filter 'OrchestrationTests.ReplaceDisplayModeTests|OrchestrationTests.OutputDispatcherFallbackTests|OrchestrationTests.OutputDispatcherTests|OrchestrationTests.OutputLifecycleTests|OrchestrationTests.ExecutionEngineTests'`，44 tests，0 failures。
   - 绿灯：`xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`，BUILD SUCCEEDED。
   - 绿灯：touched Swift files `swiftlint lint --strict ...`，0 violations。
+- Bubble / Structured DisplayMode：
+  - 红灯：`swift test --package-path SliceAIKit --filter WindowingTests.StructuredResultViewStateTests` 首次因 `StructuredResultParser`、`StructuredField`、`StructuredResultParseError` 与 `BubblePresentationState` 缺失编译失败。
+  - 红灯：`swift test --package-path SliceAIKit --filter OrchestrationTests.BubbleStructuredDisplayModeTests` 首次因 `BubbleOutputSink` / `StructuredOutputSink` 与 `OutputDispatcher` 注入点缺失编译失败；修正测试并发 snapshot 后红灯来源收敛到待实现协议。
+  - 绿灯：`swift test --package-path SliceAIKit --filter WindowingTests.StructuredResultViewStateTests`，3 tests，0 failures。
+  - 绿灯：`swift test --package-path SliceAIKit --filter OrchestrationTests.BubbleStructuredDisplayModeTests`，3 tests，0 failures。
+  - 绿灯：`swift test --package-path SliceAIKit --filter 'WindowingTests|OrchestrationTests.OutputLifecycleTests|OrchestrationTests.BubbleStructuredDisplayModeTests|OrchestrationTests.OutputDispatcherFallbackTests|OrchestrationTests.OutputDispatcherTests'`，36 tests，0 failures。
+  - 绿灯：`swiftlint lint --strict`，190 files，0 violations。
+  - 绿灯：`git diff --check`，passed。
+  - 绿灯：`xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`，BUILD SUCCEEDED。
 
 ## 已完成实现细节
 
@@ -119,6 +128,15 @@ Task 58-62 已完成 Phase 2 前半段：Skill Registry MVP、真实本地 skill
 - `AppTextReplacementClient` 在 App 层先尝试 AX `kAXSelectedTextAttribute` 直接替换；失败时把 final text 写入剪贴板并发本地通知，日志只记录长度和结果，不记录用户文本。
 - AppContainer 已注入 `AppTextReplacementClient`；AppDelegate 对 `.replace`、`.file`、`.silent` 不再提前打开空 ResultPanel，失败时才打开面板展示错误。
 
+### `.bubble` / `.structured`
+
+- 新增 `BubbleOutputSink` / `StructuredOutputSink`，Orchestration 只依赖 final-only 协议，不 import Windowing。
+- `OutputDispatcher` 对 `.bubble` 与 `.structured` 的 chunk 阶段不写 window；finish 阶段使用完整 final text 调用对应 sink，缺少 sink 时返回配置错误。
+- Windowing 新增 `BubblePresentationState`、`BubblePanel`、`StructuredResultParser` 和 `StructuredResultView`。`StructuredResultParser` 要求顶层 JSON object，支持 string / number / bool / array / object / null，并按 key 排序保证稳定渲染。
+- `ResultPanel` 新增 structured 字段展示状态；`.structured` 执行开始时仍打开 ResultPanel 展示等待态和 tool-call lifecycle，finish 后切换到结构化视图。
+- `AppBubbleOutputSink` / `AppStructuredOutputSink` 已在 AppContainer 注入；`.bubble` 不再提前打开空 ResultPanel，finish 后展示自动消失气泡。
+- Settings Tool Editor 已开放 `.structured` 展示模式；`.file` / `.silent` 仍不在基础编辑器暴露，因为它们依赖高级 outputBinding / side effect 配置。
+
 ## 变动文件清单
 
 - `SliceAIKit/Sources/Orchestration/Output/OutputDispatcherProtocol.swift`
@@ -126,21 +144,31 @@ Task 58-62 已完成 Phase 2 前半段：Skill Registry MVP、真实本地 skill
 - `SliceAIKit/Sources/Orchestration/Output/FinalTextFileAppender.swift`
 - `SliceAIKit/Sources/Orchestration/Output/SideEffectExecutor.swift`
 - `SliceAIKit/Sources/Orchestration/Output/TextReplacementClient.swift`
+- `SliceAIKit/Sources/Orchestration/Output/FinalDisplaySinks.swift`
 - `SliceAIKit/Sources/Orchestration/Engine/ExecutionEngine.swift`
 - `SliceAIKit/Sources/Orchestration/Engine/ExecutionEngine+OutputLifecycle.swift`
 - `SliceAIKit/Sources/Orchestration/Engine/ExecutionEngine+Steps.swift`
 - `SliceAIKit/Sources/Orchestration/Flow/FlowContext.swift`
+- `SliceAIKit/Sources/Windowing/BubblePanel.swift`
+- `SliceAIKit/Sources/Windowing/StructuredResultState.swift`
+- `SliceAIKit/Sources/Windowing/StructuredResultView.swift`
+- `SliceAIKit/Sources/Windowing/ResultPanel.swift`
+- `SliceAIKit/Sources/Windowing/ResultContentView.swift`
 - `SliceAIKit/Tests/OrchestrationTests/Helpers/MockOutputDispatcher.swift`
 - `SliceAIKit/Tests/OrchestrationTests/Output/OutputLifecycleTests.swift`
 - `SliceAIKit/Tests/OrchestrationTests/Output/SideEffectExecutorTests.swift`
 - `SliceAIKit/Tests/OrchestrationTests/Output/OutputDispatcherFallbackTests.swift`
 - `SliceAIKit/Tests/OrchestrationTests/Output/ReplaceDisplayModeTests.swift`
+- `SliceAIKit/Tests/OrchestrationTests/Output/BubbleStructuredDisplayModeTests.swift`
 - `SliceAIKit/Tests/OrchestrationTests/OutputDispatcherTests.swift`
+- `SliceAIKit/Tests/WindowingTests/StructuredResultViewStateTests.swift`
 - `SliceAIApp/AppContextAdapters.swift`
 - `SliceAIApp/AppContainer.swift`
 - `SliceAIApp/AppDelegate+Execution.swift`
+- `SliceAIKit/Sources/SettingsUI/ToolEditorView.swift`
+- `SliceAIKit/Sources/SettingsUI/ToolEditorView+Support.swift`
 - `SliceAIKit/Sources/SettingsUI/ToolEditorView+Sections.swift`
 
 ## 下一步
 
-提交 `.replace` 后进入 plan Task 5：`.bubble` 与 `.structured` DisplayMode。
+提交 `.bubble/.structured` 后进入 plan Task 6：TTS capability。

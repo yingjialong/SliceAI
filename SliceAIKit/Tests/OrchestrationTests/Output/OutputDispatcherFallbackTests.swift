@@ -3,7 +3,7 @@ import SliceCore
 import XCTest
 @testable import Orchestration
 
-/// D-30b：未完成的展示模式 fallback 到 windowSink，已实现模式不能落窗。
+/// D-30b：非 window 展示模式不能落窗。
 final class OutputDispatcherFallbackTests: XCTestCase {
 
     /// 测试用 window sink，记录 OutputDispatcher 实际投递的 chunk。
@@ -16,23 +16,9 @@ final class OutputDispatcherFallbackTests: XCTestCase {
         }
     }
 
-    /// 验证 bubble 模式 fallback 到 windowSink。
-    func test_handle_bubble_fallsBack() async throws {
-        let spy = SpyWindowSink()
-        let dispatcher = OutputDispatcher(windowSink: spy)
-        let invocationId = UUID()
-
-        let outcome = try await dispatcher.handle(
-            chunk: "hello",
-            mode: .bubble,
-            invocationId: invocationId
-        )
-
-        XCTAssertEqual(outcome, .delivered)
-        let calls = await spy.calls
-        XCTAssertEqual(calls.count, 1)
-        XCTAssertEqual(calls[0].chunk, "hello")
-        XCTAssertEqual(calls[0].invocationId, invocationId)
+    /// 验证旧 API 下 bubble 模式不再 fallback 到 windowSink。
+    func test_handle_bubble_doesNotWriteWindowSink() async throws {
+        try await assertDoesNotWriteWindow(mode: .bubble)
     }
 
     /// 验证旧 API 下 replace 模式不再 fallback 到 windowSink。
@@ -50,9 +36,9 @@ final class OutputDispatcherFallbackTests: XCTestCase {
         try await assertDoesNotWriteWindow(mode: .silent)
     }
 
-    /// 验证 structured 模式 fallback 到 windowSink。
-    func test_handle_structured_fallsBack() async throws {
-        try await assertFallsBack(mode: .structured)
+    /// 验证旧 API 下 structured 模式不再 fallback 到 windowSink。
+    func test_handle_structured_doesNotWriteWindowSink() async throws {
+        try await assertDoesNotWriteWindow(mode: .structured)
     }
 
     /// 验证 window 模式维持直通行为。
@@ -73,23 +59,6 @@ final class OutputDispatcherFallbackTests: XCTestCase {
 
         let calls = await spy.calls
         XCTAssertEqual(calls.count, 5)
-    }
-
-    /// 参数化验证未实现的展示模式会 fallback 到 windowSink。
-    private func assertFallsBack(mode: DisplayMode) async throws {
-        let spy = SpyWindowSink()
-        let dispatcher = OutputDispatcher(windowSink: spy)
-
-        let outcome = try await dispatcher.handle(
-            chunk: "x",
-            mode: mode,
-            invocationId: UUID()
-        )
-
-        XCTAssertEqual(outcome, .delivered)
-        let calls = await spy.calls
-        XCTAssertEqual(calls.count, 1)
-        XCTAssertEqual(calls[0].chunk, "x")
     }
 
     /// 参数化验证已实现但非 window 的模式不会写 windowSink。

@@ -112,11 +112,11 @@ extension SliceCore.DisplayMode {
     var displayLabel: String {
         switch self {
         case .window:     return "浮窗"
-        case .bubble:     return "气泡（v0.2）"
-        case .replace:    return "替换（v0.2）"
+        case .bubble:     return "气泡"
+        case .replace:    return "替换"
         case .file:       return "file"
         case .silent:     return "silent"
-        case .structured: return "structured"
+        case .structured: return "结构化"
         }
     }
 }

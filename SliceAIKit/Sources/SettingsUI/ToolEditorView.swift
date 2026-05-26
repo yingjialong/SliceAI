@@ -36,8 +36,8 @@ public struct ToolEditorView: View {
     /// 对话框里待输入的变量名
     @State var newVariableKey = ""
 
-    /// v0.2 设置页可编辑的展示模式白名单，避免暴露尚未实现的 file/silent/structured
-    static let editableDisplayModes: [SliceCore.DisplayMode] = [.window, .bubble, .replace]
+    /// 设置页可编辑的展示模式白名单；file/silent 依赖 side effect 配置，暂不在基础编辑器暴露。
+    static let editableDisplayModes: [SliceCore.DisplayMode] = [.window, .bubble, .replace, .structured]
 
     /// 构造 Tool 编辑视图
     /// - Parameters:

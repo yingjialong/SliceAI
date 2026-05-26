@@ -4,7 +4,9 @@ import ApplicationServices
 import Foundation
 import Orchestration
 import OSLog
-import UserNotifications
+import SliceCore
+@preconcurrency import UserNotifications
+import Windowing
 
 private let appContextAdaptersLog = Logger(subsystem: "com.sliceai.app", category: "AppContextAdapters")
 
@@ -107,6 +109,75 @@ final class AppTextReplacementClient: TextReplacementClient, @unchecked Sendable
                 trigger: nil
             )
             center.add(request)
+        }
+    }
+}
+
+/// App 层 bubble 输出 sink。
+///
+/// 该类型把 Orchestration 的 final text 展示请求桥接到 Windowing 的 `BubblePanel`；
+/// 日志只记录长度与 invocation，不记录模型输出正文。
+final class AppBubbleOutputSink: BubbleOutputSink, @unchecked Sendable {
+
+    /// 注入的气泡面板。
+    private let panel: BubblePanel
+
+    /// 构造 bubble sink。
+    /// - Parameter panel: AppContainer 持有的气泡面板。
+    init(panel: BubblePanel) {
+        self.panel = panel
+    }
+
+    /// 展示 bubble final text。
+    /// - Parameters:
+    ///   - finalText: LLM 完整最终输出。
+    ///   - context: 当前输出上下文。
+    func showBubble(finalText: String, context: OutputInvocationContext) async throws {
+        let logger = Logger(subsystem: "com.sliceai.app", category: "AppContextAdapters")
+        let length = finalText.count
+        logger.debug(
+            "bubble show id=\(context.invocationId, privacy: .public) len=\(length, privacy: .public)"
+        )
+        await MainActor.run {
+            panel.show(text: finalText, anchor: context.screenAnchor)
+        }
+    }
+}
+
+/// App 层 structured 输出 sink。
+///
+/// 解析失败会抛出受控 `SliceError`，由 AppDelegate 统一写入 ResultPanel 错误态。
+final class AppStructuredOutputSink: StructuredOutputSink, @unchecked Sendable {
+
+    /// 注入的结果面板。
+    private let panel: ResultPanel
+
+    /// 构造 structured sink。
+    /// - Parameter panel: AppContainer 持有的结果面板。
+    init(panel: ResultPanel) {
+        self.panel = panel
+    }
+
+    /// 展示 structured final text。
+    /// - Parameters:
+    ///   - finalText: LLM 完整最终输出，预期为顶层 JSON object。
+    ///   - context: 当前输出上下文。
+    func showStructured(finalText: String, context: OutputInvocationContext) async throws {
+        let logger = Logger(subsystem: "com.sliceai.app", category: "AppContextAdapters")
+        do {
+            let fields = try StructuredResultParser.parseObject(from: finalText)
+            let fieldCount = fields.count
+            logger.debug(
+                "structured show id=\(context.invocationId, privacy: .public) fields=\(fieldCount, privacy: .public)"
+            )
+            await MainActor.run {
+                panel.showStructured(fields: fields, rawText: finalText)
+            }
+        } catch {
+            logger.error(
+                "structured sink parse failed invocation=\(context.invocationId, privacy: .public)"
+            )
+            throw SliceError.execution(.unknown("structured result parse failed"))
         }
     }
 }

@@ -17,8 +17,8 @@
 |---|---|
 | 最后更新 | 2026-05-26 |
 | 当前 Phase | **Phase 2 Skill + 多 DisplayMode** |
-| 当前 Milestone | **Task 63 Phase 2 completion 进行中；Output lifecycle / SideEffect executor / `.silent` / `.file` / `.replace` 已完成** |
-| 下一个动作 | 按 TDD 实施 `.bubble` 与 `.structured` DisplayMode，然后完成 TTS、English Tutor |
+| 当前 Milestone | **Task 63 Phase 2 completion 进行中；Output lifecycle / SideEffect executor / `.silent` / `.file` / `.replace` / `.bubble` / `.structured` 已完成** |
+| 下一个动作 | 按 TDD 实施 TTS capability，然后加入 English Tutor |
 | 阻塞 | 无已知产品代码阻塞；`v0.3.0` draft release 已生成并校验通过，但用户已决定暂缓人工发布 |
 
 **Milestone 状态**
@@ -38,7 +38,7 @@
 | 2 | Skill E2E Validation | ✅ 已完成：3 个本地 Claude / Codex 风格 skill E2E 与 full gate 均通过 |
 | 2 | Public Skill Repository Smoke | ✅ 已完成：3 个公开仓库 / 9 个真实 skill 的扫描、解析、启用和 `SKILL.md` 加载 smoke 通过 |
 | 2 | Supporting Files Read-Only Loading | ✅ 已完成：`references/` 与文本型 `assets/` 可按需只读加载；`scripts/` 仍不读取、不执行 |
-| 2 | Phase 2 Completion | 🟨 Task 63 进行中：Output lifecycle、SideEffect executor、`.silent`、`.file`、`.replace` 已完成；`.bubble/.structured`、TTS、English Tutor 待做 |
+| 2 | Phase 2 Completion | 🟨 Task 63 进行中：Output lifecycle、SideEffect executor、`.silent`、`.file`、`.replace`、`.bubble`、`.structured` 已完成；TTS、English Tutor 和最终 smoke 待做 |
 | 3–5 | — | 🟦 Directional，进入前需重新 spec |
 
 ---
@@ -75,7 +75,7 @@
 |---|---|---|---|---|---|
 | **0** | 底层重构 | ✅ 已完成并正式发布 `v0.2.0` | 15–21 (M1+M2+M3) | **无**（只重构） | Orchestration + Capabilities 骨架、Tool 三态、ExecutionSeed/ResolvedContext、Permission + Provenance + PermissionGraph + PathSandbox hook、v2 schema + 独立 config 路径 |
 | **1** | MCP + Context 主干 | ✅ 已完成；`v0.3.0` tag + GitHub draft release 已生成，人工发布暂缓 | 20–30 | MCP 支持 / 5 个核心 ContextProvider / Per-Tool Hotkey / 基础自定义 Agent Tool | MCPClient（stdio + Streamable HTTP）+ MCPServersPage + AgentExecutor + Agent Tool 编辑器 + `web-search-summarize` 首个真 Agent Tool |
-| **2** | Skill + 多 DisplayMode | 🟨 已完成 Skill Registry MVP、本地 Skill E2E、公开仓库 smoke、supporting files 只读加载、Output lifecycle、SideEffect executor、`.silent`、`.file`、`.replace`；其余 DisplayMode 仍在实施 | — | Skill 接入 / replace / bubble / structured / TTS | Skill registry 和 `.replace` 已合入本分支；`.bubble/.structured`、TTS、English Tutor 仍待做 |
+| **2** | Skill + 多 DisplayMode | 🟨 已完成 Skill Registry MVP、本地 Skill E2E、公开仓库 smoke、supporting files 只读加载、Output lifecycle、SideEffect executor、`.silent`、`.file`、`.replace`、`.bubble`、`.structured` | — | Skill 接入 / replace / bubble / structured / TTS | Skill registry 和多 DisplayMode 已在本分支推进；TTS、English Tutor 和最终 smoke 仍待做 |
 | **3** | Prompt IDE + 本地模型 | Directional | — | Playground / A-B / Ollama & Anthropic 原生 / Memory | 进入前重新 spec |
 | **4** | 生态与分享 | Directional | — | Tool Pack / Marketplace / SliceAI as MCP server / Shortcuts / Services | 进入前重新 spec；Pack 签名体系在 §3.9.4 已埋 hook |
 | **5** | 高级编排 | Directional | — | Pipeline / 智能路由 / Smart Actions | 进入前重新 spec |
@@ -513,8 +513,8 @@ fi
 | 6 | 2 | DisplayMode 设计冻结与 app 成功率矩阵 | 完成 `setSelectedText` 在 Safari / Notes / Xcode / VSCode / Slack / Figma / Discord 的实测表 | 待做 |
 | 7 | 2 | `Windowing/BubblePanel` | 小气泡展示、自动消失、定位、降级行为和测试 | 待做 |
 | 8 | 2 | `Windowing/InlineReplaceOverlay` | AX `setSelectedText`、paste fallback、确认 / 撤销浮条 | 部分完成：AX 替换与复制通知 fallback 已完成；确认 / 撤销浮条待做 |
-| 9 | 2 | `Windowing/StructuredResultView` | JSON Schema / structured output 的动态表单或表格渲染 | 待做 |
-| 10 | 2 | `OutputDispatcher` 多 sink 落地 | `.silent`、`.file`、`.replace` 已不再 fallback；`.bubble`、`.structured` 仍需独立 sink | 进行中 |
+| 9 | 2 | `Windowing/StructuredResultView` | 顶层 JSON object 的结构化字段渲染；后续 English Tutor 会验证真实输出契约 | 完成 |
+| 10 | 2 | `OutputDispatcher` 多 sink 落地 | `.silent`、`.file`、`.replace`、`.bubble`、`.structured` 已不再 fallback；TTS 仍待接入真实 capability | 进行中 |
 | 11 | 2 | `Capabilities/TTSCapability` | AVSpeech 与远端 TTS provider 切换、权限和错误处理 | 待做 |
 | 12 | 2 | `english-tutor` 官方 Tool Pack | 语法分析、改写、朗读、结构化结果和 skill 绑定 | 待做 |
 | 13 | 2 | Phase 2 E2E / 文档 / 回归 | Skill、DisplayMode、TTS、English Tutor 的自动化与实机回归 | 待做 |
@@ -570,7 +570,7 @@ fi
 
 **目标**：把 Anthropic Skills 规范的 skill 包引入；`replace / bubble / structured / silent` 四种 DisplayMode 真正可用。
 
-**当前进度**：Skill Registry MVP、真实本地 Skill E2E、公开 skill 仓库 smoke、supporting files 只读加载、Output lifecycle、SideEffect executor、`.silent`、`.file` 与 `.replace` DisplayMode 已完成。Task 63 已冻结 Phase 2 completion spec / plan；当前目标是按 TDD 完成 `.bubble/.structured`、TTS 和 English Tutor。Skill scripts 执行明确不进入 Phase 2 completion。
+**当前进度**：Skill Registry MVP、真实本地 Skill E2E、公开 skill 仓库 smoke、supporting files 只读加载、Output lifecycle、SideEffect executor、`.silent`、`.file`、`.replace`、`.bubble` 与 `.structured` DisplayMode 已完成。Task 63 已冻结 Phase 2 completion spec / plan；当前目标是按 TDD 完成 TTS 和 English Tutor。Skill scripts 执行明确不进入 Phase 2 completion。
 
 **已实现的 MVP 边界**：
 
@@ -596,7 +596,7 @@ fi
 - [ ] `Windowing/InlineReplaceOverlay`（AX `setSelectedText` + 确认撤销浮条）
 - [ ] `Windowing/StructuredResultView`（JSONSchema → SwiftUI 表单）
 - [ ] `Capabilities/TTSCapability`（AVSpeech + OpenAI TTS 切换）
-- [ ] `Orchestration/OutputDispatcher` 填充所有 DisplayMode（`.silent`、`.file`、`.replace` 已完成；`.bubble`、`.structured` 待做）
+- [x] `Orchestration/OutputDispatcher` 填充所有 Phase 2 DisplayMode（`.silent`、`.file`、`.replace`、`.bubble`、`.structured` 已完成）
 - [x] Anthropic / OpenAI / Codex Skills 仓库 smoke（扫描、解析、启用和 `SKILL.md` 加载）
 - [ ] 新内置 Tool Pack：`english-tutor`
 
@@ -605,7 +605,7 @@ fi
 - [ ] 至少 3 个公开 Anthropic Skill 能在 SliceAI 中直接工作
 - [ ] `english-tutor` Tool 能触发"语法分析 + 改写 + 朗读"全流程
 - [ ] `replace` 模式在 Notes / VSCode 上通过；Figma / Slack 降级为复制 + 通知
-- [ ] `structured` 模式支持动态表单渲染（至少 5 种字段类型）
+- [x] `structured` 模式支持顶层 JSON object 渲染（string / number / bool / array / object / null）
 
 **Open questions 必答**（spec §5.3 Q1 / Q2）：
 
@@ -1152,4 +1152,11 @@ fi
 - App 层 `AppTextReplacementClient` 先尝试 AX `kAXSelectedTextAttribute` 替换；失败时写剪贴板并发送本地通知，日志不记录用户文本。
 - AppDelegate 对 `.replace` / `.file` / `.silent` 不再提前打开空 ResultPanel；失败时才打开面板展示错误。
 - 验证通过 Replace / OutputDispatcher / OutputLifecycle / ExecutionEngine focused tests、touched Swift lint 和 App Debug build。
-- 当前代码尚未改业务逻辑；下一步从 Output lifecycle failing tests 开始按 TDD 实施。
+
+### 2026-05-26 — Phase 2 Bubble / Structured DisplayMode 完成
+
+- 新增 `BubbleOutputSink` / `StructuredOutputSink`，`OutputDispatcher` 对 `.bubble` 与 `.structured` 的 chunk 阶段不写 window，finish 阶段使用完整 final text 调用对应 sink。
+- 新增 `BubblePanel`、`BubblePresentationState`、`StructuredResultParser` 和 `StructuredResultView`；structured 顶层必须是 JSON object，支持 string / number / bool / array / object / null。
+- ResultPanel 可显示 structured 字段视图；`.bubble` 不再提前打开空 ResultPanel，finish 后展示自动消失气泡。
+- Settings Tool Editor 已开放 `.structured` 展示模式；`.file` / `.silent` 因依赖高级 outputBinding，暂不在基础编辑器暴露。
+- 验证通过 Windowing / OutputDispatcher / OutputLifecycle focused tests 和 App Debug build。

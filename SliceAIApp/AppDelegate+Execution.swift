@@ -221,13 +221,13 @@ extension AppDelegate {
 
     /// 判断执行开始时是否需要打开 ResultPanel。
     ///
-    /// `.bubble` / `.structured` 在当前切片还未有独立 sink，仍走 window fallback；
-    /// `.replace` / `.file` / `.silent` 是 final-only 或 side-only 模式，不应打开空面板。
+    /// `.structured` 需要先打开 ResultPanel 展示等待态和 tool-call 生命周期；
+    /// `.bubble` / `.replace` / `.file` / `.silent` 是 final-only 或 side-only 模式，不应打开空面板。
     private static func shouldOpenResultPanelInitially(for mode: DisplayMode) -> Bool {
         switch mode {
-        case .window, .bubble, .structured:
+        case .window, .structured:
             return true
-        case .replace, .file, .silent:
+        case .bubble, .replace, .file, .silent:
             return false
         }
     }
