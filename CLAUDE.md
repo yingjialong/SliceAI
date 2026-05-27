@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 SliceAI 是 macOS 原生、开源的划词触发 LLM 工具栏。划词后弹出浮条工具栏（PopClip 风格），或按 `⌥Space` 调出命令面板（Raycast 风格），通过 OpenAI 兼容协议调用大模型并流式渲染结果。
 
 - 平台：macOS 14 Sonoma+，Xcode 26+，Swift 6.0
-- 状态：Phase 2 Skill Registry MVP、真实本地 Skill E2E、公开 skill 仓库 smoke、supporting files 只读加载、非 window DisplayMode、本地 TTS、English Tutor 默认工具和真实 App smoke 已完成；`v0.2.0` 已正式发布，`v0.3.0` tag 与 GitHub draft release 已生成但用户暂缓人工发布（unsigned，不上架 App Store，需 Accessibility 权限）
+- 状态：Phase 2 Skill Registry MVP、真实本地 Skill E2E、公开 skill 仓库 smoke、supporting files 只读加载、非 window DisplayMode、本地 TTS、English Tutor 默认工具和真实 App smoke 已完成；用户已选择跳过 Phase 2 release，下一步进入 Phase 3 Prompt IDE + 本地模型规格收敛；`v0.2.0` 已正式发布，`v0.3.0` tag 与 GitHub draft release 已生成但用户暂缓人工发布（unsigned，不上架 App Store，需 Accessibility 权限）
 
 ## 常用命令
 
