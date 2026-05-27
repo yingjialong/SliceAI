@@ -17,13 +17,14 @@ Phase 3 的路线图主题是 Prompt IDE + 本地模型：ToolEditor v2、Prompt
 
 ## Session history
 
-- **2026-05-27 17:28 session 1**：用户决定跳过 Phase 2 发布并换另一台机器继续 Phase 3；本会话新增本 handoff，更新项目状态文档到 Phase 3 kickoff 口径，并准备推送 `codex/phase2-completion` 到 `origin`。
+- **2026-05-27 17:28 session 1**：用户决定跳过 Phase 2 发布并换另一台机器继续 Phase 3；本会话新增本 handoff，更新项目状态文档到 Phase 3 kickoff 口径，并已推送 `codex/phase2-completion` 到 `origin/codex/phase2-completion`。
 
 ## Current code state
 
 - Branch: `codex/phase2-completion`
 - Remote to use on another machine: `origin/codex/phase2-completion`
 - Recent relevant commits:
+  - `7547dbf` docs: prepare phase 3 handoff
   - `bd00105` docs: record phase 2 app smoke
   - `19db1c8` docs: record phase 2 gate status
   - `4413e36` feat: add english tutor tool
@@ -31,7 +32,7 @@ Phase 3 的路线图主题是 Prompt IDE + 本地模型：ToolEditor v2、Prompt
   - `16da58c` feat: add bubble and structured display modes
   - `6affe29` feat: add replace display mode
 - Uncommitted changes:
-  - 本 handoff 创建后会随同一文档 commit 推送；推送完成后另一台机器应看到干净工作区。
+  - 无。推送完成后另一台机器应看到干净工作区。
 - Key files (next session must read):
   - `AGENTS.md`: Codex 工作入口、已完成能力、不应误报能力和常用验证命令。
   - `README.md`: 项目当前状态、功能清单和最近变更记录。

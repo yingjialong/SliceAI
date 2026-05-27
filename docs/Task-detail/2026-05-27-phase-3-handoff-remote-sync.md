@@ -11,7 +11,7 @@
 - [x] 新增跨机器 handoff 文档。
 - [x] 更新项目状态文档到“跳过 Phase 2 release，进入 Phase 3 kickoff”口径。
 - [x] 提交 handoff / 状态文档变更。
-- [ ] 推送 `codex/phase2-completion` 到 `origin`。
+- [x] 推送 `codex/phase2-completion` 到 `origin`。
 
 ## 实施内容
 
@@ -37,4 +37,4 @@
 
 ## 结果
 
-待最终 push 完成后，以本次会话最终答复中的远端分支与 commit hash 为准。
+完成。`codex/phase2-completion` 已推送到 `origin/codex/phase2-completion`，另一台机器可通过 `git fetch origin && git checkout -B codex/phase2-completion origin/codex/phase2-completion` 获取最新代码和 handoff 文档。
