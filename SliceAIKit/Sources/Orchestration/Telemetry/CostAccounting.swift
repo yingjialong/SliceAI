@@ -12,7 +12,7 @@ private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.sel
 ///
 /// 设计要点：
 /// - actor 隔离 sqlite 句柄（`OpaquePointer` 不 `Sendable`，必须串行访问）；
-/// - schema 在 init 时自动建表（`CREATE TABLE IF NOT EXISTS`），无单独迁移流程；
+/// - schema 在 init 时自动建表（`CREATE TABLE IF NOT EXISTS`），并执行轻量幂等迁移；
 /// - `usd` 列存储为 `TEXT`（`record.usd.description` 的 decimal string），避免 `REAL`
 ///   IEEE 754 浮点对金额的精度损失；读取时用 `Decimal(string:)` 还原；
 /// - `recorded_at` 列存储为 `INTEGER`（毫秒级 epoch），给未来精度留余地；
@@ -57,6 +57,7 @@ public actor CostAccounting {
         // 建 schema；失败时 init 抛错，handle 必须先关
         do {
             try Self.createSchema(db: handle)
+            try Self.migrateSchema(db: handle)
         } catch {
             sqlite3_close(handle)
             throw error
@@ -80,8 +81,8 @@ public actor CostAccounting {
     public func record(_ record: CostRecord) throws {
         let sql = """
         INSERT INTO cost_records
-            (invocation_id, tool_id, provider_id, model, input_tokens, output_tokens, usd, recorded_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (invocation_id, tool_id, provider_id, model, input_tokens, output_tokens, usd, recorded_at, source)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         var stmt: OpaquePointer?
         let prepResult = sqlite3_prepare_v2(db, sql, -1, &stmt, nil)
@@ -91,7 +92,7 @@ public actor CostAccounting {
                 .validationFailed("sqlite prepare INSERT failed (code=\(prepResult))")
             )
         }
-        // 绑定 8 个字段（顺序与 SQL 占位符严格一致）
+        // 绑定 9 个字段（顺序与 SQL 占位符严格一致）
         sqlite3_bind_text(stmt, 1, record.invocationId.uuidString, -1, SQLITE_TRANSIENT)
         sqlite3_bind_text(stmt, 2, record.toolId, -1, SQLITE_TRANSIENT)
         sqlite3_bind_text(stmt, 3, record.providerId, -1, SQLITE_TRANSIENT)
@@ -103,6 +104,11 @@ public actor CostAccounting {
         // 毫秒级 epoch；TimeInterval 是 Double 秒，× 1000 后取整为 Int64 毫秒
         let millis = Int64((record.recordedAt.timeIntervalSince1970 * 1000.0).rounded())
         sqlite3_bind_int64(stmt, 8, millis)
+        if let source = record.source?.rawValue {
+            sqlite3_bind_text(stmt, 9, source, -1, SQLITE_TRANSIENT)
+        } else {
+            sqlite3_bind_null(stmt, 9)
+        }
 
         let stepResult = sqlite3_step(stmt)
         guard stepResult == SQLITE_DONE else {
@@ -120,7 +126,7 @@ public actor CostAccounting {
     /// - Throws: `SliceError.configuration(.validationFailed(...))` —— sqlite prepare/step 失败。
     public func findByToolId(_ toolId: String) throws -> [CostRecord] {
         let sql = """
-        SELECT invocation_id, tool_id, provider_id, model, input_tokens, output_tokens, usd, recorded_at
+        SELECT invocation_id, tool_id, provider_id, model, input_tokens, output_tokens, usd, recorded_at, source
         FROM cost_records
         WHERE tool_id = ?
         ORDER BY recorded_at ASC
@@ -211,7 +217,8 @@ public actor CostAccounting {
             input_tokens  INTEGER,
             output_tokens INTEGER,
             usd           TEXT NOT NULL,
-            recorded_at   INTEGER
+            recorded_at   INTEGER,
+            source        TEXT
         )
         """
         var errMsg: UnsafeMutablePointer<CChar>?
@@ -225,11 +232,39 @@ public actor CostAccounting {
         }
     }
 
+    /// 轻量迁移 cost_records，确保旧 sqlite 文件拥有 nullable source 列。
+    private static func migrateSchema(db: OpaquePointer) throws {
+        guard try !tableHasColumn(db: db, table: "cost_records", column: "source") else { return }
+        let sql = "ALTER TABLE cost_records ADD COLUMN source TEXT"
+        let result = sqlite3_exec(db, sql, nil, nil, nil)
+        guard result == SQLITE_OK else {
+            throw SliceError.configuration(
+                .validationFailed("sqlite schema migrate source failed (code=\(result))")
+            )
+        }
+    }
+
+    /// 检查 sqlite 表是否已有指定列。
+    private static func tableHasColumn(db: OpaquePointer, table: String, column: String) throws -> Bool {
+        var stmt: OpaquePointer?
+        let sql = "PRAGMA table_info(\(table))"
+        let prepResult = sqlite3_prepare_v2(db, sql, -1, &stmt, nil)
+        defer { sqlite3_finalize(stmt) }
+        guard prepResult == SQLITE_OK else {
+            throw SliceError.configuration(.validationFailed("sqlite prepare PRAGMA failed"))
+        }
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            guard let nameCStr = sqlite3_column_text(stmt, 1) else { continue }
+            if String(cString: nameCStr) == column { return true }
+        }
+        return false
+    }
+
     /// 把当前 stmt 行解码为 `CostRecord`；任一列读取失败返回 nil。
     ///
     /// 列顺序与 `findByToolId` SQL SELECT 列表严格一致：
     /// 0=invocation_id, 1=tool_id, 2=provider_id, 3=model,
-    /// 4=input_tokens, 5=output_tokens, 6=usd, 7=recorded_at
+    /// 4=input_tokens, 5=output_tokens, 6=usd, 7=recorded_at, 8=source
     private static func decodeRow(stmt: OpaquePointer?) -> CostRecord? {
         // text 列 sqlite3_column_text 返回 const unsigned char*；nil 表示 NULL（理论不会发生）
         guard
@@ -249,6 +284,14 @@ public actor CostAccounting {
         let outputTokens = Int(sqlite3_column_int64(stmt, 5))
         let millis = sqlite3_column_int64(stmt, 7)
         let recordedAt = Date(timeIntervalSince1970: TimeInterval(millis) / 1000.0)
+        let source: ExecutionRunSource?
+        if sqlite3_column_type(stmt, 8) == SQLITE_NULL {
+            source = nil
+        } else if let sourceCStr = sqlite3_column_text(stmt, 8) {
+            source = ExecutionRunSource(rawValue: String(cString: sourceCStr))
+        } else {
+            source = nil
+        }
         return CostRecord(
             invocationId: invocationId,
             toolId: String(cString: toolCStr),
@@ -257,7 +300,8 @@ public actor CostAccounting {
             inputTokens: inputTokens,
             outputTokens: outputTokens,
             usd: usd,
-            recordedAt: recordedAt
+            recordedAt: recordedAt,
+            source: source
         )
     }
 }

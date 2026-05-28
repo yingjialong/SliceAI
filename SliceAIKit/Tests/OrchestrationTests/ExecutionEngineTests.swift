@@ -81,8 +81,15 @@ final class ExecutionEngineTests: XCTestCase {
     }
 
     /// 构造最小 ExecutionSeed 测试 stub
-    /// - Parameter isDryRun: 是否 dry-run；默认 false
-    private func makeStubSeed(isDryRun: Bool = false) -> ExecutionSeed {
+    /// - Parameters:
+    ///   - isDryRun: 是否 dry-run；默认 false。
+    ///   - triggerSource: 触发来源，默认浮条。
+    ///   - runPolicy: 可选运行策略，nil 时沿用旧生产策略推导。
+    private func makeStubSeed(
+        isDryRun: Bool = false,
+        triggerSource: TriggerSource = .floatingToolbar,
+        runPolicy: ExecutionRunPolicy? = nil
+    ) -> ExecutionSeed {
         let snapshot = SelectionSnapshot(
             text: "test selection",
             source: .accessibility,
@@ -102,8 +109,9 @@ final class ExecutionEngineTests: XCTestCase {
             frontApp: app,
             screenAnchor: .zero,
             timestamp: Date(),
-            triggerSource: .floatingToolbar,
-            isDryRun: isDryRun
+            triggerSource: triggerSource,
+            isDryRun: isDryRun,
+            runPolicy: runPolicy
         )
     }
 
@@ -125,7 +133,7 @@ final class ExecutionEngineTests: XCTestCase {
     ///   - output: OutputDispatcher mock；默认 MockOutputDispatcher
     ///   - llmProviderOverride: 测试需要 cancellation / 阻塞行为时注入的自定义 LLMProvider；
     ///     非 nil 时**忽略** `chunks` 并直接走 override。默认 nil → MockLLMProvider(chunks:)。
-    /// - Returns: (ExecutionEngine, broker, audit, output, resolver) 元组，便于断言阶段读出注入实例
+    /// - Returns: (ExecutionEngine, broker, audit, output, resolver, costAccounting) 元组，便于断言阶段读出注入实例
     private func makeEngine(
         broker: MockPermissionBroker? = nil,
         resolver: MockProviderResolver? = nil,
@@ -141,7 +149,8 @@ final class ExecutionEngineTests: XCTestCase {
         broker: MockPermissionBroker,
         audit: MockAuditLog,
         output: MockOutputDispatcher,
-        resolver: MockProviderResolver
+        resolver: MockProviderResolver,
+        costAccounting: CostAccounting
     ) {
         let registry = ContextProviderRegistry(providers: contextProviders)
         let dbURL = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -174,7 +183,7 @@ final class ExecutionEngineTests: XCTestCase {
             output: actualOutput,
             agentExecutor: agentExecutor
         )
-        return (engine, actualBroker, actualAudit, actualOutput, actualResolver)
+        return (engine, actualBroker, actualAudit, actualOutput, actualResolver, costAccounting)
     }
 
     /// 顺序消费 stream 收集所有事件（含正常完成 / 抛错路径）。
@@ -398,6 +407,53 @@ final class ExecutionEngineTests: XCTestCase {
             XCTFail("audit[0] expected .invocationCompleted, got \(entries[0])"); return
         }
         XCTAssertEqual(auditReport.outcome, .dryRunCompleted)
+    }
+
+    /// Playground runPolicy 应覆盖 seed.isDryRun 的旧布尔值，并在 report / cost 中标记 Playground。
+    func test_execute_playgroundRunPolicyMarksReportAndCostSource() async throws {
+        let bundle = try makeEngine(
+            chunks: [ChatChunk(delta: "ok", finishReason: nil)]
+        )
+        let tool = makeStubTool(
+            id: "tool.playground",
+            permissions: [.clipboard],
+            sideEffects: [.copyToClipboard]
+        )
+        let seed = makeStubSeed(
+            isDryRun: false,
+            triggerSource: .playground,
+            runPolicy: .playground(allowMCPToolCalls: false)
+        )
+
+        let events = await collectEvents(from: bundle.engine.execute(tool: tool, seed: seed))
+
+        guard let last = events.last, case .finished(let report) = last else {
+            XCTFail("last event expected .finished, got \(events)")
+            return
+        }
+        XCTAssertEqual(report.outcome, .dryRunCompleted)
+        XCTAssertTrue(report.flags.contains(.dryRun))
+        XCTAssertTrue(report.flags.contains(.playground))
+
+        var skippedFound = false
+        for event in events {
+            if case .sideEffectSkippedDryRun = event { skippedFound = true }
+            if case .sideEffectTriggered = event {
+                XCTFail("playground side effects must stay dry-run, got \(event)")
+                return
+            }
+        }
+        XCTAssertTrue(skippedFound)
+
+        let entries = await bundle.audit.entries
+        guard case .invocationCompleted(let auditReport) = entries.first else {
+            XCTFail("audit first entry expected .invocationCompleted, got \(entries.first as Any)")
+            return
+        }
+        XCTAssertTrue(auditReport.flags.contains(.playground))
+
+        let costRecords = try await bundle.costAccounting.findByToolId("tool.playground")
+        XCTAssertEqual(costRecords.first?.source, .playground)
     }
 
     /// 6. requiresUserConsent (non-dry-run) —— Mock 返回 .requiresUserConsent → .failed(.toolPermission(.notGranted))

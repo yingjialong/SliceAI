@@ -49,8 +49,9 @@ extension ExecutionEngine {
         if Task.isCancelled { return }
 
         // Step 7（续）：sideEffects 逐条 gate；partial-failure 写入 flags
+        let isDryRun = context.runPolicy.sideEffects == .dryRun
         let partialFailure = await runSideEffects(
-            tool: tool, isDryRun: seed.isDryRun, context: context
+            tool: tool, isDryRun: isDryRun, context: context
         )
         if partialFailure { context.flags.insert(.partialFailure) }
         // sideEffects 末尾 cancel 防御：runSideEffects 已 break，此处再查防止跑 cost/audit
@@ -58,8 +59,7 @@ extension ExecutionEngine {
 
         // Step 8/9：CostAccounting + finishSuccess
         await recordCostAndFinishSuccess(
-            tool: tool, provider: provider, usage: promptUsage,
-            isDryRun: seed.isDryRun, context: context
+            tool: tool, provider: provider, usage: promptUsage, context: context
         )
     }
 
@@ -90,12 +90,12 @@ extension ExecutionEngine {
             context: context
         ) else { return }
         if Task.isCancelled { return }
-        let partialFailure = await runSideEffects(tool: tool, isDryRun: seed.isDryRun, context: context)
+        let isDryRun = context.runPolicy.sideEffects == .dryRun
+        let partialFailure = await runSideEffects(tool: tool, isDryRun: isDryRun, context: context)
         if partialFailure { context.flags.insert(.partialFailure) }
         if Task.isCancelled { return }
         await recordCostAndFinishSuccess(
-            tool: tool, provider: provider, usage: usage,
-            isDryRun: seed.isDryRun, context: context
+            tool: tool, provider: provider, usage: usage, context: context
         )
     }
 }

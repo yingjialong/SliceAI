@@ -59,6 +59,15 @@ final class InvocationReportTests: XCTestCase {
         XCTAssertEqual(String(data: data, encoding: .utf8), "\"permissionUndeclared\"")
     }
 
+    /// 验证 Playground flag 使用稳定 JSON raw value，便于审计日志兼容读取。
+    func test_invocationFlag_playgroundCodableRoundtrip() throws {
+        let flag = InvocationFlag.playground
+        let data = try JSONEncoder().encode(flag)
+        let decoded = try JSONDecoder().decode(InvocationFlag.self, from: data)
+        XCTAssertEqual(decoded, .playground)
+        XCTAssertEqual(String(data: data, encoding: .utf8), "\"playground\"")
+    }
+
     func test_errorKind_from_mapsAllSliceErrorCases() {
         // 4 个 M1 SliceError 顶层 case 必须各自映射到对应的 ErrorKind；
         // Task 5/7 扩展 SliceError 时本测试 + ErrorKind.from exhaustive switch

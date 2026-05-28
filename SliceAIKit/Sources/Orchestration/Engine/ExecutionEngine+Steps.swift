@@ -328,7 +328,6 @@ extension ExecutionEngine {
         tool: Tool,
         provider: Provider,
         usage: UsageStats,
-        isDryRun: Bool,
         context: FlowContext
     ) async {
         let costUSD = estimateCostUSD(usage: usage)
@@ -344,16 +343,18 @@ extension ExecutionEngine {
             inputTokens: usage.inputTokens,
             outputTokens: usage.outputTokens,
             usd: costUSD,
-            recordedAt: Date()
+            recordedAt: Date(),
+            source: context.runPolicy.source
         ))
         if Task.isCancelled { return }
-        if isDryRun { context.flags.insert(.dryRun) }
+        if context.runPolicy.sideEffects == .dryRun { context.flags.insert(.dryRun) }
+        if context.runPolicy.source == .playground { context.flags.insert(.playground) }
         let report = makeReport(
             context: context,
             finishedAt: Date(),
             tokens: usage.inputTokens + usage.outputTokens,
             costUSD: costUSD,
-            outcome: isDryRun ? .dryRunCompleted : .success
+            outcome: context.runPolicy.sideEffects == .dryRun ? .dryRunCompleted : .success
         )
         await finishSuccess(report: report, continuation: context.continuation)
     }
@@ -391,6 +392,9 @@ extension ExecutionEngine {
         effective: Set<Permission>,
         context: FlowContext
     ) async {
+        if context.runPolicy.source == .playground {
+            context.flags.insert(.playground)
+        }
         let report = InvocationReport(
             invocationId: context.invocationId,
             toolId: context.toolId,

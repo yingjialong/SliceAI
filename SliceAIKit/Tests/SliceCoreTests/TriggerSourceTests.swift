@@ -5,7 +5,8 @@ final class TriggerSourceTests: XCTestCase {
 
     func test_allCases_stable() {
         XCTAssertEqual(Set(TriggerSource.allCases), [
-            .floatingToolbar, .commandPalette, .hotkey, .shortcutsApp, .urlScheme, .servicesMenu
+            .floatingToolbar, .commandPalette, .hotkey, .playground,
+            .shortcutsApp, .urlScheme, .servicesMenu
         ])
     }
 
@@ -15,6 +16,7 @@ final class TriggerSourceTests: XCTestCase {
         XCTAssertEqual(TriggerSource.floatingToolbar.rawValue, "floatingToolbar")
         XCTAssertEqual(TriggerSource.commandPalette.rawValue, "commandPalette")
         XCTAssertEqual(TriggerSource.hotkey.rawValue, "hotkey")
+        XCTAssertEqual(TriggerSource.playground.rawValue, "playground")
         XCTAssertEqual(TriggerSource.shortcutsApp.rawValue, "shortcutsApp")
         XCTAssertEqual(TriggerSource.urlScheme.rawValue, "urlScheme")
         XCTAssertEqual(TriggerSource.servicesMenu.rawValue, "servicesMenu")

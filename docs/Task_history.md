@@ -4,6 +4,15 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 
 ---
 
+## Task 67 · Phase 3 Task 1 Run Policy And Telemetry Foundation
+
+- **时间**：2026-05-28
+- **描述**：执行 Phase 3 ToolEditor v2 + Prompt Playground MVP implementation plan 的 Task 1，为 Playground 试跑新增 run policy、telemetry source 标记、CostAccounting 轻量迁移，并把策略传递到 ExecutionEngine report / cost / dry-run outcome。
+- **详情**：[docs/Task-detail/2026-05-28-phase-3-task-1-run-policy-telemetry-foundation.md](Task-detail/2026-05-28-phase-3-task-1-run-policy-telemetry-foundation.md)
+- **结果**：完成。已新增 `ExecutionRunPolicy`、`TriggerSource.playground`、`ExecutionSeed.runPolicy` / `effectiveRunPolicy`，InvocationReport / CostRecord 可标记 Playground source，CostAccounting 会幂等迁移旧 sqlite source 列；ExecutionEngine 现在用 run policy 决定权限 dry-run、副作用 dry-run、report flags、cost source 和 dry-run outcome。验证通过 Task 1 focused tests 与 `git diff --check`。
+
+---
+
 ## Task 66 · Phase 3 ToolEditor v2 + Prompt Playground MVP Plan
 
 - **时间**：2026-05-28

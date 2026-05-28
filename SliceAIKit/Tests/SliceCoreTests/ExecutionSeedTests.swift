@@ -30,6 +30,47 @@ final class ExecutionSeedTests: XCTestCase {
         XCTAssertTrue(seed.isDryRun)
     }
 
+    func test_executionSeed_defaultsRunPolicyToNilForBackwardCompatibility() {
+        let seed = ExecutionSeed(
+            invocationId: UUID(),
+            selection: SelectionSnapshot(
+                text: "hello",
+                source: .inputBox,
+                length: 5,
+                language: nil,
+                contentType: .prose
+            ),
+            frontApp: AppSnapshot(bundleId: "com.test", name: "Test", url: nil, windowTitle: nil),
+            screenAnchor: .zero,
+            timestamp: Date(timeIntervalSince1970: 0),
+            triggerSource: .floatingToolbar,
+            isDryRun: false
+        )
+        XCTAssertNil(seed.runPolicy)
+        XCTAssertEqual(seed.effectiveRunPolicy, .production(isDryRun: false))
+    }
+
+    func test_executionSeed_canCarryPlaygroundRunPolicy() {
+        let policy = ExecutionRunPolicy.playground(allowMCPToolCalls: false)
+        let seed = ExecutionSeed(
+            invocationId: UUID(),
+            selection: SelectionSnapshot(
+                text: "hello",
+                source: .inputBox,
+                length: 5,
+                language: nil,
+                contentType: .prose
+            ),
+            frontApp: AppSnapshot(bundleId: "com.test", name: "Test", url: nil, windowTitle: nil),
+            screenAnchor: .zero,
+            timestamp: Date(timeIntervalSince1970: 0),
+            triggerSource: .playground,
+            isDryRun: true,
+            runPolicy: policy
+        )
+        XCTAssertEqual(seed.effectiveRunPolicy, policy)
+    }
+
     func test_equality_sameFields_isEqual() {
         XCTAssertEqual(makeSeed(), makeSeed())
     }
