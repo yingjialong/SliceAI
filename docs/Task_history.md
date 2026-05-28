@@ -4,6 +4,15 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 
 ---
 
+## Task 68 · Phase 3 Task 2 Playground Output Dispatcher
+
+- **时间**：2026-05-28
+- **描述**：执行 Phase 3 ToolEditor v2 + Prompt Playground MVP implementation plan 的 Task 2，新增 Settings Playground 专用 OutputDispatcher，收集 preview 输出快照并确保试跑不触发生产 UI、文件写入、选区替换、剪贴板或气泡副作用。
+- **详情**：[docs/Task-detail/2026-05-28-phase-3-task-2-playground-output-dispatcher.md](Task-detail/2026-05-28-phase-3-task-2-playground-output-dispatcher.md)
+- **结果**：完成。已新增 `PlaygroundOutputDispatcher` 与 `PlaygroundOutputSnapshot`，Playground preview 只记录 begin / chunk / finish / fail 状态，不持有生产输出 sink；focused output tests 通过。
+
+---
+
 ## Task 67 · Phase 3 Task 1 Run Policy And Telemetry Foundation
 
 - **时间**：2026-05-28
