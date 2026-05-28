@@ -17,8 +17,8 @@
 |---|---|
 | 最后更新 | 2026-05-28 |
 | 当前 Phase | **Phase 3 Prompt IDE + 本地模型（kickoff）** |
-| 当前 Milestone | **用户已选择跳过 Phase 2 release；下一步进入 Phase 3 spec 收敛** |
-| 下一个动作 | 用户 review 修订后的 Phase 3 ToolEditor v2 + Prompt Playground MVP spec；确认后编写 implementation plan |
+| 当前 Milestone | **Phase 3 ToolEditor v2 + Prompt Playground MVP plan 已生成并通过 Claude review** |
+| 下一个动作 | 用户选择 Subagent-Driven 或 Inline Execution，按 plan 执行 Phase 3 ToolEditor v2 + Prompt Playground MVP |
 | 阻塞 | 无已知产品代码阻塞；`v0.3.0` draft release 已生成并校验通过，但用户已决定暂缓人工发布 |
 
 **Milestone 状态**
@@ -76,7 +76,7 @@
 | **0** | 底层重构 | ✅ 已完成并正式发布 `v0.2.0` | 15–21 (M1+M2+M3) | **无**（只重构） | Orchestration + Capabilities 骨架、Tool 三态、ExecutionSeed/ResolvedContext、Permission + Provenance + PermissionGraph + PathSandbox hook、v2 schema + 独立 config 路径 |
 | **1** | MCP + Context 主干 | ✅ 已完成；`v0.3.0` tag + GitHub draft release 已生成，人工发布暂缓 | 20–30 | MCP 支持 / 5 个核心 ContextProvider / Per-Tool Hotkey / 基础自定义 Agent Tool | MCPClient（stdio + Streamable HTTP）+ MCPServersPage + AgentExecutor + Agent Tool 编辑器 + `web-search-summarize` 首个真 Agent Tool |
 | **2** | Skill + 多 DisplayMode | ✅ 核心 completion 已完成；Phase 2 release 已按用户决定跳过 | — | Skill 接入 / replace / bubble / structured / TTS / English Tutor | Skill Registry MVP、本地 Skill E2E、公开仓库 smoke、supporting files 只读加载、多 DisplayMode、本地 TTS、English Tutor 和真实 App smoke 已完成；Skill diagnostics、scripts 策略和完整 app 成功率矩阵可作为后续 hardening，不阻塞 Phase 3 |
-| **3** | Prompt IDE + 本地模型 | 🟨 Kickoff：需重新 spec | — | Playground / A-B / Ollama & Anthropic 原生 / Memory | 下一步先做 brainstorming/spec；不要直接按 Directional outline 写代码 |
+| **3** | Prompt IDE + 本地模型 | 🟨 首个切片 spec + plan 已完成并通过 Claude review | — | Playground / A-B / Ollama & Anthropic 原生 / Memory | 下一步按 ToolEditor v2 + Prompt Playground MVP plan 执行；不要同时展开 providers / Memory / Cost Panel |
 | **4** | 生态与分享 | Directional | — | Tool Pack / Marketplace / SliceAI as MCP server / Shortcuts / Services | 进入前重新 spec；Pack 签名体系在 §3.9.4 已埋 hook |
 | **5** | 高级编排 | Directional | — | Pipeline / 智能路由 / Smart Actions | 进入前重新 spec |
 
@@ -1193,4 +1193,5 @@ fi
 - 用户明确选择跳过 Phase 2 release，不打 `v0.4.0` tag，不构建 / 发布 DMG，直接继续 Phase 3。
 - 新增跨机器 handoff：`docs/handoffs/2026-05-27-phase-3-prompt-ide-local-models.md`。
 - 2026-05-28 已将 Phase 2 completion 合回 `main`，Phase 3 workstream 迁移到 `origin/codex/phase3-tool-editor-playground`；Phase 3 进入实现前必须完成 spec review 和 implementation plan。
+- 2026-05-28 已生成 implementation plan：`docs/superpowers/plans/2026-05-28-phase-3-tool-editor-playground-mvp.md`；Claude review loop Round 3 已 approve。
 - 推荐首个 Phase 3 切片从 ToolEditor v2 / Prompt Playground MVP 评估开始，避免一次性同时展开原生 providers、Memory 和 Cost Panel。
