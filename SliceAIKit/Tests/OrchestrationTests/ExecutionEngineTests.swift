@@ -554,6 +554,65 @@ final class ExecutionEngineTests: XCTestCase {
         })
     }
 
+    /// 非 dry-run gate 若收到异常的 `.wouldRequireConsent`，必须 fail closed，不能继续读取上下文或调用 LLM。
+    func test_execute_wouldRequireConsentNonDryRun_failsClosedBeforeContextAndLLM() async throws {
+        let broker = MockPermissionBroker(
+            outcomeOverride: .wouldRequireConsent(permission: .clipboard, uxHint: "Clipboard access")
+        )
+        let llmProvider = MockLLMProvider(chunks: [
+            ChatChunk(delta: "must not stream", finishReason: nil)
+        ])
+        let providers: [String: any ContextProvider] = [
+            "clipboard.current": ClipboardCurrentContextProvider(readString: {
+                XCTFail("non-dry-run wouldRequireConsent must fail before ContextCollector reads clipboard")
+                return "clipboard secret"
+            })
+        ]
+        let bundle = try makeEngine(
+            broker: broker,
+            contextProviders: providers,
+            llmProviderOverride: llmProvider
+        )
+        let tool = makeStubTool(
+            permissions: [.clipboard],
+            contexts: [ContextRequest(
+                key: ContextKey(rawValue: "ctx.clipboard"),
+                provider: "clipboard.current",
+                args: [:],
+                cachePolicy: .none,
+                requiredness: .required
+            )]
+        )
+        let seed = makeStubSeed(isDryRun: false)
+
+        let events = await collectEvents(from: bundle.engine.execute(tool: tool, seed: seed))
+
+        let gateCalls = await bundle.broker.gateCalls
+        XCTAssertEqual(gateCalls.count, 1)
+        XCTAssertEqual(gateCalls.first?.effective, [.clipboard])
+        XCTAssertEqual(gateCalls.first?.isDryRun, false)
+        XCTAssertFalse(events.contains { event in
+            if case .permissionWouldBeRequested = event { return true }
+            return false
+        }, "non-dry-run must not downgrade wouldRequireConsent into placeholder event")
+        XCTAssertFalse(events.contains { event in
+            if case .promptRendered = event { return true }
+            return false
+        }, "Prompt preview proves the flow reached PromptExecutor and must not appear")
+        XCTAssertFalse(events.contains { event in
+            if case .llmChunk = event { return true }
+            return false
+        }, "LLM must not run after non-dry-run wouldRequireConsent")
+        XCTAssertTrue(events.contains { event in
+            if case .failed(.toolPermission(.notGranted(.clipboard))) = event { return true }
+            return false
+        })
+
+        let resolverCalls = await bundle.resolver.resolveCalls
+        XCTAssertEqual(resolverCalls, 0, "ProviderResolver must not run after permission gate fail-closed")
+        XCTAssertNil(llmProvider.capturedRequest, "LLMProvider.stream must not receive a request")
+    }
+
     /// Prompt path 应在第一个 LLM chunk 前产出脱敏后的 prompt preview。
     func test_promptPathYieldsPromptRenderedBeforeFirstLLMChunk() async throws {
         let bundle = try makeEngine(

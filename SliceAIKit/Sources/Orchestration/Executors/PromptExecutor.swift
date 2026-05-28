@@ -15,8 +15,10 @@ public enum PromptStreamElement: Sendable, Equatable {
     case chunk(String)
     /// LLM stream 结束时一次性发出，携带最终 usage 估算
     ///
-    /// 出现位置约定：永远是 stream 末尾（在所有 `.chunk(_)` 之后、`continuation.finish()` 之前）。
-    /// 流空也至少发一次 `.completed(.zero)`，让 caller 一律按 `[chunk]* + completed` 模式消费。
+    /// 出现位置约定：永远是 stream 末尾（在可选 `.promptRendered` 与所有 `.chunk(_)`
+    /// 之后、`continuation.finish()` 之前）。
+    /// 流空也至少发一次 `.completed(.zero)`，让 caller 一律按
+    /// `.promptRendered? -> [.chunk]* -> .completed` 模式消费。
     case completed(UsageStats)
 }
 
@@ -86,8 +88,9 @@ public actor PromptExecutor {
     /// 执行一次 prompt 渲染 + LLM 流式调用
     ///
     /// 流式语义：
+    /// - `.promptRendered(String)` 0 或 1 次，在 LLM 前产出脱敏 prompt preview
     /// - `[.chunk(String)]*` 0 或多次（按 LLMProvider 实际产出）
-    /// - 末尾 `.completed(UsageStats)` 恰好 1 次
+    /// - 末尾 `.completed(UsageStats)` 恰好 1 次，仍然是最后一个元素
     /// - 然后 stream finish；任何阶段抛错则 stream finish(throwing:)，已 yield 的 chunk 不撤回
     ///
     /// 调用约定（与 plan §C-10.1 audit 表对齐）：

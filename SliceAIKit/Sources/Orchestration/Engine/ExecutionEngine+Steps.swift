@@ -50,7 +50,8 @@ extension ExecutionEngine {
     /// Step 2.5：PermissionBroker 对整体 effective set 做 gate 决策。
     ///
     /// 返回 false 表示已 finishFailure / 决策失败终止 / 被取消；返回 true 主流程继续。
-    /// `.wouldRequireConsent` 在 dry-run 路径下 yield 占位事件后继续主流程。
+    /// `.wouldRequireConsent` 只允许 dry-run 路径 yield 占位事件后继续主流程；
+    /// 非 dry-run 若收到该 outcome，说明 broker 契约异常，必须 fail closed。
     /// gate await 后查 `Task.isCancelled`，防止取消后仍写 .failed audit / yield 多余事件。
     func runPermissionGate(
         tool: Tool,
@@ -83,6 +84,14 @@ extension ExecutionEngine {
             )
             return false
         case .wouldRequireConsent(let permission, let uxHint):
+            guard isDryRun else {
+                // 防御性 fail-closed：mock / future broker 不应在真实运行返回 dry-run outcome。
+                await finishFailure(
+                    error: .toolPermission(.notGranted(permission: permission)),
+                    effective: effective.union, context: context
+                )
+                return false
+            }
             // dry-run 路径上 broker 返回 wouldRequireConsent —— yield 占位事件后**继续**主流程
             context.continuation.yield(.permissionWouldBeRequested(permission: permission, uxHint: uxHint))
             return true
