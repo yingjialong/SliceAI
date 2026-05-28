@@ -17,7 +17,7 @@ Phase 3 的路线图主题是 Prompt IDE + 本地模型：ToolEditor v2、Prompt
 
 ## Session history
 
-- **2026-05-28 00:00 session 2**：发现另一台机器把 Phase 3 spec 推到了 Phase 2 分支；当前会话将 Phase 3 workstream 迁移到 `codex/phase3-tool-editor-playground`，并准备把 Phase 2 completion 合回 `main`。
+- **2026-05-28 00:00 session 2**：发现另一台机器把 Phase 3 spec 推到了 Phase 2 分支；当前会话已将 Phase 2 completion 合回 `main`，并把 Phase 3 workstream 迁移到 `codex/phase3-tool-editor-playground`。
 - **2026-05-27 17:28 session 1**：用户决定跳过 Phase 2 发布并换另一台机器继续 Phase 3；本会话新增本 handoff，更新项目状态文档到 Phase 3 kickoff 口径，并已推送 `codex/phase2-completion` 到 `origin/codex/phase2-completion`。
 
 ## Current code state
@@ -46,7 +46,7 @@ Phase 3 的路线图主题是 Prompt IDE + 本地模型：ToolEditor v2、Prompt
 ## Decisions and rationale
 
 - 跳过 Phase 2 release 是用户在 2026-05-27 的明确产品决策。不要自动打 `v0.4.0` tag、不要构建/发布 DMG，除非用户重新明确要求。
-- 另一台机器应基于远端分支 `origin/codex/phase3-tool-editor-playground` 继续 Phase 3。Phase 2 completion 应合并回 `main`；Phase 3 spec / plan / implementation 不应继续留在 Phase 2 分支。
+- 另一台机器应基于远端分支 `origin/codex/phase3-tool-editor-playground` 继续 Phase 3。`main` 已包含 Phase 2 completion；Phase 3 spec / plan / implementation 不应继续放在 Phase 2 分支。
 - Phase 3 是 Directional，不是冻结 spec。必须先用 brainstorming / spec / plan 流程重新收敛范围，再进入实现。
 - 推荐优先切片是 ToolEditor v2 / Prompt Playground foundation，而不是一次性同时做 Anthropic、Gemini、Ollama、Memory 和 Cost Panel。原因是当前 SettingsUI、ExecutionEngine、Output lifecycle 和 dry-run / permission event 结构已经能支撑 Playground MVP，风险更可控。
 - Phase 2 的 Skill diagnostics、scripts 策略、完整 app 成功率矩阵和 Phase 2 release 均未完成，但用户选择不把它们作为进入 Phase 3 的 blocker。
