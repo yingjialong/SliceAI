@@ -86,6 +86,73 @@ final class ToolPlaygroundStateTests: XCTestCase {
         XCTAssertEqual(state.errorMessage, SliceError.provider(.unauthorized).userMessage)
     }
 
+    /// failed 事件应清理上一轮 run-scoped 状态，避免非法草稿错误展示旧输出。
+    func test_failedClearsPreviousRunScopedState() {
+        var state = ToolPlaygroundState()
+        let tool = makeTool(displayMode: .window)
+
+        state.reduce(.started(invocationId: UUID()), tool: tool)
+        state.reduce(.promptRendered(preview: "old prompt"), tool: tool)
+        state.reduce(.permissionWouldBeRequested(permission: .clipboard, uxHint: "Old permission"), tool: tool)
+        state.reduce(
+            .toolCallProposed(id: UUID(), ref: MCPToolRef(server: "s", tool: "t"), argsDescription: "{}"),
+            tool: tool
+        )
+        state.reduce(.sideEffectSkippedDryRun(.copyToClipboard), tool: tool)
+        state.reduce(.llmChunk(delta: "old result"), tool: tool)
+        state.reduce(.finished(report: .stub(flags: [.playground], outcome: .dryRunCompleted)), tool: tool)
+
+        state.reduce(.failed(.provider(.unauthorized)), tool: tool)
+
+        XCTAssertEqual(state.streamedText, "")
+        XCTAssertEqual(state.promptPreview, "")
+        XCTAssertEqual(state.toolCallRows, [])
+        XCTAssertEqual(state.permissionRows, [])
+        XCTAssertEqual(state.skippedSideEffects, [])
+        XCTAssertNil(state.lastReport)
+        XCTAssertEqual(state.reportSummary, "")
+        XCTAssertEqual(state.displayPreview.summary, "")
+        XCTAssertEqual(state.errorMessage, SliceError.provider(.unauthorized).userMessage)
+        XCTAssertEqual(state.status, .failed(SliceError.provider(.unauthorized).userMessage))
+    }
+
+    /// structured started 初始态不应把空内容误报为 parse error。
+    func test_startedStructuredDoesNotShowParseErrorForEmptyText() {
+        var state = ToolPlaygroundState()
+        let tool = makeTool(displayMode: .structured)
+
+        state.reduce(.started(invocationId: UUID()), tool: tool)
+
+        XCTAssertEqual(state.displayPreview.kind, .structured)
+        XCTAssertFalse(state.displayPreview.summary.contains("parse error"))
+    }
+
+    /// structured 非空非法 JSON 或非 object JSON 应返回受控 parse error。
+    func test_finishStructuredReportsParseErrorForInvalidOrNonObjectJSON() {
+        let tool = makeTool(displayMode: .structured)
+
+        var invalidState = ToolPlaygroundState()
+        invalidState.reduce(.llmChunk(delta: "not json"), tool: tool)
+        invalidState.reduce(.finished(report: .stub(flags: [.playground], outcome: .dryRunCompleted)), tool: tool)
+
+        XCTAssertEqual(invalidState.displayPreview.summary, "structured parse error")
+
+        var arrayState = ToolPlaygroundState()
+        arrayState.reduce(.llmChunk(delta: #"[{"word":"hello"}]"#), tool: tool)
+        arrayState.reduce(.finished(report: .stub(flags: [.playground], outcome: .dryRunCompleted)), tool: tool)
+
+        XCTAssertEqual(arrayState.displayPreview.summary, "structured parse error")
+    }
+
+    /// 外部 UI 应通过集中方法进入 cancelling 状态。
+    func test_markCancellingSetsCancellingStatus() {
+        var state = ToolPlaygroundState()
+
+        state.markCancelling()
+
+        XCTAssertEqual(state.status, .cancelling)
+    }
+
     /// 构造最小 Prompt Tool，供 reducer 测试聚焦状态行为。
     private func makeTool(displayMode: DisplayMode) -> Tool {
         Tool(

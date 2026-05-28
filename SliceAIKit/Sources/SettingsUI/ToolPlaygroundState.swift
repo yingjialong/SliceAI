@@ -85,20 +85,17 @@ public struct ToolPlaygroundState: Sendable, Equatable {
     /// 构造空状态。
     public init() {}
 
+    /// 标记 Playground 正在取消。
+    public mutating func markCancelling() {
+        status = .cancelling
+    }
+
     /// 根据 ExecutionEvent 更新 UI 状态。
     public mutating func reduce(_ event: ExecutionEvent, tool: Tool) {
         switch event {
         case .started(let invocationId):
+            clearRunScopedFields(for: tool)
             status = .running
-            streamedText = ""
-            promptPreview = ""
-            toolCallRows = []
-            permissionRows = []
-            skippedSideEffects = []
-            lastReport = nil
-            reportSummary = ""
-            errorMessage = nil
-            displayPreview = preview(for: tool, finalText: "")
             Self.logger.debug("Playground reducer started invocation=\(invocationId.uuidString, privacy: .public)")
         case .promptRendered(let preview):
             promptPreview = preview
@@ -126,13 +123,26 @@ public struct ToolPlaygroundState: Sendable, Equatable {
             displayPreview = preview(for: tool, finalText: streamedText)
             Self.logger.debug("Playground reducer finished toolID=\(report.toolId, privacy: .public)")
         case .failed(let error):
+            clearRunScopedFields(for: tool)
             errorMessage = error.userMessage
             status = .failed(error.userMessage)
-            displayPreview = preview(for: tool, finalText: streamedText)
             Self.logger.debug("Playground reducer failed error=\(error.developerContext, privacy: .public)")
         default:
             break
         }
+    }
+
+    /// 清理单次运行作用域内的输出、权限、报告和错误状态。
+    private mutating func clearRunScopedFields(for tool: Tool) {
+        streamedText = ""
+        promptPreview = ""
+        toolCallRows = []
+        permissionRows = []
+        skippedSideEffects = []
+        lastReport = nil
+        reportSummary = ""
+        errorMessage = nil
+        displayPreview = preview(for: tool, finalText: "")
     }
 
     /// 生成 DisplayMode 预览。
@@ -156,6 +166,9 @@ public struct ToolPlaygroundState: Sendable, Equatable {
 
     /// 生成结构化 JSON 预览摘要。
     private func structuredSummary(_ text: String) -> String {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return ""
+        }
         guard let data = text.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             Self.logger.debug("Playground structured preview parse failed")

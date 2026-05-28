@@ -36,13 +36,19 @@
 2. 首次按用户指定命令运行 RED 时被本地 `.build` Swift 6.2/6.3 产物混用截断；改用唯一 `--scratch-path` 后得到预期编译失败，缺少 `ToolPlaygroundState`。
 3. `SettingsUI` target 已在 Task 4 提前依赖 `Orchestration`；本任务补齐 `SettingsUITests` 的 `Orchestration` test dependency，保证 reducer tests 可直接导入 `ExecutionEvent` 与 `InvocationReport`。
 4. 新增 `ToolPlaygroundRunStatus`、`ToolPlaygroundPreviewKind`、`ToolPlaygroundDisplayPreview` 和 `ToolPlaygroundState`。
-5. `reduce(_:,tool:)` 处理 `.started`、`.promptRendered`、`.permissionWouldBeRequested`、`.llmChunk`、MCP tool-call lifecycle、`.sideEffectSkippedDryRun`、`.finished` 和 `.failed`。`.started` 会重置上次运行输出、权限、tool-call、side effect、report 和错误；`.finished` 生成 report summary 与 DisplayMode preview；`.failed` 保留已有 streamed text preview 并展示用户可读错误文案。
+5. `reduce(_:,tool:)` 处理 `.started`、`.promptRendered`、`.permissionWouldBeRequested`、`.llmChunk`、MCP tool-call lifecycle、`.sideEffectSkippedDryRun`、`.finished` 和 `.failed`。`.started` 会重置上次运行输出、权限、tool-call、side effect、report 和错误；`.finished` 生成 report summary 与 DisplayMode preview；`.failed` 清理上一轮 run-scoped 状态后展示用户可读错误文案。
 6. DisplayMode 预览按 `Tool.displayMode` 生成：`.window` 显示 final text，`.bubble` / `.replace` / `.silent` 使用 dry-run 摘要，`.file` 从 `outputBinding.sideEffects.appendToFile` 提取目标路径，`.structured` 只解析顶层 JSON object key。
 7. reducer 增加低敏日志：started 记录 invocation id，finished 记录 tool id，failed 记录 `SliceError.developerContext`，不记录 selection、prompt 原文或 streaming 输出。
 
+### Review follow-up
+
+1. `.failed` 分支现在复用 `clearRunScopedFields(for:)`，与 `.started` 一样清理 `streamedText`、prompt preview、tool-call rows、permission rows、skipped side effects、last report、report summary、error message 和 DisplayMode preview，避免 invalid draft 这类只产出 `.failed` 的路径显示上一轮输出。
+2. `.structured` preview 对空字符串和纯空白返回空摘要，不再把 `.started` 初始态误显示为 `structured parse error`；非空非法 JSON 和 array/non-object JSON 仍返回受控 parse error。
+3. 新增 `markCancelling()` 作为 UI 进入 `.cancelling` 状态的集中入口，不新增 `ExecutionEvent`。
+
 ## 实现结果
 
-已完成 Task 6 范围。SettingsUI 现在具备 Prompt Playground 右侧面板可复用的纯状态 reducer，后续 Task 7 可直接把 `ToolPlaygroundRunner` 的 `ExecutionEvent` 流 reduce 到该状态并渲染 UI。
+已完成 Task 6 范围和 review follow-up。SettingsUI 现在具备 Prompt Playground 右侧面板可复用的纯状态 reducer，后续 Task 7 可直接把 `ToolPlaygroundRunner` 的 `ExecutionEvent` 流 reduce 到该状态并渲染 UI，取消按钮可调用 `state.markCancelling()`。
 
 ## 变动文件清单
 
@@ -59,3 +65,6 @@
 - Focused：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path SliceAIKit --scratch-path /tmp/sliceai-task6-focused-20260528-02 --filter SettingsUITests.ToolPlaygroundStateTests` 通过，5 tests，0 failures。构建阶段仍出现既有 `CapabilitiesTests/MCPServerStoreTests.swift` unused-result warning，非本任务文件。
 - Whitespace：`git diff --check` 通过。
 - Lint note：尝试运行 `swiftlint lint --strict --path SliceAIKit/Sources/SettingsUI/ToolPlaygroundState.swift --path SliceAIKit/Tests/SettingsUITests/ToolPlaygroundStateTests.swift`，本机 `swiftlint` 不在 PATH，未能执行；本任务未扩大安装工具范围。
+- Review follow-up Red：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path SliceAIKit --scratch-path /tmp/sliceai-task6-fix-red-20260528-01 --filter SettingsUITests.ToolPlaygroundStateTests` 编译失败，符合预期；新增测试调用的 `markCancelling()` 尚不存在。
+- Review follow-up Focused：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path SliceAIKit --scratch-path /tmp/sliceai-task6-fix-focused --filter SettingsUITests.ToolPlaygroundStateTests` 通过，9 tests，0 failures。构建阶段仍出现既有 `CapabilitiesTests/MCPServerStoreTests.swift` unused-result warning，非本任务文件。
+- Review follow-up Whitespace：`git diff --check` 通过。
