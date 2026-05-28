@@ -38,4 +38,4 @@ Phase 3 Task 7 后，Tools 页面不再把编辑器直接绑定到 `configuratio
 - 每次运行都有独立 token；重复 Run、Cancel、Clear 或视图消失后，旧 Task 不得继续回写当前 UI state。
 - streaming raw text 存在时仍要展示不同的 DisplayMode dry-run summary，避免 `.file` / `.replace` / `.bubble` / `.silent` 试跑结果只剩原文。
 
-Settings 窗口默认尺寸已调整为 `980×620`，以容纳双栏编辑器和 Playground。
+Settings 窗口默认尺寸已调整为 `980×620`，以容纳双栏编辑器和 Playground。小宽度时自动降级为上下布局仍未实现，记录为后续 UI polish 技术债务。

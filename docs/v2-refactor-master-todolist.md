@@ -616,7 +616,7 @@ fi
 
 **目标**：Tool 编辑器升级为 Prompt Playground；原生支持 Anthropic / Gemini / Ollama 三家；Per-Tool Memory 可用。
 
-**当前进度**：首个实现切片 ToolEditor v2 + Prompt Playground MVP 已完成。MVP 边界是 Settings Tools 页面中的未保存 Tool 草稿编辑、Save/Revert、保存前校验、右侧 Playground 试跑、真实 LLM / ExecutionEngine 复用、preview output、side effects dry-run，以及 MCP tool call 默认禁用并需本次运行显式打开。测试样本持久化、expected output 管理、A/B 双栏对比、版本历史、原生 Anthropic / Gemini / Ollama provider、Memory 和 Cost Panel 仍属于后续切片。
+**当前进度**：首个实现切片 ToolEditor v2 + Prompt Playground MVP 已完成。MVP 边界是 Settings Tools 页面中的未保存 Tool 草稿编辑、Save/Revert、保存前校验、右侧 Playground 试跑、真实 LLM / ExecutionEngine 复用、preview output、side effects dry-run，以及 MCP tool call 默认禁用并需本次运行显式打开。测试样本持久化、expected output 管理、A/B 双栏对比、版本历史、原生 Anthropic / Gemini / Ollama provider、Memory、Cost Panel 和 ToolEditor 小宽度响应式布局仍属于后续切片。
 
 **关键交付**（粗粒度）：
 
@@ -631,6 +631,7 @@ fi
 - [ ] `SettingsUI/Pages/MemoryPage`
 - [ ] Cost Panel
 - [ ] Tool 声明 `privacy: local-only`
+- [ ] ToolEditor v2 小宽度响应式布局（双栏降级为上下布局 / ViewThatFits）
 
 **Definition of Done**（抄自 spec §4.5.3，进入前可重写）：
 
@@ -1205,4 +1206,4 @@ fi
 - 已同步 README、AGENTS、Task history、Orchestration 模块文档和 SettingsUI 模块文档到 MVP 完成口径。
 - Final gate：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path SliceAIKit --scratch-path /tmp/sliceai-task8-full-tests` 通过（882 tests，1 skipped，0 failures）；`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build` 通过（`** BUILD SUCCEEDED **`）；`git diff --check` 通过。
 - SwiftLint 未运行成功：本机 `swiftlint` 不在 PATH，`swiftlint lint --strict` 返回 `zsh:1: command not found: swiftlint`；按任务约束未安装工具。
-- 后续切片仍待重新 spec：样本持久化 / expected output 管理、A/B 双栏对比、版本历史、原生 Anthropic / Gemini / Ollama provider、Memory、Cost Panel。
+- 后续切片仍待重新 spec：样本持久化 / expected output 管理、A/B 双栏对比、版本历史、原生 Anthropic / Gemini / Ollama provider、Memory、Cost Panel、ToolEditor v2 小宽度响应式布局。
