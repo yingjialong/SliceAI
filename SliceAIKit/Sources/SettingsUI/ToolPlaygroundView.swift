@@ -17,6 +17,9 @@ struct ToolPlaygroundView: View {
     /// 当前运行任务；非 nil 时 Cancel 可用。
     @State private var runTask: Task<Void, Never>?
 
+    /// 当前有效运行 token；防止旧 Task 回写新 run 的状态。
+    @State private var activeRunID: UUID?
+
     /// 渲染 Playground 输入、控制和输出区。
     var body: some View {
         VStack(alignment: .leading, spacing: SliceSpacing.base) {
@@ -26,6 +29,9 @@ struct ToolPlaygroundView: View {
             output
         }
         .frame(minWidth: 280, minHeight: 360)
+        .onDisappear {
+            cancelActiveRun()
+        }
     }
 
     /// 顶部标题和 dry-run 状态提示。
@@ -86,7 +92,14 @@ struct ToolPlaygroundView: View {
                         .font(SliceFont.caption)
                         .foregroundColor(SliceColor.error)
                 }
-                Text(state.streamedText.isEmpty ? state.displayPreview.summary : state.streamedText)
+                if shouldShowDisplaySummary {
+                    Text(state.displayPreview.summary)
+                        .font(SliceFont.caption)
+                        .foregroundColor(SliceColor.textSecondary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                Text(primaryOutputText)
                     .font(SliceFont.body)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -118,19 +131,37 @@ struct ToolPlaygroundView: View {
         runner == nil || state.selectionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// 主输出文本；streaming 存在时显示 raw text，否则显示 DisplayMode 摘要。
+    private var primaryOutputText: String {
+        state.streamedText.isEmpty ? state.displayPreview.summary : state.streamedText
+    }
+
+    /// 是否额外展示 DisplayMode dry-run 摘要。
+    private var shouldShowDisplaySummary: Bool {
+        !state.streamedText.isEmpty
+            && !state.displayPreview.summary.isEmpty
+            && state.displayPreview.summary != state.streamedText
+    }
+
     /// 启动一次 Playground 运行。
     private func startRun() {
         guard let runner else { return }
+        let runID = UUID()
+        let previousTask = runTask
+        activeRunID = runID
+        runTask = nil
+        previousTask?.cancel()
+
         let validationErrors = validateBeforeRun()
         guard validationErrors.isEmpty else {
             let message = validationErrors.map { $0.localizedDescription }.joined(separator: "\n")
+            activeRunID = nil
             state.status = .failed(message)
             state.errorMessage = message
             print("[ToolPlaygroundView] startRun blocked by validation errors count=\(validationErrors.count)")
             return
         }
 
-        runTask?.cancel()
         state.status = .running
         let request = ToolPlaygroundRunRequest(
             tool: tool,
@@ -141,33 +172,45 @@ struct ToolPlaygroundView: View {
             allowMCPToolCalls: state.allowMCPToolCalls
         )
         runTask = Task { @MainActor in
+            defer {
+                if activeRunID == runID {
+                    activeRunID = nil
+                    runTask = nil
+                }
+            }
             do {
                 for try await event in runner.run(request) {
+                    guard activeRunID == runID, !Task.isCancelled else {
+                        break
+                    }
                     state.reduce(event, tool: tool)
                 }
             } catch {
+                guard activeRunID == runID, !Task.isCancelled else { return }
                 // 用户主动取消时保留 cancelling 状态，不把取消渲染成失败。
-                if !Task.isCancelled {
-                    state.status = .failed(error.localizedDescription)
-                    state.errorMessage = error.localizedDescription
-                }
+                state.status = .failed(error.localizedDescription)
+                state.errorMessage = error.localizedDescription
             }
-            runTask = nil
         }
     }
 
     /// 取消当前 Playground 运行。
     private func cancelRun() {
         state.markCancelling()
-        runTask?.cancel()
-        runTask = nil
+        cancelActiveRun()
     }
 
     /// 清空 Playground 输入与输出状态。
     private func clearState() {
+        cancelActiveRun()
+        state = ToolPlaygroundState()
+    }
+
+    /// 取消当前 active run，不修改 UI 状态。
+    private func cancelActiveRun() {
+        activeRunID = nil
         runTask?.cancel()
         runTask = nil
-        state = ToolPlaygroundState()
     }
 
     /// 解析用户输入的 URL；空白输入不传入执行上下文。

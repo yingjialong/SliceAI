@@ -260,6 +260,75 @@ final class ToolEditorDraftStateTests: XCTestCase {
         })
     }
 
+    /// 保存 A 草稿时只应合并 A 的 hotkey，不应复活编辑期间已删除的 B hotkey。
+    func test_mergedHotkeysForSavingDraftDoesNotReviveDeletedToolHotkey() {
+        let toolA = makePromptTool(id: "tool-a", name: "A")
+        var currentHotkeys = makeHotkeys()
+        currentHotkeys.tools["tool-a"] = "command+a"
+
+        var staleDraftHotkeys = makeHotkeys()
+        staleDraftHotkeys.tools["tool-a"] = "command+a"
+        staleDraftHotkeys.tools["tool-b"] = "command+b"
+        let draft = ToolEditorDraft(tool: toolA, hotkeys: staleDraftHotkeys)
+
+        let merged = ToolsSettingsPage.mergedHotkeysForSavingDraft(
+            current: currentHotkeys,
+            draft: draft,
+            originalToolId: "tool-a"
+        )
+
+        XCTAssertEqual(merged.tools["tool-a"], "command+a")
+        XCTAssertNil(merged.tools["tool-b"])
+    }
+
+    /// 创建新工具草稿默认视为 dirty，避免新增/切换/拖拽时静默丢弃。
+    func test_unsavedChangesTreatsCreatingSessionAsDirty() {
+        let draft = ToolEditorDraft(tool: makePromptTool(id: "new-tool", name: "New"), hotkeys: makeHotkeys())
+        let session = ToolEditorDraftSession.creating(draft: draft)
+
+        XCTAssertTrue(ToolsSettingsPage.hasUnsavedEditingChanges(
+            session: session,
+            currentTools: [],
+            currentHotkeys: makeHotkeys()
+        ))
+    }
+
+    /// dirty 判断只看当前工具相关 hotkey，不应因为其它工具 hotkey 更新而误拦截。
+    func test_unsavedChangesIgnoresUnrelatedToolHotkeyChanges() {
+        let toolA = makePromptTool(id: "tool-a", name: "A")
+        var currentHotkeys = makeHotkeys()
+        currentHotkeys.tools["tool-b"] = "command+b"
+        var draftHotkeys = makeHotkeys()
+        draftHotkeys.tools["tool-b"] = "command+shift+b"
+        let session = ToolEditorDraftSession.editingExisting(
+            original: toolA,
+            draft: ToolEditorDraft(tool: toolA, hotkeys: draftHotkeys)
+        )
+
+        XCTAssertFalse(ToolsSettingsPage.hasUnsavedEditingChanges(
+            session: session,
+            currentTools: [toolA],
+            currentHotkeys: currentHotkeys
+        ))
+    }
+
+    /// dirty 判断必须能识别当前工具 hotkey 的未保存变更。
+    func test_unsavedChangesDetectsCurrentToolHotkeyChanges() {
+        let toolA = makePromptTool(id: "tool-a", name: "A")
+        var draftHotkeys = makeHotkeys()
+        draftHotkeys.tools["tool-a"] = "command+a"
+        let session = ToolEditorDraftSession.editingExisting(
+            original: toolA,
+            draft: ToolEditorDraft(tool: toolA, hotkeys: draftHotkeys)
+        )
+
+        XCTAssertTrue(ToolsSettingsPage.hasUnsavedEditingChanges(
+            session: session,
+            currentTools: [toolA],
+            currentHotkeys: makeHotkeys()
+        ))
+    }
+
     /// 构造 Prompt Tool fixture。
     /// - Parameters:
     ///   - id: Tool id。

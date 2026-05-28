@@ -9,6 +9,7 @@ extension ToolsSettingsPage {
 
     /// 添加新 Prompt 工具草稿，不立即写入正式配置。
     func addPromptTool() {
+        guard canReplaceEditingSession() else { return }
         let newId = makeNewToolID(prefix: "tool")
         let providerId = viewModel.configuration.providers.first?.id ?? ""
         let prompt = PromptTool(
@@ -46,6 +47,7 @@ extension ToolsSettingsPage {
 
     /// 添加新 Agent 工具草稿，不立即写入正式配置。
     func addAgentTool() {
+        guard canReplaceEditingSession() else { return }
         let newId = makeNewToolID(prefix: "agent")
         let providerId = preferredToolCallingProviderID()
         let agent = AgentTool(
@@ -100,19 +102,26 @@ extension ToolsSettingsPage {
             guard let index = viewModel.configuration.tools.firstIndex(where: { $0.id == original.id }) else {
                 return
             }
+            let mergedHotkeys = Self.mergedHotkeysForSavingDraft(
+                current: viewModel.configuration.hotkeys,
+                draft: draft,
+                originalToolId: original.id
+            )
             viewModel.configuration.tools[index] = draft.tool
-            viewModel.configuration.hotkeys = draft.hotkeys
-            if original.id != draft.tool.id {
-                viewModel.configuration.hotkeys.tools.removeValue(forKey: original.id)
-            }
+            viewModel.configuration.hotkeys = mergedHotkeys
         case .creating(let draft):
             guard !viewModel.configuration.tools.contains(where: { $0.id == draft.tool.id }) else {
                 validationErrors = [.duplicateToolId(draft.tool.id)]
                 print("[ToolsSettingsPage] saveEditingSession: duplicate creating id=\(draft.tool.id)")
                 return
             }
+            let mergedHotkeys = Self.mergedHotkeysForSavingDraft(
+                current: viewModel.configuration.hotkeys,
+                draft: draft,
+                originalToolId: nil
+            )
             viewModel.configuration.tools.append(draft.tool)
-            viewModel.configuration.hotkeys = draft.hotkeys
+            viewModel.configuration.hotkeys = mergedHotkeys
         }
         validationErrors = []
         editingSession = nil
@@ -131,6 +140,107 @@ extension ToolsSettingsPage {
         print("[ToolsSettingsPage] revertEditingSession")
         validationErrors = []
         editingSession = nil
+    }
+
+    /// 合并当前草稿工具的 hotkey，不回写草稿里其它工具的旧快照。
+    /// - Parameters:
+    ///   - current: 保存瞬间的全局 hotkey 配置。
+    ///   - draft: 当前 ToolEditor 草稿。
+    ///   - originalToolId: 编辑已有工具时的原始 id；创建新工具时为 nil。
+    /// - Returns: 只更新当前工具 hotkey 后的新配置。
+    nonisolated static func mergedHotkeysForSavingDraft(
+        current: HotkeyBindings,
+        draft: ToolEditorDraft,
+        originalToolId: String?
+    ) -> HotkeyBindings {
+        var merged = current
+        if let originalToolId, originalToolId != draft.tool.id {
+            merged.tools.removeValue(forKey: originalToolId)
+        }
+
+        // 先删除当前 id，再按草稿显式值或旧 Tool.hotkey fallback 写入，空值表示清除。
+        merged.tools.removeValue(forKey: draft.tool.id)
+        if let rawHotkey = toolHotkeyValue(
+            toolId: draft.tool.id,
+            hotkeys: draft.hotkeys,
+            tool: draft.tool
+        ) {
+            merged.tools[draft.tool.id] = rawHotkey
+        }
+        return merged
+    }
+
+    /// 当前编辑会话是否存在未保存改动。
+    /// - Parameters:
+    ///   - session: 当前 ToolEditor 会话。
+    ///   - currentTools: 保存前的正式工具列表。
+    ///   - currentHotkeys: 保存前的正式 hotkey 配置。
+    /// - Returns: 存在未保存改动时返回 true。
+    nonisolated static func hasUnsavedEditingChanges(
+        session: ToolEditorDraftSession?,
+        currentTools: [Tool],
+        currentHotkeys: HotkeyBindings
+    ) -> Bool {
+        guard let session else { return false }
+        switch session {
+        case .creating:
+            return true
+        case .editingExisting(let original, let draft):
+            let currentTool = currentTools.first { $0.id == original.id } ?? original
+            if draft.tool != currentTool {
+                return true
+            }
+            let currentHotkey = toolHotkeyValue(
+                toolId: currentTool.id,
+                hotkeys: currentHotkeys,
+                tool: currentTool
+            )
+            let draftHotkey = toolHotkeyValue(
+                toolId: draft.tool.id,
+                hotkeys: draft.hotkeys,
+                tool: draft.tool
+            )
+            return currentHotkey != draftHotkey
+        }
+    }
+
+    /// 检查当前编辑会话是否可以被替换或关闭。
+    /// - Returns: 没有未保存改动时返回 true；否则保留当前会话并展示提示。
+    func canReplaceEditingSession() -> Bool {
+        guard Self.hasUnsavedEditingChanges(
+            session: editingSession,
+            currentTools: viewModel.configuration.tools,
+            currentHotkeys: viewModel.configuration.hotkeys
+        ) else {
+            validationErrors = []
+            return true
+        }
+        validationErrors = [.invalidTool(Self.unsavedDraftMessage)]
+        print("[ToolsSettingsPage] replace editing session blocked by unsaved draft")
+        return false
+    }
+
+    /// dirty guard 展示给用户的提示文案。
+    nonisolated static var unsavedDraftMessage: String {
+        "请先保存或撤销当前草稿后再继续。"
+    }
+
+    /// 取某个工具的 hotkey 值，空白字符串按清除处理。
+    /// - Parameters:
+    ///   - toolId: Tool id。
+    ///   - hotkeys: 待读取的 hotkey 配置。
+    ///   - tool: Tool 自身，提供旧 `Tool.hotkey` fallback。
+    /// - Returns: 非空 hotkey 字符串；无 hotkey 时返回 nil。
+    nonisolated private static func toolHotkeyValue(
+        toolId: String,
+        hotkeys: HotkeyBindings,
+        tool: Tool
+    ) -> String? {
+        let raw = hotkeys.tools[toolId] ?? tool.hotkey
+        guard let raw, !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return raw
     }
 
     /// 生成尽量不冲突的新工具 id。

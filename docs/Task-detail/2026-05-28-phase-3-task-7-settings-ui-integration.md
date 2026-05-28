@@ -45,6 +45,14 @@
 8. 删除和拖拽保持原行为：删除仍直接移除工具并走确认 alert；拖拽开始会关闭当前编辑器，避免排序过程中草稿绑定到错误行。
 9. `SettingsScene` 默认 frame 从 `720×520` 调整为 `980×620`，给双栏编辑器和 Playground 预留空间。
 
+### Review follow-up
+
+1. `ToolPlaygroundView` 增加 `activeRunID` token：重复 Run、Cancel、Clear 和 view disappear 都会让旧 Task 停止回写状态；旧 Task 结束时只有 token 仍匹配才会清理 `runTask`。
+2. `ToolPlaygroundView` 增加 `.onDisappear` 取消 active run，关闭编辑器或 Settings 后不继续让后台 Playground run 写 UI 状态。
+3. `ToolPlaygroundView` 输出区在 streaming raw text 之外额外展示非空且不同的 `displayPreview.summary`，让 `.file` / `.replace` / `.bubble` / `.silent` dry-run 摘要可见。
+4. `saveEditingSession()` 不再用草稿里的全局 `HotkeyBindings` 覆盖当前配置；新增 `mergedHotkeysForSavingDraft(...)`，只合并当前草稿工具的 hotkey，避免复活编辑期间已删除工具的 orphan hotkey。
+5. 新增 dirty guard：creating session 默认 dirty；existing session 比较当前正式 Tool 与草稿 Tool，并只比较当前工具相关 hotkey。切换行、新增 Prompt / Agent、开始拖拽时如有未保存改动会保留当前草稿并展示“请先保存或撤销当前草稿后再继续。”
+
 ## 变动文件清单
 
 - `SliceAIKit/Sources/SettingsUI/ToolPlaygroundView.swift`
@@ -64,3 +72,8 @@
 - SettingsUI：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path SliceAIKit --scratch-path /tmp/sliceai-task7-settingsui --filter SettingsUITests` 通过，45 tests，0 failures。构建阶段仍出现既有 `CapabilitiesTests/MCPServerStoreTests.swift` unused-result warning，非本任务文件。
 - App build：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build` 通过，`BUILD SUCCEEDED`。Xcode 仍输出多 destination 选择 warning 和 AppIntents metadata skipped warning，非本任务新增。
 - Whitespace：`git diff --check` 通过，无输出。
+- Review follow-up Red：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path SliceAIKit --scratch-path /tmp/sliceai-task7-fix-red-20260528-01 --filter SettingsUITests.ToolEditorDraftStateTests` 编译失败，符合预期；新增测试调用的 `mergedHotkeysForSavingDraft(...)` 和 `hasUnsavedEditingChanges(...)` 尚不存在。
+- Review follow-up Focused：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path SliceAIKit --scratch-path /tmp/sliceai-task7-fix-focused-20260528-02 --filter SettingsUITests.ToolEditorDraftStateTests` 通过，16 tests，0 failures。构建阶段仍出现既有 `CapabilitiesTests/MCPServerStoreTests.swift` unused-result warning，非本任务文件。
+- Review follow-up SettingsUI：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path SliceAIKit --scratch-path /tmp/sliceai-task7-fix-settingsui --filter SettingsUITests` 通过，49 tests，0 failures。构建阶段仍出现既有 `CapabilitiesTests/MCPServerStoreTests.swift` unused-result warning，非本任务文件。
+- Review follow-up App build：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build` 通过，`BUILD SUCCEEDED`。Xcode 仍输出多 destination 选择 warning 和 AppIntents metadata skipped warning，非本任务新增。
+- Review follow-up Whitespace：`git diff --check` 通过，无输出。

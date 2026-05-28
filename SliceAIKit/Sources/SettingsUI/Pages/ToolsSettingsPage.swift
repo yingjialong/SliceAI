@@ -235,6 +235,7 @@ public struct ToolsSettingsPage: View {
             onToggle: {
                 // 拖动中忽略 tap，避免松手瞬间误触切换
                 guard draggedId == nil else { return }
+                guard canReplaceEditingSession() else { return }
                 withAnimation(SliceAnimation.standard) {
                     if case .editingExisting(let original, _) = editingSession, original.id == tool.id {
                         editingSession = nil
@@ -250,6 +251,7 @@ public struct ToolsSettingsPage: View {
             onDelete: { pendingDeleteId = tool.id },
             onDragStart: {
                 if editingSession != nil {
+                    guard canReplaceEditingSession() else { return }
                     editingSession = nil
                     validationErrors = []
                 }
