@@ -94,7 +94,8 @@ public enum ToolDraftValidator {
         draft: ToolEditorDraft,
         existingTools: [Tool],
         availableSkills: [SliceCore.Skill],
-        originalToolId: String?
+        originalToolId: String?,
+        commandPaletteEnabled: Bool = true
     ) -> [ToolDraftValidationError] {
         var errors: [ToolDraftValidationError] = []
 
@@ -104,6 +105,8 @@ public enum ToolDraftValidator {
 
         do {
             try draft.tool.validate()
+        } catch let error as SliceError {
+            errors.append(.invalidTool(error.userMessage))
         } catch {
             errors.append(.invalidTool(error.localizedDescription))
         }
@@ -112,7 +115,8 @@ public enum ToolDraftValidator {
         errors.append(contentsOf: validateHotkeys(
             draft: draft,
             tools: existingTools,
-            originalToolId: originalToolId
+            originalToolId: originalToolId,
+            commandPaletteEnabled: commandPaletteEnabled
         ))
 
         let originalID = originalToolId ?? "nil"
@@ -139,7 +143,8 @@ public enum ToolDraftValidator {
     private static func validateHotkeys(
         draft: ToolEditorDraft,
         tools: [Tool],
-        originalToolId: String?
+        originalToolId: String?,
+        commandPaletteEnabled: Bool
     ) -> [ToolDraftValidationError] {
         var comparisonTools = tools.filter { tool in
             tool.id != originalToolId && tool.id != draft.tool.id
@@ -151,8 +156,9 @@ public enum ToolDraftValidator {
             bindings: draft.hotkeys,
             tools: comparisonTools
         )
+        let commandPalette = commandPaletteEnabled ? draft.hotkeys.toggleCommandPalette : ""
         let issues = HotkeyBindingValidator.issues(
-            commandPalette: draft.hotkeys.toggleCommandPalette,
+            commandPalette: commandPalette,
             tools: effectiveToolHotkeys
         )
         return issues.compactMap { issue in

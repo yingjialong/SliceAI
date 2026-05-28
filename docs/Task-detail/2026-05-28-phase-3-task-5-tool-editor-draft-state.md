@@ -31,6 +31,8 @@
 
 ## 实施记录
 
+### 初始实现
+
 1. 新增 `ToolEditorDraftStateTests`，覆盖已有 Tool 编辑草稿隔离、创建时重复 id、编辑时保留原 id、disabled/unknown skill、工具热键与命令面板冲突、工具热键与旧 `Tool.hotkey` fallback 冲突、无效工具热键。
 2. 首次按用户指定命令运行 RED 时被本地 `.build` 的 Swift 6.2/6.3 产物混用阻塞；改用唯一 `--scratch-path` 后得到预期编译失败，缺少 `ToolEditorDraftSession`、`ToolEditorDraft` 和 `ToolDraftValidator`。
 3. 新增 `ToolEditorDraft`，保存未提交的 `Tool` 和 `HotkeyBindings` 草稿。
@@ -40,9 +42,15 @@
 7. `ToolDraftValidator` 增加脱敏 debug 日志，只输出 tool id、original id 和错误数量，不记录 prompt、selection 或用户文本。
 8. 更新 `ToolEditorView` 顶部注释和 `tool` 参数文档，明确 v2 binding 可指向本地草稿，只有外层 Save 才写回 `Configuration.tools`。
 
+### Review follow-up
+
+1. `ToolDraftValidator.validate(...)` 新增向后兼容参数 `commandPaletteEnabled: Bool = true`，并传入热键校验路径。命令面板关闭时，校验器会向 `HotkeyBindingValidator.issues(...)` 传空字符串，与生产 `ToolHotkeyRegistration.validRegistrations(in:)` 的行为一致。
+2. `Tool.validate()` 抛出 `SliceError` 时，草稿校验现在使用 `SliceError.userMessage` 生成 `.invalidTool`，其它错误才回落到 `localizedDescription`。
+3. 测试拆分 disabled skill 与 unknown skill 场景，并新增命令面板关闭时不检测 `toggleCommandPalette` 冲突、invalid Tool 使用用户可读文案的回归测试。
+
 ## 实现结果
 
-已完成 Task 5 范围。SettingsUI 现在具备 ToolEditor v2 所需的本地草稿状态和保存前校验基础；后续 Task 7 可以在 Tools 页面接入 Save/Revert UI 时复用该草稿层，避免未保存编辑污染正式配置。
+已完成 Task 5 范围和 review follow-up。SettingsUI 现在具备 ToolEditor v2 所需的本地草稿状态和保存前校验基础；后续 Task 7 可以在 Tools 页面接入 Save/Revert UI 时复用该草稿层，避免未保存编辑污染正式配置。
 
 ## 变动文件清单
 
@@ -58,3 +66,6 @@
 - Red：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path SliceAIKit --scratch-path /tmp/sliceai-task5-red-20260528-01 --filter SettingsUITests.ToolEditorDraftStateTests` 编译失败，符合预期；缺少 `ToolEditorDraftSession`、`ToolEditorDraft` 和 `ToolDraftValidator`。
 - Focused：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path SliceAIKit --scratch-path /tmp/sliceai-task5-focused-20260528-05 --filter 'SettingsUITests.ToolEditorDraftStateTests|SettingsUITests.ToolEditorSkillsBindingTests|SettingsUITests.ToolEditorAgentAllowlistCodecTests'` 通过，14 tests，0 failures。
 - Whitespace：`git diff --check` 通过。
+- Review follow-up Red：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path SliceAIKit --scratch-path /tmp/sliceai-task5-fix-red-20260528-01 --filter SettingsUITests.ToolEditorDraftStateTests` 编译失败，符合预期；新增测试调用的 `commandPaletteEnabled` 参数尚不存在。
+- Review follow-up Focused：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path SliceAIKit --scratch-path /tmp/sliceai-task5-fix-focused --filter 'SettingsUITests.ToolEditorDraftStateTests|SettingsUITests.ToolEditorSkillsBindingTests|SettingsUITests.ToolEditorAgentAllowlistCodecTests'` 通过，17 tests，0 failures。
+- Review follow-up Whitespace：`git diff --check` 通过。

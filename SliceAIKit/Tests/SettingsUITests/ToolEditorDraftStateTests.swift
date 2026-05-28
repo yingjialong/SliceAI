@@ -49,8 +49,8 @@ final class ToolEditorDraftStateTests: XCTestCase {
         XCTAssertFalse(errors.contains(.duplicateToolId("translate")))
     }
 
-    /// Agent Tool 绑定的 skill 必须存在且处于 enabled 状态。
-    func test_validatorRejectsDisabledOrUnknownSkills() {
+    /// Agent Tool 绑定 disabled skill 时应拒绝保存。
+    func test_validatorRejectsDisabledSkills() {
         let skill = Skill(
             id: "english",
             canonicalName: "english",
@@ -86,6 +86,50 @@ final class ToolEditorDraftStateTests: XCTestCase {
         XCTAssertTrue(errors.contains(.skillNotEnabled("english")))
     }
 
+    /// Agent Tool 绑定 registry 中不存在的 skill 时应拒绝保存。
+    func test_validatorRejectsUnknownSkills() {
+        var tool = makeAgentTool(id: "agent")
+        tool.kind = .agent(AgentTool(
+            systemPrompt: "system",
+            initialUserPrompt: "{{selection}}",
+            contexts: [],
+            provider: .fixed(providerId: "openai", modelId: nil),
+            skills: [SkillReference(id: "missing", pinVersion: nil)],
+            mcpAllowlist: [],
+            builtinCapabilities: [],
+            maxSteps: 4,
+            stopCondition: .finalAnswerProvided,
+            toolCallPolicy: nil
+        ))
+
+        let errors = ToolDraftValidator.validate(
+            draft: ToolEditorDraft(tool: tool, hotkeys: makeHotkeys()),
+            existingTools: [tool],
+            availableSkills: [],
+            originalToolId: "agent"
+        )
+
+        XCTAssertTrue(errors.contains(.skillNotEnabled("missing")))
+    }
+
+    /// Tool 结构性校验失败时，应展示 SliceError.userMessage，而不是系统默认 localizedDescription。
+    func test_validatorUsesSliceErrorUserMessageForInvalidTool() {
+        var tool = makePromptTool(id: "translate", name: "Translate")
+        tool.outputBinding = OutputBinding(primary: .bubble, sideEffects: [])
+
+        let errors = ToolDraftValidator.validate(
+            draft: ToolEditorDraft(tool: tool, hotkeys: makeHotkeys()),
+            existingTools: [],
+            availableSkills: [],
+            originalToolId: nil
+        )
+
+        XCTAssertTrue(errors.contains { error in
+            guard case .invalidTool(let message) = error else { return false }
+            return message.contains("配置校验失败")
+        })
+    }
+
     /// 工具热键不应与命令面板热键冲突。
     func test_validatorRejectsToolHotkeyConflictWithCommandPalette() {
         var hotkeys = makeHotkeys()
@@ -100,6 +144,26 @@ final class ToolEditorDraftStateTests: XCTestCase {
         )
 
         XCTAssertTrue(errors.contains { error in
+            if case .hotkeyConflict = error { return true }
+            return false
+        })
+    }
+
+    /// 命令面板关闭时，工具热键可与命令面板配置值相同。
+    func test_validatorIgnoresCommandPaletteHotkeyWhenCommandPaletteDisabled() {
+        var hotkeys = makeHotkeys()
+        hotkeys.tools["translate"] = "option+space"
+        let draft = ToolEditorDraft(tool: makePromptTool(id: "translate", name: "Translate"), hotkeys: hotkeys)
+
+        let errors = ToolDraftValidator.validate(
+            draft: draft,
+            existingTools: [],
+            availableSkills: [],
+            originalToolId: nil,
+            commandPaletteEnabled: false
+        )
+
+        XCTAssertFalse(errors.contains { error in
             if case .hotkeyConflict = error { return true }
             return false
         })
