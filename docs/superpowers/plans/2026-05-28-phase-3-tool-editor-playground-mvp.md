@@ -852,6 +852,45 @@ func test_agentExecutor_playgroundPolicyDisabledMCPDeniesAllowedToolBeforeBroker
     XCTAssertTrue(gateCalls.isEmpty)
 }
 
+func test_agentExecutor_playgroundPolicyDisabledMCPDoesNotConsumeToolBudget() async throws {
+    let llm = MockToolCallingLLMProvider(turns: [
+        toolCallTurn(id: "call-1", name: "read", arguments: "{\"path\":\"/tmp/a.txt\"}"),
+        toolCallTurn(id: "call-2", name: "read", arguments: "{\"path\":\"/tmp/b.txt\"}"),
+        finalAnswerTurn("done")
+    ])
+    let broker = MockPermissionBroker()
+    let mcp = makeMCPClient()
+    let executor = makeExecutor(llm: llm, broker: broker, mcpClient: mcp)
+    let policy = AgentToolCallPolicy(
+        maxTotalCalls: 1,
+        maxCallsPerTurn: 1,
+        perToolLimits: [],
+        duplicateArgumentStrategy: .allow,
+        stopOnRateLimit: true
+    )
+    let agent = makeAgent(allowlist: [readRef], maxSteps: 2, toolCallPolicy: policy)
+
+    let events = await collectEvents(from: await executor.run(
+        tool: makeTool(agent: agent),
+        agent: agent,
+        resolved: makeResolvedContext(),
+        provider: MockProvider.openAIStub(),
+        runPolicy: .playground(allowMCPToolCalls: false)
+    ))
+
+    let disabledDenials = events.filter { event in
+        if case .toolCallDenied(_, let reason) = event {
+            return reason.contains("MCP calls are disabled")
+        }
+        return false
+    }
+    XCTAssertEqual(disabledDenials.count, 2)
+    XCTAssertEqual(llm.toolStreamCallCount, 3)
+    XCTAssertEqual(await mcp.callCount, 0)
+    let gateCalls = await broker.gateCalls
+    XCTAssertTrue(gateCalls.isEmpty)
+}
+
 func test_agentExecutor_playgroundPolicyAllowedMCPPassesNonDryRunToBroker() async throws {
     let llm = MockToolCallingLLMProvider(turns: [
         toolCallTurn(id: "call-1", name: "read", arguments: "{\"path\":\"/tmp/a.txt\"}"),
@@ -978,6 +1017,18 @@ func processOneToolCall(
 Finally, pass the policy to `callAllowedTool`:
 
 ```swift
+if runPolicy.mcpToolCalls == .disabled {
+    continuation.yield(.toolCallDenied(
+        id: context.uiId,
+        reason: "MCP calls are disabled for this Playground run"
+    ))
+    return toolMessage(call: context.call, content: "MCP calls are disabled for this Playground run")
+}
+if let reason = toolCallState.skipReason(ref: ref, args: args) {
+    logger.debug("agent tool call skipped reason=\(reason.summary, privacy: .public)")
+    return skipToolCall(context, reason: reason)
+}
+toolCallState.recordExecution(ref: ref, args: args)
 let message = await callAllowedTool(
     context,
     ref: ref,
@@ -986,6 +1037,8 @@ let message = await callAllowedTool(
     runPolicy: runPolicy
 )
 ```
+
+The disabled-mode guard must live in `processOneToolCall` after allowlist / argument validation but before `toolCallState.skipReason(...)` and `toolCallState.recordExecution(...)`. This preserves the meaning of `AgentToolCallRunState.recordExecution`: it only counts MCP calls that are eligible for real execution. A disabled Playground MCP call still yields a tool message back to the model, but it must not consume total/per-turn/per-tool budgets or duplicate fingerprints.
 
 - [ ] **Step 4: Enforce MCP mode in tool calls**
 
@@ -1001,7 +1054,7 @@ func callAllowedTool(
 ) async -> ChatMessage
 ```
 
-Before broker gate:
+Keep a defensive guard before broker gate as well:
 
 ```swift
         guard runPolicy.mcpToolCalls == .realWithPermissionBroker else {
@@ -1026,7 +1079,7 @@ Update `gateMCP`:
     }
 ```
 
-For production and confirmed Playground MCP calls, `isDryRun` is false. For disabled mode, the guard returns before calling broker.
+For production and confirmed Playground MCP calls, `isDryRun` is false. For disabled mode, `processOneToolCall` already returns before budget counting; the guard in `callAllowedTool` is a second safety net and should be unreachable in normal flow.
 
 - [ ] **Step 5: Pass run policy from ExecutionEngine**
 
@@ -1169,6 +1222,34 @@ func test_playgroundRun_marksReportAndSkipsSideEffects() async throws {
         return false
     })
 }
+
+func test_toolPlaygroundRunner_rejectsInvalidToolBeforeEngineRun() async throws {
+    let output = PlaygroundOutputDispatcher()
+    let bundle = try makeEngine(outputDispatcher: output, chunks: [
+        ChatChunk(delta: "must not stream", finishReason: nil)
+    ])
+    let runner = ToolPlaygroundRunner(engine: bundle.engine)
+    var tool = makeStubTool(displayMode: .window)
+    tool.outputBinding = OutputBinding(primary: .file, sideEffects: [])
+
+    let events = await collectEvents(from: runner.run(ToolPlaygroundRunRequest(
+        tool: tool,
+        selectionText: "hello",
+        appName: "Playground",
+        windowTitle: nil,
+        url: nil,
+        allowMCPToolCalls: false
+    )))
+
+    XCTAssertTrue(events.contains { event in
+        if case .failed(.configuration(.validationFailed(_))) = event { return true }
+        return false
+    })
+    XCTAssertFalse(events.contains { event in
+        if case .llmChunk = event { return true }
+        return false
+    })
+}
 ```
 
 - [ ] **Step 2: Run test to verify current gaps**
@@ -1176,10 +1257,10 @@ func test_playgroundRun_marksReportAndSkipsSideEffects() async throws {
 Run:
 
 ```bash
-swift test --package-path SliceAIKit --filter OrchestrationTests.ExecutionEngineTests/test_playgroundRun_marksReportAndSkipsSideEffects
+swift test --package-path SliceAIKit --filter 'OrchestrationTests.ExecutionEngineTests/test_playgroundRun_marksReportAndSkipsSideEffects|OrchestrationTests.ExecutionEngineTests/test_toolPlaygroundRunner_rejectsInvalidToolBeforeEngineRun'
 ```
 
-Expected: fail until Task 1 and Task 2 are implemented; after those tasks, this becomes a regression test.
+Expected: fail until Task 1, Task 2, and `ToolPlaygroundRunner` are implemented; after those tasks, these become regression tests.
 
 - [ ] **Step 3: Add runner protocol and implementation**
 
@@ -1240,6 +1321,14 @@ public struct ToolPlaygroundRunner: ToolPlaygroundRunning {
 
     /// 构造 seed 并调用唯一执行入口。
     public func run(_ request: ToolPlaygroundRunRequest) -> AsyncThrowingStream<ExecutionEvent, any Error> {
+        do {
+            try request.tool.validate()
+        } catch let error as SliceError {
+            return Self.failureStream(error)
+        } catch {
+            return Self.failureStream(.configuration(.validationFailed("Tool.validate failed")))
+        }
+
         let seed = ExecutionSeed(
             invocationId: UUID(),
             selection: SelectionSnapshot(
@@ -1262,6 +1351,16 @@ public struct ToolPlaygroundRunner: ToolPlaygroundRunning {
             runPolicy: .playground(allowMCPToolCalls: request.allowMCPToolCalls)
         )
         return engine.execute(tool: request.tool, seed: seed)
+    }
+
+    /// 构造一个只产出失败事件的 stream，避免非法 draft 进入 LLM / MCP 执行链。
+    private static func failureStream(
+        _ error: SliceError
+    ) -> AsyncThrowingStream<ExecutionEvent, any Error> {
+        AsyncThrowingStream { continuation in
+            continuation.yield(.failed(error))
+            continuation.finish()
+        }
     }
 }
 ```
@@ -1354,8 +1453,9 @@ git commit -m "feat: add tool playground runner"
 Create `SliceAIKit/Tests/SettingsUITests/ToolEditorDraftStateTests.swift`:
 
 ```swift
-import XCTest
+import HotkeyManager
 import SliceCore
+import XCTest
 @testable import SettingsUI
 
 /// ToolEditor v2 草稿状态和保存校验测试。
@@ -1435,6 +1535,59 @@ final class ToolEditorDraftStateTests: XCTestCase {
         )
 
         XCTAssertTrue(errors.contains(.skillNotEnabled("english")))
+    }
+
+    func test_validatorRejectsToolHotkeyConflictWithCommandPalette() {
+        var hotkeys = makeHotkeys()
+        hotkeys.tools["translate"] = "option+space"
+        let draft = ToolEditorDraft(tool: makePromptTool(id: "translate", name: "Translate"), hotkeys: hotkeys)
+
+        let errors = ToolDraftValidator.validate(
+            draft: draft,
+            existingTools: [],
+            availableSkills: [],
+            originalToolId: nil
+        )
+
+        XCTAssertTrue(errors.contains { error in
+            if case .hotkeyConflict = error { return true }
+            return false
+        })
+    }
+
+    func test_validatorRejectsLegacyFallbackToolHotkeyConflict() {
+        var other = makePromptTool(id: "summarize", name: "Summarize")
+        other.hotkey = "command+k"
+        var hotkeys = makeHotkeys()
+        hotkeys.tools["translate"] = "command+k"
+        let draft = ToolEditorDraft(tool: makePromptTool(id: "translate", name: "Translate"), hotkeys: hotkeys)
+
+        let errors = ToolDraftValidator.validate(
+            draft: draft,
+            existingTools: [other],
+            availableSkills: [],
+            originalToolId: nil
+        )
+
+        XCTAssertTrue(errors.contains { error in
+            if case .hotkeyConflict = error { return true }
+            return false
+        })
+    }
+
+    func test_validatorRejectsInvalidToolHotkey() {
+        var hotkeys = makeHotkeys()
+        hotkeys.tools["translate"] = "not-a-hotkey"
+        let draft = ToolEditorDraft(tool: makePromptTool(id: "translate", name: "Translate"), hotkeys: hotkeys)
+
+        let errors = ToolDraftValidator.validate(
+            draft: draft,
+            existingTools: [],
+            availableSkills: [],
+            originalToolId: nil
+        )
+
+        XCTAssertTrue(errors.contains(.invalidHotkey("not-a-hotkey")))
     }
 
     private func makePromptTool(id: String, name: String) -> Tool {
@@ -1518,6 +1671,7 @@ Create `SliceAIKit/Sources/SettingsUI/ToolEditorDraftState.swift`:
 
 ```swift
 import Foundation
+import HotkeyManager
 import SliceCore
 
 /// ToolEditor v2 的可保存草稿。
@@ -1573,6 +1727,7 @@ public enum ToolDraftValidationError: Sendable, Equatable, LocalizedError {
     case duplicateToolId(String)
     case invalidTool(String)
     case skillNotEnabled(String)
+    case invalidHotkey(String)
     case hotkeyConflict(String)
 
     public var errorDescription: String? {
@@ -1580,6 +1735,7 @@ public enum ToolDraftValidationError: Sendable, Equatable, LocalizedError {
         case .duplicateToolId(let id): return "工具 id 已存在：\(id)"
         case .invalidTool(let message): return message
         case .skillNotEnabled(let skill): return "Skill 未启用或不存在：\(skill)"
+        case .invalidHotkey(let hotkey): return "快捷键无效：\(hotkey)"
         case .hotkeyConflict(let hotkey): return "快捷键冲突：\(hotkey)"
         }
     }
@@ -1621,18 +1777,37 @@ public enum ToolDraftValidator {
             .map { .skillNotEnabled($0) }
     }
 
-    /// 校验工具热键不与其它工具冲突。
+    /// 校验工具热键不与命令面板或其它工具冲突。
     private static func validateHotkeys(
         draft: ToolEditorDraft,
         tools: [Tool],
         originalToolId: String?
     ) -> [ToolDraftValidationError] {
-        let current = draft.hotkeys.tools[draft.tool.id]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !current.isEmpty else { return [] }
-        let conflicts = tools.filter { tool in
-            tool.id != originalToolId && draft.hotkeys.tools[tool.id] == current
+        var comparisonTools = tools.filter { tool in
+            tool.id != originalToolId && tool.id != draft.tool.id
         }
-        return conflicts.isEmpty ? [] : [.hotkeyConflict(current)]
+        comparisonTools.append(draft.tool)
+        let effectiveToolHotkeys = HotkeyBindingValidator.effectiveToolHotkeys(
+            bindings: draft.hotkeys,
+            tools: comparisonTools
+        )
+        let issues = HotkeyBindingValidator.issues(
+            commandPalette: draft.hotkeys.toggleCommandPalette,
+            tools: effectiveToolHotkeys
+        )
+        return issues.compactMap { issue in
+            guard HotkeyBindingValidator.issue(issue, involves: draft.tool.id) else { return nil }
+            switch issue {
+            case .invalidCommandPalette:
+                return nil
+            case .invalidTool(_, let rawHotkey):
+                return .invalidHotkey(rawHotkey)
+            case .commandPaletteConflict(_, let normalizedHotkey):
+                return .hotkeyConflict(normalizedHotkey)
+            case .toolConflict(_, _, let normalizedHotkey):
+                return .hotkeyConflict(normalizedHotkey)
+            }
+        }
     }
 }
 ```
@@ -1714,6 +1889,49 @@ final class ToolPlaygroundStateTests: XCTestCase {
         XCTAssertEqual(state.displayPreview.kind, .file)
         XCTAssertTrue(state.displayPreview.summary.contains("would append"))
         XCTAssertTrue(state.displayPreview.summary.contains("/tmp/out.md"))
+    }
+
+    func test_promptAndPermissionEventsAreRecordedForPreview() {
+        var state = ToolPlaygroundState()
+        let tool = makeTool(displayMode: .window)
+
+        state.reduce(.promptRendered(preview: "redacted prompt"), tool: tool)
+        state.reduce(
+            .permissionWouldBeRequested(permission: .clipboard, uxHint: "Clipboard access"),
+            tool: tool
+        )
+
+        XCTAssertEqual(state.promptPreview, "redacted prompt")
+        XCTAssertTrue(state.permissionRows.contains { row in
+            row.contains("Clipboard access")
+        })
+    }
+
+    func test_finishedAndFailedExposeReportAndErrorSummaries() {
+        var state = ToolPlaygroundState()
+        let tool = makeTool(displayMode: .window)
+        let report = InvocationReport(
+            invocationId: UUID(),
+            toolId: "tool",
+            declaredPermissions: [],
+            effectivePermissions: [],
+            flags: [.playground, .dryRun],
+            startedAt: Date(timeIntervalSince1970: 0),
+            finishedAt: Date(timeIntervalSince1970: 1),
+            totalTokens: 12,
+            estimatedCostUSD: Decimal(string: "0.42")!,
+            outcome: .dryRunCompleted
+        )
+
+        state.reduce(.finished(report: report), tool: tool)
+
+        XCTAssertTrue(state.reportSummary.contains("12"))
+        XCTAssertTrue(state.reportSummary.contains("0.42"))
+        XCTAssertTrue(state.reportSummary.contains("playground"))
+
+        state.reduce(.failed(.provider(.unauthorized)), tool: tool)
+
+        XCTAssertEqual(state.errorMessage, SliceError.provider(.unauthorized).userMessage)
     }
 
     private func makeTool(displayMode: DisplayMode) -> Tool {
@@ -1835,10 +2053,14 @@ public struct ToolPlaygroundState: Sendable, Equatable {
     public var allowMCPToolCalls = false
     public var status: ToolPlaygroundRunStatus = .idle
     public var streamedText = ""
+    public var promptPreview = ""
     public var toolCallRows: [String] = []
+    public var permissionRows: [String] = []
     public var skippedSideEffects: [String] = []
     public var displayPreview = ToolPlaygroundDisplayPreview(kind: .window, summary: "")
     public var lastReport: InvocationReport?
+    public var reportSummary = ""
+    public var errorMessage: String?
 
     /// 构造空状态。
     public init() {}
@@ -1849,10 +2071,18 @@ public struct ToolPlaygroundState: Sendable, Equatable {
         case .started:
             status = .running
             streamedText = ""
+            promptPreview = ""
             toolCallRows = []
+            permissionRows = []
             skippedSideEffects = []
             lastReport = nil
+            reportSummary = ""
+            errorMessage = nil
             displayPreview = preview(for: tool, finalText: "")
+        case .promptRendered(let preview):
+            promptPreview = preview
+        case .permissionWouldBeRequested(let permission, let uxHint):
+            permissionRows.append("would request \(permission.playgroundName): \(uxHint)")
         case .llmChunk(let delta):
             streamedText += delta
         case .toolCallProposed(_, let ref, _):
@@ -1870,8 +2100,10 @@ public struct ToolPlaygroundState: Sendable, Equatable {
         case .finished(let report):
             status = .succeeded
             lastReport = report
+            reportSummary = report.playgroundSummary
             displayPreview = preview(for: tool, finalText: streamedText)
         case .failed(let error):
+            errorMessage = error.userMessage
             status = .failed(error.userMessage)
             displayPreview = preview(for: tool, finalText: streamedText)
         default:
@@ -1919,6 +2151,35 @@ private extension SideEffect {
         case .callMCP(let ref, _): return "would call MCP \(ref.server).\(ref.tool)"
         case .writeMemory: return "would write memory"
         case .tts: return "would speak"
+        }
+    }
+}
+
+private extension Permission {
+    /// Playground permission 预览名称。
+    var playgroundName: String {
+        String(describing: self)
+    }
+}
+
+private extension InvocationReport {
+    /// Playground report 摘要，供右侧面板显示 tokens / cost / flags。
+    var playgroundSummary: String {
+        let flagsText = flags.map(\.rawValue).sorted().joined(separator: ", ")
+        return "tokens \(totalTokens), cost \(estimatedCostUSD), outcome \(outcome.playgroundName), flags \(flagsText)"
+    }
+}
+
+private extension InvocationOutcome {
+    /// Playground outcome 预览名称。
+    var playgroundName: String {
+        switch self {
+        case .success:
+            return "success"
+        case .dryRunCompleted:
+            return "dry-run completed"
+        case .failed(let errorKind):
+            return "failed \(errorKind.rawValue)"
         }
     }
 }
@@ -2000,6 +2261,7 @@ import SwiftUI
 struct ToolPlaygroundView: View {
     let tool: Tool
     let runner: (any ToolPlaygroundRunning)?
+    let validateBeforeRun: () -> [ToolDraftValidationError]
     @Binding var state: ToolPlaygroundState
 
     @State private var runTask: Task<Void, Never>?
@@ -2052,6 +2314,18 @@ struct ToolPlaygroundView: View {
     private var output: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: SliceSpacing.sm) {
+                if !state.promptPreview.isEmpty {
+                    Text(state.promptPreview)
+                        .font(SliceFont.caption)
+                        .foregroundColor(SliceColor.textSecondary)
+                        .textSelection(.enabled)
+                }
+                ForEach(Array(state.permissionRows.enumerated()), id: \.offset) { _, row in
+                    Text(row).font(SliceFont.caption).foregroundColor(SliceColor.warning)
+                }
+                if let errorMessage = state.errorMessage {
+                    Text(errorMessage).font(SliceFont.caption).foregroundColor(SliceColor.error)
+                }
                 Text(state.streamedText.isEmpty ? state.displayPreview.summary : state.streamedText)
                     .font(SliceFont.body)
                     .textSelection(.enabled)
@@ -2061,6 +2335,9 @@ struct ToolPlaygroundView: View {
                 }
                 ForEach(Array(state.skippedSideEffects.enumerated()), id: \.offset) { _, row in
                     Text(row).font(SliceFont.caption).foregroundColor(SliceColor.textSecondary)
+                }
+                if !state.reportSummary.isEmpty {
+                    Text(state.reportSummary).font(SliceFont.caption).foregroundColor(SliceColor.textSecondary)
                 }
             }
             .padding(SliceSpacing.base)
@@ -2073,6 +2350,14 @@ struct ToolPlaygroundView: View {
     /// 启动一次 Playground 运行。
     private func startRun() {
         guard let runner else { return }
+        let validationErrors = validateBeforeRun()
+        guard validationErrors.isEmpty else {
+            let message = validationErrors.map { $0.localizedDescription }.joined(separator: "\n")
+            state.status = .failed(message)
+            state.errorMessage = message
+            print("[ToolPlaygroundView] startRun blocked by validation errors count=\(validationErrors.count)")
+            return
+        }
         runTask?.cancel()
         state.status = .running
         let request = ToolPlaygroundRunRequest(
@@ -2121,6 +2406,7 @@ struct ToolEditorV2View: View {
     let tools: [Tool]
     let availableSkills: [SliceCore.Skill]
     let runner: (any ToolPlaygroundRunning)?
+    let validateDraft: (ToolEditorDraft) -> [ToolDraftValidationError]
     let onSave: () -> Void
     let onRevert: () -> Void
 
@@ -2143,6 +2429,7 @@ struct ToolEditorV2View: View {
                 ToolPlaygroundView(
                     tool: draft.tool,
                     runner: runner,
+                    validateBeforeRun: { validateDraft(draft) },
                     state: $playgroundState
                 )
             }
@@ -2232,6 +2519,7 @@ private func toolEditorV2(fallbackTool: Tool?) -> some View {
         tools: viewModel.configuration.tools,
         availableSkills: viewModel.availableAgentSkills,
         runner: viewModel.playgroundRunner,
+        validateDraft: validateDraftForRun,
         onSave: saveEditingSession,
         onRevert: revertEditingSession
     )
@@ -2254,6 +2542,19 @@ private var validationErrorList: some View {
 ```
 
 Call `validationErrorList` inside the editor container when `validationErrors` is not empty.
+
+Add the shared validation closure used by both Save and Playground Run:
+
+```swift
+private func validateDraftForRun(_ draft: ToolEditorDraft) -> [ToolDraftValidationError] {
+    ToolDraftValidator.validate(
+        draft: draft,
+        existingTools: viewModel.configuration.tools,
+        availableSkills: viewModel.availableAgentSkills,
+        originalToolId: editingSession?.originalToolId
+    )
+}
+```
 
 Replace all remaining `expandedId` usages:
 
@@ -2307,12 +2608,8 @@ Add in `ToolsSettingsPage+Actions.swift`:
 /// 保存当前 ToolEditor 草稿。
 func saveEditingSession() {
     guard let session = editingSession else { return }
-    let errors = ToolDraftValidator.validate(
-        draft: session.draft,
-        existingTools: viewModel.configuration.tools,
-        availableSkills: viewModel.availableAgentSkills,
-        originalToolId: session.originalToolId
-    )
+    let previousHotkeys = viewModel.configuration.hotkeys
+    let errors = validateDraftForRun(session.draft)
     guard errors.isEmpty else {
         validationErrors = errors
         print("[ToolsSettingsPage] saveEditingSession: validation failed count=\(errors.count)")
@@ -2338,7 +2635,14 @@ func saveEditingSession() {
     }
     validationErrors = []
     editingSession = nil
-    scheduleDebouncedSave()
+    if previousHotkeys != viewModel.configuration.hotkeys {
+        print("[ToolsSettingsPage] saveEditingSession: hotkeys changed, reloading registrations")
+        Task {
+            await viewModel.saveHotkeys()
+        }
+    } else {
+        scheduleDebouncedSave()
+    }
 }
 
 /// 放弃当前草稿。
@@ -2481,8 +2785,12 @@ Spec coverage:
 - Prompt / Agent Tool Playground: Task 4, Task 6, Task 7.
 - Real LLM via existing execution chain: Task 4 uses dedicated `ExecutionEngine`.
 - MCP explicit confirmation: Task 3 and Task 7.
+- Disabled MCP cannot consume tool-call budget: Task 3 regression test and pre-`recordExecution` guard.
 - Side effects dry-run: Task 1, Task 2, Task 4, Task 6.
 - Preview output and no production ResultPanel/Bubble/replace/file writes: Task 2 and Task 6.
+- Run-before-save validation: Task 4 guards core `Tool.validate()` and Task 7 uses `ToolDraftValidator` before Playground run.
+- Hotkey validation / registration: Task 5 reuses `HotkeyBindingValidator`; Task 7 calls `saveHotkeys()` after hotkey-changing saves.
+- Playground prompt / permission / error / cost display: Task 6 state reducer and Task 7 right-side view.
 - Telemetry/cost compatibility: Task 1.
 - No new config schema: plan only adds runtime/telemetry state, not `Configuration` fields.
 - Non-goals preserved: no provider expansion, Memory, Cost Panel, A/B, sample persistence, version history, scripts execution, marketplace, or pipeline executor.

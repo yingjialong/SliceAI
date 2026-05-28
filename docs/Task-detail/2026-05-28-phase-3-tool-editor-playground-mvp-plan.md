@@ -16,6 +16,7 @@
 - [x] 生成 implementation plan。
 - [x] 更新 Task_history 和 master todolist。
 - [x] 使用 `claude-review-loop` 对 plan 做 3 轮只读评审并拿到 Round 3 approve。
+- [x] 按 Codex plan review 修复实现计划中的安全 / 校验 / UI 展示缺口。
 - [ ] 用户确认执行方式。
 
 ## 实施内容
@@ -34,6 +35,17 @@
 6. AppContainer wiring：专用 Playground `ExecutionEngine` 复用真实执行链。
 7. 文档和 final gate。
 
+## 2026-05-28 Plan Review 修复
+
+根据 Codex 对 implementation plan 的复审，已在计划中补齐以下内容：
+
+1. Playground Runner 在进入 `ExecutionEngine` 前先调用 `Tool.validate()`，非法 draft 只产出 `.failed` 事件，不调用 LLM / MCP。
+2. ToolEditor v2 的 Playground Run 与 Save 共用 `ToolDraftValidator`，Run 前会拦截 disabled skill、无效 Tool、重复 id 和热键问题。
+3. `ToolDraftValidator` 改为复用 `HotkeyBindingValidator`，覆盖命令面板冲突、其它工具冲突、非法热键和旧 `Tool.hotkey` fallback。
+4. Agent MCP disabled 模式在 `AgentToolCallRunState.recordExecution(...)` 前返回受控拒绝，避免禁用状态消耗 tool-call budget / duplicate fingerprint。
+5. Playground state / view 补充 prompt preview、权限提示、错误消息、tokens / cost / flags report summary 展示。
+6. Save 草稿时如果 hotkeys 发生变化，计划要求调用 `SettingsViewModel.saveHotkeys()` 触发 Carbon 热键重新注册。
+
 ## 验证
 
 本任务只修改文档，验证范围：
@@ -42,6 +54,7 @@
 - `rg -n "[ \t]+$" ...`：通过，未发现新增文档行尾空白。
 - `rg -n "<<<<<<<|>>>>>>>|=======" ...`：通过，未发现冲突标记。
 - `claude-review-loop`：Round 1 `needs_attention`，Round 2 `needs_attention`，Round 3 `approve` 且 `findings: []`。Loop log: `docs/Task-detail/claude-loop-phase3-tool-editor-playground-plan.md`。
+- Codex plan review fixes：已更新 plan 文档；尚未运行 Swift / Xcode，因为本轮仍只修改文档和计划片段。
 - Swift / Xcode 测试未运行，因为本任务没有改生产代码，测试文件仅在计划中描述，尚未创建。
 
 ## 变动文件清单
