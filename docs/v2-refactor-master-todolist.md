@@ -519,8 +519,8 @@ fi
 | 12 | 2 | `english-tutor` 官方 Tool Pack | 语法分析、改写、朗读、结构化结果和 skill 绑定 | 完成：默认 `english-tutor` Agent Tool、内置 skill、schema v4 迁移和 structured TTS `ttsText` 已实现 |
 | 13 | 2 | Phase 2 E2E / 文档 / 回归 | Skill、DisplayMode、TTS、English Tutor 的自动化与实机回归 | 完成：automated gate、公开仓库 smoke、真实 App smoke 和最终文档 gate 均通过 |
 | 14 | 2 | Phase 2 release | 建议 `v0.4.0` tag / DMG / release notes，版本号需发布前确认 | 跳过：用户 2026-05-27 明确选择不发布，直接进入 Phase 3 |
-| 15 | 3 | `ToolEditor v2` 信息架构 | 左侧配置、右侧 Playground、kind-aware 编辑器和保存规则 | 待做 |
-| 16 | 3 | Prompt Playground 运行器 | 在 Settings 内运行 selection sample、展示 streaming / tool call / structured output | 待做 |
+| 15 | 3 | `ToolEditor v2` 信息架构 | MVP 完成：左侧 draft 编辑器、Save/Revert、kind-aware 基础编辑和保存前校验已落地；样本管理、A/B、版本历史等增强待做 | 部分完成 |
+| 16 | 3 | Prompt Playground 运行器 | MVP 完成：Settings 内可用真实 ExecutionEngine 试跑 Prompt / Agent Tool 草稿，展示 streaming、tool call lifecycle、structured / DisplayMode dry-run preview；selection sample 持久化和回归 expected output 管理待做 | 部分完成 |
 | 17 | 3 | 测试样本与 expected output 管理 | 保存 selection、上下文、期望输出和回归结果 | 待做 |
 | 18 | 3 | A/B 双栏对比 | 同一 Tool 并排跑不同 provider / model / prompt version | 待做 |
 | 19 | 3 | Tool version history | 每次保存生成 snapshot，支持查看、回滚和 diff | 待做 |
@@ -616,12 +616,14 @@ fi
 
 **目标**：Tool 编辑器升级为 Prompt Playground；原生支持 Anthropic / Gemini / Ollama 三家；Per-Tool Memory 可用。
 
+**当前进度**：首个实现切片 ToolEditor v2 + Prompt Playground MVP 已完成。MVP 边界是 Settings Tools 页面中的未保存 Tool 草稿编辑、Save/Revert、保存前校验、右侧 Playground 试跑、真实 LLM / ExecutionEngine 复用、preview output、side effects dry-run，以及 MCP tool call 默认禁用并需本次运行显式打开。测试样本持久化、expected output 管理、A/B 双栏对比、版本历史、原生 Anthropic / Gemini / Ollama provider、Memory 和 Cost Panel 仍属于后续切片。
+
 **关键交付**（粗粒度）：
 
-- [ ] `SettingsUI/ToolEditor v2`（左配置 + 右 Playground）
+- [x] `SettingsUI/ToolEditor v2 + Prompt Playground MVP`（左侧 draft 配置 + 右侧 preview Playground；真实 LLM；side effects dry-run；MCP 默认禁用）
 - [ ] 测试用例管理（保存样本 selection + expected output）
-- [ ] A/B 双栏对比
-- [ ] Version history（Tool 每次保存 snapshot）
+- [ ] A/B 双栏对比（同一 Tool 并排跑不同 provider / model / prompt version）
+- [ ] Version history（Tool 每次保存 snapshot、查看、回滚和 diff）
 - [ ] `LLMProviders/AnthropicProvider`（Prompt Caching + Extended Thinking）
 - [ ] `LLMProviders/GeminiProvider`（Grounding + JSON Schema）
 - [ ] `LLMProviders/OllamaProvider`（本地直连）
@@ -1195,3 +1197,12 @@ fi
 - 2026-05-28 已将 Phase 2 completion 合回 `main`，Phase 3 workstream 迁移到 `origin/codex/phase3-tool-editor-playground`；Phase 3 进入实现前必须完成 spec review 和 implementation plan。
 - 2026-05-28 已生成 implementation plan：`docs/superpowers/plans/2026-05-28-phase-3-tool-editor-playground-mvp.md`；Claude review loop Round 3 已 approve。
 - 推荐首个 Phase 3 切片从 ToolEditor v2 / Prompt Playground MVP 评估开始，避免一次性同时展开原生 providers、Memory 和 Cost Panel。
+
+### 2026-05-28 — Phase 3 ToolEditor v2 + Prompt Playground MVP implementation / final gate
+
+- 已完成 Phase 3 首个实现切片：ToolEditor v2 + Prompt Playground MVP。
+- MVP 边界：Settings Tools 页面支持未保存 Tool 草稿编辑、Save/Revert、保存前校验和右侧 Playground 试跑；Prompt / Agent Tool 复用真实 `ExecutionEngine`；输出进入 preview；side effects dry-run；MCP tool call 默认禁用，必须由用户显式打开本次运行开关后才进入 allowlist + PermissionBroker + MCP client。
+- 已同步 README、AGENTS、Task history、Orchestration 模块文档和 SettingsUI 模块文档到 MVP 完成口径。
+- Final gate：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path SliceAIKit --scratch-path /tmp/sliceai-task8-full-tests` 通过（882 tests，1 skipped，0 failures）；`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build` 通过（`** BUILD SUCCEEDED **`）；`git diff --check` 通过。
+- SwiftLint 未运行成功：本机 `swiftlint` 不在 PATH，`swiftlint lint --strict` 返回 `zsh:1: command not found: swiftlint`；按任务约束未安装工具。
+- 后续切片仍待重新 spec：样本持久化 / expected output 管理、A/B 双栏对比、版本历史、原生 Anthropic / Gemini / Ollama provider、Memory、Cost Panel。
