@@ -4,6 +4,13 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 
 ---
 
+## Task 71 · Phase 3 Task 5 ToolEditor Draft State
+
+- **时间**：2026-05-28
+- **描述**：执行 Phase 3 ToolEditor v2 + Prompt Playground MVP implementation plan 的 Task 5，新增 ToolEditor 本地草稿会话和保存前校验，确保编辑已有 Tool 不会在 Save 前污染正式配置，并校验重复 id、disabled/unknown skills、无效或冲突热键。
+- **详情**：[docs/Task-detail/2026-05-28-phase-3-task-5-tool-editor-draft-state.md](Task-detail/2026-05-28-phase-3-task-5-tool-editor-draft-state.md)
+- **结果**：完成。已新增 `ToolEditorDraft`、`ToolEditorDraftSession` 和 `ToolDraftValidator`；保存前校验覆盖重复 Tool id、`Tool.validate()` 不变量、Agent disabled/unknown skills、无效工具热键、命令面板冲突和其它工具热键冲突。focused SettingsUI tests 通过。
+
 ## Task 70 · Phase 3 Task 4 Tool Playground Runner
 
 - **时间**：2026-05-28
