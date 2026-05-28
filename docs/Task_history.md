@@ -4,6 +4,13 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 
 ---
 
+## Task 73 · Phase 3 Task 7 Settings UI Integration
+
+- **时间**：2026-05-28
+- **描述**：执行 Phase 3 ToolEditor v2 + Prompt Playground MVP implementation plan 的 Task 7，把 ToolEditor 草稿会话、ToolEditor v2 双栏编辑器和 Prompt Playground 接入 Settings Tools 页面。
+- **详情**：[docs/Task-detail/2026-05-28-phase-3-task-7-settings-ui-integration.md](Task-detail/2026-05-28-phase-3-task-7-settings-ui-integration.md)
+- **结果**：完成。已新增 `ToolEditorV2View` 与 `ToolPlaygroundView`，Tools 页改为 draft session + Save/Revert + Playground；Add Prompt / Add Agent 不再直接写 `configuration.tools`，Settings 窗口调整为 `980×620`。SettingsUI tests、App Debug build 和 `git diff --check` 均通过。
+
 ## Task 72 · Phase 3 Task 6 Playground State Reducer
 
 - **时间**：2026-05-28

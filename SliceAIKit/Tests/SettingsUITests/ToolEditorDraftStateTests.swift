@@ -1,5 +1,6 @@
 import HotkeyManager
 import SliceCore
+import SwiftUI
 import XCTest
 @testable import SettingsUI
 
@@ -206,6 +207,59 @@ final class ToolEditorDraftStateTests: XCTestCase {
         XCTAssertTrue(errors.contains(.invalidHotkey("not-a-hotkey")))
     }
 
+    /// ToolEditor v2 组合视图应能用本地草稿和空 Playground runner 构造。
+    @MainActor
+    func test_toolEditorV2ViewCanBeConstructedWithDraftSession() {
+        var draft = ToolEditorDraft(
+            tool: makePromptTool(id: "translate", name: "Translate"),
+            hotkeys: makeHotkeys()
+        )
+        let binding = Binding<ToolEditorDraft>(
+            get: { draft },
+            set: { draft = $0 }
+        )
+
+        _ = ToolEditorV2View(
+            draft: binding,
+            providers: [],
+            tools: [draft.tool],
+            availableSkills: [],
+            runner: nil,
+            validateDraft: { _ in [] },
+            onSave: {},
+            onRevert: {}
+        )
+    }
+
+    /// Tools 页 Run/Save 共用校验应显式尊重命令面板启停状态。
+    @MainActor
+    func test_toolsPageValidateDraftForRunHonorsDisabledCommandPalette() async throws {
+        let viewModel = SettingsViewModel(
+            store: ConfigurationStore(fileURL: try makeTemporaryFileURL(), legacyFileURL: nil),
+            keychain: ToolEditorDraftStateTestKeychain()
+        )
+        await viewModel.reload()
+        var configuration = DefaultConfiguration.initial()
+        configuration.tools = []
+        configuration.hotkeys = makeHotkeys()
+        configuration.hotkeys.tools["translate"] = "option+space"
+        configuration.triggers.commandPaletteEnabled = false
+        viewModel.configuration = configuration
+
+        let page = ToolsSettingsPage(viewModel: viewModel)
+        let draft = ToolEditorDraft(
+            tool: makePromptTool(id: "translate", name: "Translate"),
+            hotkeys: configuration.hotkeys
+        )
+
+        let errors = page.validateDraftForRun(draft)
+
+        XCTAssertFalse(errors.contains { error in
+            if case .hotkeyConflict = error { return true }
+            return false
+        })
+    }
+
     /// 构造 Prompt Tool fixture。
     /// - Parameters:
     ///   - id: Tool id。
@@ -275,5 +329,42 @@ final class ToolEditorDraftStateTests: XCTestCase {
     /// - Returns: 命令面板使用 option+space 的 HotkeyBindings。
     private func makeHotkeys() -> HotkeyBindings {
         HotkeyBindings(toggleCommandPalette: "option+space")
+    }
+
+    /// 创建测试用临时 config-v2.json 路径。
+    /// - Returns: 位于临时目录下的配置文件 URL。
+    private func makeTemporaryFileURL() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory.appendingPathComponent("config-v2.json")
+    }
+}
+
+/// ToolEditorDraftStateTests 使用的内存 Keychain。
+private final actor ToolEditorDraftStateTestKeychain: KeychainAccessing {
+
+    /// 内存 API Key 字典。
+    private var values: [String: String] = [:]
+
+    /// 读取测试 API Key。
+    /// - Parameter providerId: Provider keychain account。
+    /// - Returns: 已保存值或 nil。
+    func readAPIKey(providerId: String) async throws -> String? {
+        values[providerId]
+    }
+
+    /// 写入测试 API Key。
+    /// - Parameters:
+    ///   - value: API Key。
+    ///   - providerId: Provider keychain account。
+    func writeAPIKey(_ value: String, providerId: String) async throws {
+        values[providerId] = value
+    }
+
+    /// 删除测试 API Key。
+    /// - Parameter providerId: Provider keychain account。
+    func deleteAPIKey(providerId: String) async throws {
+        values.removeValue(forKey: providerId)
     }
 }

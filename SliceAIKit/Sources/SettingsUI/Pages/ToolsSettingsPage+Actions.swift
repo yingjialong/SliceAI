@@ -7,7 +7,7 @@ import SwiftUI
 
 extension ToolsSettingsPage {
 
-    /// 添加新 Prompt 工具并自动展开编辑区（save 由 onChange(tools) 兜底）。
+    /// 添加新 Prompt 工具草稿，不立即写入正式配置。
     func addPromptTool() {
         let newId = makeNewToolID(prefix: "tool")
         let providerId = viewModel.configuration.providers.first?.id ?? ""
@@ -37,13 +37,14 @@ extension ToolsSettingsPage {
             tags: []
         )
         print("[ToolsSettingsPage] addPromptTool: id=\(newId)")
-        viewModel.configuration.tools.append(newTool)
-        withAnimation(SliceAnimation.standard) {
-            expandedId = newId
-        }
+        editingSession = .creating(draft: ToolEditorDraft(
+            tool: newTool,
+            hotkeys: viewModel.configuration.hotkeys
+        ))
+        validationErrors = []
     }
 
-    /// 添加新 Agent 工具并自动展开编辑区（save 由 onChange(tools) 兜底）。
+    /// 添加新 Agent 工具草稿，不立即写入正式配置。
     func addAgentTool() {
         let newId = makeNewToolID(prefix: "agent")
         let providerId = preferredToolCallingProviderID()
@@ -76,10 +77,60 @@ extension ToolsSettingsPage {
             tags: ["agent", "mcp"]
         )
         print("[ToolsSettingsPage] addAgentTool: id=\(newId)")
-        viewModel.configuration.tools.append(newTool)
-        withAnimation(SliceAnimation.standard) {
-            expandedId = newId
+        editingSession = .creating(draft: ToolEditorDraft(
+            tool: newTool,
+            hotkeys: viewModel.configuration.hotkeys
+        ))
+        validationErrors = []
+    }
+
+    /// 保存当前 ToolEditor 草稿。
+    func saveEditingSession() {
+        guard let session = editingSession else { return }
+        let previousHotkeys = viewModel.configuration.hotkeys
+        let errors = validateDraftForRun(session.draft)
+        guard errors.isEmpty else {
+            validationErrors = errors
+            print("[ToolsSettingsPage] saveEditingSession: validation failed count=\(errors.count)")
+            return
         }
+
+        switch session {
+        case .editingExisting(let original, let draft):
+            guard let index = viewModel.configuration.tools.firstIndex(where: { $0.id == original.id }) else {
+                return
+            }
+            viewModel.configuration.tools[index] = draft.tool
+            viewModel.configuration.hotkeys = draft.hotkeys
+            if original.id != draft.tool.id {
+                viewModel.configuration.hotkeys.tools.removeValue(forKey: original.id)
+            }
+        case .creating(let draft):
+            guard !viewModel.configuration.tools.contains(where: { $0.id == draft.tool.id }) else {
+                validationErrors = [.duplicateToolId(draft.tool.id)]
+                print("[ToolsSettingsPage] saveEditingSession: duplicate creating id=\(draft.tool.id)")
+                return
+            }
+            viewModel.configuration.tools.append(draft.tool)
+            viewModel.configuration.hotkeys = draft.hotkeys
+        }
+        validationErrors = []
+        editingSession = nil
+        if previousHotkeys != viewModel.configuration.hotkeys {
+            print("[ToolsSettingsPage] saveEditingSession: hotkeys changed, reloading registrations")
+            Task {
+                await viewModel.saveHotkeys()
+            }
+        } else {
+            scheduleDebouncedSave()
+        }
+    }
+
+    /// 放弃当前草稿。
+    func revertEditingSession() {
+        print("[ToolsSettingsPage] revertEditingSession")
+        validationErrors = []
+        editingSession = nil
     }
 
     /// 生成尽量不冲突的新工具 id。
@@ -129,7 +180,7 @@ extension ToolsSettingsPage {
         withAnimation(SliceAnimation.standard) {
             viewModel.configuration.hotkeys.tools.removeValue(forKey: id)
             viewModel.configuration.tools.removeAll { $0.id == id }
-            if expandedId == id { expandedId = nil }
+            clearEditingSessionIfNeeded(toolId: id)
         }
         if removedToolHadHotkey {
             print("[ToolsSettingsPage] performDelete: hotkey removed, reloading registrations")
