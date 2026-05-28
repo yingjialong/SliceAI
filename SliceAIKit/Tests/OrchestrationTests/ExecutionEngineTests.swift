@@ -473,13 +473,16 @@ final class ExecutionEngineTests: XCTestCase {
             displayMode: .window,
             sideEffects: [.copyToClipboard]
         )
-        let seed = makeStubSeed(
-            isDryRun: true,
-            triggerSource: .playground,
-            runPolicy: .playground(allowMCPToolCalls: false)
-        )
+        let runner = ToolPlaygroundRunner(engine: bundle.engine)
 
-        let events = await collectEvents(from: bundle.engine.execute(tool: tool, seed: seed))
+        let events = await collectEvents(from: runner.run(ToolPlaygroundRunRequest(
+            tool: tool,
+            selectionText: "test selection",
+            appName: "Playground",
+            windowTitle: nil,
+            url: nil,
+            allowMCPToolCalls: false
+        )))
 
         let report = try XCTUnwrap(events.compactMap { event -> InvocationReport? in
             if case .finished(let report) = event { return report }
@@ -513,14 +516,26 @@ final class ExecutionEngineTests: XCTestCase {
             allowMCPToolCalls: false
         )))
 
+        XCTAssertEqual(events.count, 1)
         XCTAssertTrue(events.contains { event in
             if case .failed(.configuration(.validationFailed(_))) = event { return true }
+            return false
+        })
+        XCTAssertFalse(events.contains { event in
+            if case .started = event { return true }
             return false
         })
         XCTAssertFalse(events.contains { event in
             if case .llmChunk = event { return true }
             return false
         })
+        let entries = await bundle.audit.entries
+        XCTAssertTrue(entries.isEmpty)
+        let gateCalls = await bundle.broker.gateCalls
+        XCTAssertTrue(gateCalls.isEmpty)
+        let probeInvocationId = UUID()
+        let snapshot = await output.snapshot(for: probeInvocationId)
+        XCTAssertNil(snapshot)
     }
 
     /// 6. requiresUserConsent (non-dry-run) —— Mock 返回 .requiresUserConsent → .failed(.toolPermission(.notGranted))
