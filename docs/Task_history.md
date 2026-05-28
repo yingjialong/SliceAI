@@ -4,6 +4,15 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 
 ---
 
+## Task 76 · Phase 3 Plan Compliance Audit
+
+- **时间**：2026-05-29
+- **描述**：逐项检查 Phase 3 ToolEditor v2 + Prompt Playground MVP implementation 与 implementation plan 是否一致；按 Task 1-8 核对源码、测试、文档和 final gate，发现不一致即修复。
+- **详情**：[docs/Task-detail/2026-05-29-phase-3-plan-compliance-audit.md](Task-detail/2026-05-29-phase-3-plan-compliance-audit.md)
+- **结果**：完成。Task 1-8 源码、测试和文档均与 plan 一致；已修复 plan checklist 状态漂移，把 52 个已完成步骤标记为完成，并补充 SwiftLint 本机缺失的 final gate 例外说明。Focused compliance tests、SwiftPM full tests、`git diff --check` 和 App Debug build 通过；SwiftLint 因本机 `swiftlint` 不在 PATH 未运行成功。
+
+---
+
 ## Task 75 · Phase 3 Playground Review Fix
 
 - **时间**：2026-05-28

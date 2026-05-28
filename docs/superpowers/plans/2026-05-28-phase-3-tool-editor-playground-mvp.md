@@ -1,6 +1,6 @@
 # Phase 3 ToolEditor v2 + Prompt Playground MVP Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]` / `- [x]`) syntax for tracking; completed implementation steps are marked checked.
 
 **Goal:** Build a Settings-based ToolEditor v2 with an inline Prompt Playground that can run unsaved tool drafts through the real `ExecutionEngine` while routing output to a safe preview and keeping production side effects dry-run.
 
@@ -74,7 +74,7 @@
 - Test: `SliceAIKit/Tests/OrchestrationTests/CostAccountingTests.swift`
 - Test: `SliceAIKit/Tests/OrchestrationTests/ExecutionEngineTests.swift`
 
-- [ ] **Step 1: Write failing SliceCore run policy tests**
+- [x] **Step 1: Write failing SliceCore run policy tests**
 
 Create `SliceAIKit/Tests/SliceCoreTests/ExecutionRunPolicyTests.swift`:
 
@@ -170,7 +170,7 @@ func test_executionSeed_canCarryPlaygroundRunPolicy() {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run:
 
@@ -180,7 +180,7 @@ swift test --package-path SliceAIKit --filter 'SliceCoreTests.ExecutionRunPolicy
 
 Expected: compile failure because `ExecutionRunPolicy`, `TriggerSource.playground`, `ExecutionSeed.runPolicy`, and `ExecutionSeed.effectiveRunPolicy` do not exist.
 
-- [ ] **Step 3: Add SliceCore run policy types**
+- [x] **Step 3: Add SliceCore run policy types**
 
 Create `SliceAIKit/Sources/SliceCore/ExecutionRunPolicy.swift`:
 
@@ -301,7 +301,7 @@ and assign:
         self.runPolicy = runPolicy
 ```
 
-- [ ] **Step 4: Run SliceCore focused tests**
+- [x] **Step 4: Run SliceCore focused tests**
 
 Run:
 
@@ -311,7 +311,7 @@ swift test --package-path SliceAIKit --filter 'SliceCoreTests.ExecutionRunPolicy
 
 Expected: pass after updating `TriggerSourceTests` expected cases to include `.playground`.
 
-- [ ] **Step 5: Write failing telemetry compatibility tests**
+- [x] **Step 5: Write failing telemetry compatibility tests**
 
 Extend `SliceAIKit/Tests/OrchestrationTests/InvocationReportTests.swift`:
 
@@ -387,7 +387,7 @@ private func createLegacyCostDatabase(at url: URL) throws {
 }
 ```
 
-- [ ] **Step 6: Run telemetry tests to verify they fail**
+- [x] **Step 6: Run telemetry tests to verify they fail**
 
 Run:
 
@@ -397,7 +397,7 @@ swift test --package-path SliceAIKit --filter 'OrchestrationTests.InvocationRepo
 
 Expected: compile failure because `InvocationFlag.playground` and `CostRecord.source` do not exist.
 
-- [ ] **Step 7: Implement telemetry source fields and schema migration**
+- [x] **Step 7: Implement telemetry source fields and schema migration**
 
 Modify `InvocationFlag` in `SliceAIKit/Sources/Orchestration/Events/InvocationReport.swift`:
 
@@ -520,7 +520,7 @@ Decode `source` as nullable raw value at column index 8:
         }
 ```
 
-- [ ] **Step 8: Propagate policy through ExecutionEngine reports and cost records**
+- [x] **Step 8: Propagate policy through ExecutionEngine reports and cost records**
 
 Modify `FlowContext` to include:
 
@@ -605,7 +605,7 @@ In `finishFailure`, add playground flag before building the report:
         }
 ```
 
-- [ ] **Step 9: Run focused tests**
+- [x] **Step 9: Run focused tests**
 
 Run:
 
@@ -615,7 +615,7 @@ swift test --package-path SliceAIKit --filter 'SliceCoreTests.ExecutionRunPolicy
 
 Expected: pass.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add SliceAIKit/Sources/SliceCore SliceAIKit/Sources/Orchestration SliceAIKit/Tests/SliceCoreTests SliceAIKit/Tests/OrchestrationTests
@@ -628,7 +628,7 @@ git commit -m "feat: add playground run policy telemetry"
 - Create: `SliceAIKit/Sources/Orchestration/Output/PlaygroundOutputDispatcher.swift`
 - Test: `SliceAIKit/Tests/OrchestrationTests/PlaygroundOutputDispatcherTests.swift`
 
-- [ ] **Step 1: Write failing preview output tests**
+- [x] **Step 1: Write failing preview output tests**
 
 Create `SliceAIKit/Tests/OrchestrationTests/PlaygroundOutputDispatcherTests.swift`:
 
@@ -690,7 +690,7 @@ final class PlaygroundOutputDispatcherTests: XCTestCase {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run:
 
@@ -700,7 +700,7 @@ swift test --package-path SliceAIKit --filter OrchestrationTests.PlaygroundOutpu
 
 Expected: compile failure because `PlaygroundOutputDispatcher` does not exist.
 
-- [ ] **Step 3: Implement preview dispatcher**
+- [x] **Step 3: Implement preview dispatcher**
 
 Create `SliceAIKit/Sources/Orchestration/Output/PlaygroundOutputDispatcher.swift`:
 
@@ -794,7 +794,7 @@ public actor PlaygroundOutputDispatcher: OutputDispatcherProtocol {
 }
 ```
 
-- [ ] **Step 4: Run focused output tests**
+- [x] **Step 4: Run focused output tests**
 
 Run:
 
@@ -804,7 +804,7 @@ swift test --package-path SliceAIKit --filter 'OrchestrationTests.PlaygroundOutp
 
 Expected: pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add SliceAIKit/Sources/Orchestration/Output/PlaygroundOutputDispatcher.swift SliceAIKit/Tests/OrchestrationTests/PlaygroundOutputDispatcherTests.swift
@@ -820,7 +820,7 @@ git commit -m "feat: add playground output dispatcher"
 - Test: `SliceAIKit/Tests/OrchestrationTests/AgentExecutorTests.swift`
 - Test: `SliceAIKit/Tests/OrchestrationTests/ExecutionEngineTests.swift`
 
-- [ ] **Step 1: Write failing Agent MCP policy tests**
+- [x] **Step 1: Write failing Agent MCP policy tests**
 
 Add to `SliceAIKit/Tests/OrchestrationTests/AgentExecutorTests.swift`:
 
@@ -916,7 +916,7 @@ func test_agentExecutor_playgroundPolicyAllowedMCPPassesNonDryRunToBroker() asyn
 
 Add the tests next to the existing AgentExecutor tool-call tests and use the file's existing `MockToolCallingLLMProvider`, `toolCallTurn`, `finalAnswerTurn`, `makeExecutor`, `makeMCPClient`, `makeAgent`, `makeTool`, `makeResolvedContext`, `collectEvents`, and `MockPermissionBroker` helpers.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run:
 
@@ -926,7 +926,7 @@ swift test --package-path SliceAIKit --filter OrchestrationTests.AgentExecutorTe
 
 Expected: compile failure because `AgentExecutor.run(..., runPolicy:)` does not exist.
 
-- [ ] **Step 3: Add run policy to AgentExecutor**
+- [x] **Step 3: Add run policy to AgentExecutor**
 
 Modify `AgentExecutor.run(...)` in `SliceAIKit/Sources/Orchestration/Executors/AgentExecutor.swift`:
 
@@ -1040,7 +1040,7 @@ let message = await callAllowedTool(
 
 The disabled-mode guard must live in `processOneToolCall` after allowlist / argument validation but before `toolCallState.skipReason(...)` and `toolCallState.recordExecution(...)`. This preserves the meaning of `AgentToolCallRunState.recordExecution`: it only counts MCP calls that are eligible for real execution. A disabled Playground MCP call still yields a tool message back to the model, but it must not consume total/per-turn/per-tool budgets or duplicate fingerprints.
 
-- [ ] **Step 4: Enforce MCP mode in tool calls**
+- [x] **Step 4: Enforce MCP mode in tool calls**
 
 Modify `callAllowedTool` signature in `AgentExecutor+ToolCalls.swift`:
 
@@ -1081,7 +1081,7 @@ Update `gateMCP`:
 
 For production and confirmed Playground MCP calls, `isDryRun` is false. For disabled mode, `processOneToolCall` already returns before budget counting; the guard in `callAllowedTool` is a second safety net and should be unreachable in normal flow.
 
-- [ ] **Step 5: Pass run policy from ExecutionEngine**
+- [x] **Step 5: Pass run policy from ExecutionEngine**
 
 Modify `ExecutionEngine+AgentPipeline.swift`:
 
@@ -1095,7 +1095,7 @@ Modify `ExecutionEngine+AgentPipeline.swift`:
         )
 ```
 
-- [ ] **Step 6: Run focused tests**
+- [x] **Step 6: Run focused tests**
 
 Run:
 
@@ -1105,7 +1105,7 @@ swift test --package-path SliceAIKit --filter 'OrchestrationTests.AgentExecutorT
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add SliceAIKit/Sources/Orchestration/Executors SliceAIKit/Sources/Orchestration/Engine/ExecutionEngine+AgentPipeline.swift SliceAIKit/Tests/OrchestrationTests
@@ -1119,7 +1119,7 @@ git commit -m "feat: gate playground mcp tool calls"
 - Modify: `SliceAIApp/AppContainer.swift`
 - Test: `SliceAIKit/Tests/OrchestrationTests/ExecutionEngineTests.swift`
 
-- [ ] **Step 1: Write failing runner smoke test**
+- [x] **Step 1: Write failing runner smoke test**
 
 First widen the local test helpers in `SliceAIKit/Tests/OrchestrationTests/ExecutionEngineTests.swift` so this test can inject `PlaygroundOutputDispatcher`:
 
@@ -1252,7 +1252,7 @@ func test_toolPlaygroundRunner_rejectsInvalidToolBeforeEngineRun() async throws 
 }
 ```
 
-- [ ] **Step 2: Run test to verify current gaps**
+- [x] **Step 2: Run test to verify current gaps**
 
 Run:
 
@@ -1262,7 +1262,7 @@ swift test --package-path SliceAIKit --filter 'OrchestrationTests.ExecutionEngin
 
 Expected: fail until Task 1, Task 2, and `ToolPlaygroundRunner` are implemented; after those tasks, these become regression tests.
 
-- [ ] **Step 3: Add runner protocol and implementation**
+- [x] **Step 3: Add runner protocol and implementation**
 
 Create `SliceAIKit/Sources/Orchestration/Playground/ToolPlaygroundRunner.swift`:
 
@@ -1365,7 +1365,7 @@ public struct ToolPlaygroundRunner: ToolPlaygroundRunning {
 }
 ```
 
-- [ ] **Step 4: Wire a dedicated Playground engine in AppContainer**
+- [x] **Step 4: Wire a dedicated Playground engine in AppContainer**
 
 Modify `AppContainer` to create a second `ExecutionEngine` with:
 
@@ -1423,7 +1423,7 @@ private static func makePlaygroundRunner(dependencies: ExecutionEngineDependenci
 
 Do not call `makeContextProviderRegistry()` here. Playground must share the production `ContextProviderRegistry`; only `output` and `sideEffectExecutor` differ from the production engine.
 
-- [ ] **Step 5: Run focused tests and build**
+- [x] **Step 5: Run focused tests and build**
 
 Run:
 
@@ -1434,7 +1434,7 @@ xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build
 
 Expected: tests pass and App Debug build succeeds.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add SliceAIKit/Sources/Orchestration/Playground SliceAIKit/Sources/Orchestration/Output SliceAIKit/Tests/OrchestrationTests SliceAIApp/AppContainer.swift
@@ -1448,7 +1448,7 @@ git commit -m "feat: add tool playground runner"
 - Modify: `SliceAIKit/Sources/SettingsUI/ToolEditorView.swift`
 - Test: `SliceAIKit/Tests/SettingsUITests/ToolEditorDraftStateTests.swift`
 
-- [ ] **Step 1: Write failing draft validation tests**
+- [x] **Step 1: Write failing draft validation tests**
 
 Create `SliceAIKit/Tests/SettingsUITests/ToolEditorDraftStateTests.swift`:
 
@@ -1655,7 +1655,7 @@ final class ToolEditorDraftStateTests: XCTestCase {
 
 The helper implementations above intentionally use public `Tool`, `PromptTool`, `AgentTool`, `Skill`, and `HotkeyBindings` initializers so failures point at production model contracts rather than test-only shortcuts.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run:
 
@@ -1665,7 +1665,7 @@ swift test --package-path SliceAIKit --filter SettingsUITests.ToolEditorDraftSta
 
 Expected: compile failure because draft types do not exist.
 
-- [ ] **Step 3: Implement draft session and validator**
+- [x] **Step 3: Implement draft session and validator**
 
 Create `SliceAIKit/Sources/SettingsUI/ToolEditorDraftState.swift`:
 
@@ -1812,7 +1812,7 @@ public enum ToolDraftValidator {
 }
 ```
 
-- [ ] **Step 4: Update ToolEditorView wording and init docs**
+- [x] **Step 4: Update ToolEditorView wording and init docs**
 
 Modify the top comment in `ToolEditorView.swift` so it no longer says the binding always points directly to production configuration:
 
@@ -1823,7 +1823,7 @@ Modify the top comment in `ToolEditorView.swift` so it no longer says the bindin
 /// 只有外层页面执行 Save 时，草稿才会写回 `Configuration.tools`。
 ```
 
-- [ ] **Step 5: Run focused SettingsUI tests**
+- [x] **Step 5: Run focused SettingsUI tests**
 
 Run:
 
@@ -1833,7 +1833,7 @@ swift test --package-path SliceAIKit --filter 'SettingsUITests.ToolEditorDraftSt
 
 Expected: pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add SliceAIKit/Sources/SettingsUI/ToolEditorDraftState.swift SliceAIKit/Sources/SettingsUI/ToolEditorView.swift SliceAIKit/Tests/SettingsUITests/ToolEditorDraftStateTests.swift
@@ -1846,7 +1846,7 @@ git commit -m "feat: add tool editor draft state"
 - Create: `SliceAIKit/Sources/SettingsUI/ToolPlaygroundState.swift`
 - Test: `SliceAIKit/Tests/SettingsUITests/ToolPlaygroundStateTests.swift`
 
-- [ ] **Step 1: Write failing state reducer tests**
+- [x] **Step 1: Write failing state reducer tests**
 
 Create `SliceAIKit/Tests/SettingsUITests/ToolPlaygroundStateTests.swift`:
 
@@ -1972,7 +1972,7 @@ final class ToolPlaygroundStateTests: XCTestCase {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run:
 
@@ -1982,7 +1982,7 @@ swift test --package-path SliceAIKit --filter SettingsUITests.ToolPlaygroundStat
 
 Expected: compile failure because `ToolPlaygroundState` does not exist and SettingsUI does not import Orchestration yet.
 
-- [ ] **Step 3: Add Orchestration dependency to SettingsUI**
+- [x] **Step 3: Add Orchestration dependency to SettingsUI**
 
 Modify `SliceAIKit/Package.swift`:
 
@@ -2010,7 +2010,7 @@ Also add `Orchestration` to `SettingsUITests` because the reducer tests import `
 
 SettingsUI depending on Orchestration is acceptable for Phase 3 because Playground is a Settings feature that consumes `ExecutionEvent`. Do not make Orchestration depend on SettingsUI.
 
-- [ ] **Step 4: Implement ToolPlaygroundState**
+- [x] **Step 4: Implement ToolPlaygroundState**
 
 Create `SliceAIKit/Sources/SettingsUI/ToolPlaygroundState.swift`:
 
@@ -2195,7 +2195,7 @@ private extension OutputBinding {
 }
 ```
 
-- [ ] **Step 5: Run reducer tests**
+- [x] **Step 5: Run reducer tests**
 
 Run:
 
@@ -2205,7 +2205,7 @@ swift test --package-path SliceAIKit --filter SettingsUITests.ToolPlaygroundStat
 
 Expected: pass after adding test helper factories.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add SliceAIKit/Package.swift SliceAIKit/Sources/SettingsUI/ToolPlaygroundState.swift SliceAIKit/Tests/SettingsUITests/ToolPlaygroundStateTests.swift
@@ -2223,7 +2223,7 @@ git commit -m "feat: add tool playground state reducer"
 - Modify: `SliceAIKit/Sources/SettingsUI/Pages/ToolsSettingsPage+Actions.swift`
 - Test: `SliceAIKit/Tests/SettingsUITests/ToolEditorDraftStateTests.swift`
 
-- [ ] **Step 1: Add Playground runner to SettingsViewModel**
+- [x] **Step 1: Add Playground runner to SettingsViewModel**
 
 Modify `SettingsViewModel` imports and initializer:
 
@@ -2247,7 +2247,7 @@ Assign:
         self.playgroundRunner = playgroundRunner
 ```
 
-- [ ] **Step 2: Create ToolPlaygroundView**
+- [x] **Step 2: Create ToolPlaygroundView**
 
 Create `SliceAIKit/Sources/SettingsUI/ToolPlaygroundView.swift`:
 
@@ -2389,7 +2389,7 @@ struct ToolPlaygroundView: View {
 }
 ```
 
-- [ ] **Step 3: Create ToolEditorV2View**
+- [x] **Step 3: Create ToolEditorV2View**
 
 Create `SliceAIKit/Sources/SettingsUI/ToolEditorV2View.swift`:
 
@@ -2449,7 +2449,7 @@ struct ToolEditorV2View: View {
 }
 ```
 
-- [ ] **Step 4: Replace direct binding in ToolsSettingsPage**
+- [x] **Step 4: Replace direct binding in ToolsSettingsPage**
 
 In `ToolsSettingsPage`, replace `expandedId` with:
 
@@ -2600,7 +2600,7 @@ private func makeEmptyPromptDraftTool() -> Tool {
 }
 ```
 
-- [ ] **Step 5: Implement Save/Revert actions**
+- [x] **Step 5: Implement Save/Revert actions**
 
 Add in `ToolsSettingsPage+Actions.swift`:
 
@@ -2664,7 +2664,7 @@ validationErrors = []
 
 After this change, clicking Add Prompt / Add Agent must not mutate `viewModel.configuration.tools` and must not trigger the `.onChange(of: viewModel.configuration.tools)` debounced save hook. The only write path for a newly created tool is `saveEditingSession()`.
 
-- [ ] **Step 6: Run SettingsUI tests**
+- [x] **Step 6: Run SettingsUI tests**
 
 Run:
 
@@ -2674,7 +2674,7 @@ swift test --package-path SliceAIKit --filter SettingsUITests
 
 Expected: pass.
 
-- [ ] **Step 7: Run App build**
+- [x] **Step 7: Run App build**
 
 Run:
 
@@ -2684,7 +2684,7 @@ xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build
 
 Expected: BUILD SUCCEEDED. Increase the `SettingsScene` frame from `720×520` to `980×620` in this task because ToolEditor v2 intentionally uses a two-column editor + Playground layout; document the sizing change in the task detail.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add SliceAIKit/Sources/SettingsUI SliceAIKit/Tests/SettingsUITests SliceAIKit/Package.swift SliceAIApp/AppContainer.swift
@@ -2702,7 +2702,7 @@ git commit -m "feat: add tool editor playground ui"
 - Modify: `docs/Module/Orchestration.md`
 - Create: `docs/Module/SettingsUI.md`
 
-- [ ] **Step 1: Update module docs**
+- [x] **Step 1: Update module docs**
 
 Update `docs/Module/Orchestration.md` with:
 
@@ -2730,7 +2730,7 @@ ToolEditor v2 使用 `ToolEditorDraftSession` 保存未提交草稿。左侧编�
 右侧 Prompt Playground 使用 `ToolPlaygroundView` 和 `ToolPlaygroundState` 消费 Orchestration `ExecutionEvent`。Playground run 的 LLM 可真实调用，side effects 只 dry-run，MCP tool call 默认禁用，必须由用户显式打开本次运行开关。
 ```
 
-- [ ] **Step 2: Update project status docs**
+- [x] **Step 2: Update project status docs**
 
 Update `README.md` Current Features after implementation:
 
@@ -2752,7 +2752,7 @@ Update `docs/v2-refactor-master-todolist.md` dashboard:
 | 下一个动作 | 做 Phase 3 Playground 真实 App smoke，确认后评估样本管理 / A-B / 原生 provider 的下一切片 |
 ```
 
-- [ ] **Step 3: Run final gate**
+- [x] **Step 3: Run final gate**
 
 Run:
 
@@ -2766,11 +2766,13 @@ xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build
 Expected:
 
 - SwiftPM tests pass.
-- SwiftLint reports 0 violations.
+- SwiftLint reports 0 violations when `swiftlint` is available in the local environment. On the 2026-05-28/29
+  implementation machine, `swiftlint` was not in `PATH`; the attempted gate and environment gap are recorded in
+  `docs/Task-detail/2026-05-28-phase-3-tool-editor-playground-mvp-plan.md` and the compliance audit.
 - `git diff --check` prints no output.
 - Xcode build prints `** BUILD SUCCEEDED **`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add README.md AGENTS.md docs SliceAIKit SliceAIApp
