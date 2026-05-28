@@ -116,6 +116,46 @@ final class ToolPlaygroundStateTests: XCTestCase {
         XCTAssertEqual(state.status, .failed(SliceError.provider(.unauthorized).userMessage))
     }
 
+    /// 草稿校验失败应清理旧运行输出，同时保留用户输入字段便于修正后重试。
+    func test_markValidationFailedClearsRunScopedStateAndPreservesInputs() {
+        var state = ToolPlaygroundState()
+        state.selectionText = "selected text"
+        state.appName = "Notes"
+        state.windowTitle = "Draft"
+        state.urlText = "https://example.com"
+        state.allowMCPToolCalls = true
+        let tool = makeFileTool(path: "/tmp/out.md")
+
+        state.reduce(.started(invocationId: UUID()), tool: tool)
+        state.reduce(.promptRendered(preview: "old prompt"), tool: tool)
+        state.reduce(.permissionWouldBeRequested(permission: .clipboard, uxHint: "Old permission"), tool: tool)
+        state.reduce(
+            .toolCallProposed(id: UUID(), ref: MCPToolRef(server: "server", tool: "tool"), argsDescription: "{}"),
+            tool: tool
+        )
+        state.reduce(.sideEffectSkippedDryRun(.copyToClipboard), tool: tool)
+        state.reduce(.llmChunk(delta: "old result"), tool: tool)
+        state.reduce(.finished(report: .stub(flags: [.playground], outcome: .dryRunCompleted)), tool: tool)
+
+        state.markValidationFailed("校验失败")
+
+        XCTAssertEqual(state.selectionText, "selected text")
+        XCTAssertEqual(state.appName, "Notes")
+        XCTAssertEqual(state.windowTitle, "Draft")
+        XCTAssertEqual(state.urlText, "https://example.com")
+        XCTAssertTrue(state.allowMCPToolCalls)
+        XCTAssertEqual(state.streamedText, "")
+        XCTAssertEqual(state.promptPreview, "")
+        XCTAssertEqual(state.toolCallRows, [])
+        XCTAssertEqual(state.permissionRows, [])
+        XCTAssertEqual(state.skippedSideEffects, [])
+        XCTAssertEqual(state.displayPreview.summary, "")
+        XCTAssertNil(state.lastReport)
+        XCTAssertEqual(state.reportSummary, "")
+        XCTAssertEqual(state.errorMessage, "校验失败")
+        XCTAssertEqual(state.status, .failed("校验失败"))
+    }
+
     /// structured started 初始态不应把空内容误报为 parse error。
     func test_startedStructuredDoesNotShowParseErrorForEmptyText() {
         var state = ToolPlaygroundState()

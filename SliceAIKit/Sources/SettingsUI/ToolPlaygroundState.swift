@@ -90,6 +90,14 @@ public struct ToolPlaygroundState: Sendable, Equatable {
         status = .cancelling
     }
 
+    /// 标记草稿校验失败，并清理上一轮运行输出。
+    /// - Parameter message: 用户可读的校验失败文案。
+    public mutating func markValidationFailed(_ message: String) {
+        clearRunScopedFieldsForValidationFailure()
+        errorMessage = message
+        status = .failed(message)
+    }
+
     /// 根据 ExecutionEvent 更新 UI 状态。
     public mutating func reduce(_ event: ExecutionEvent, tool: Tool) {
         switch event {
@@ -143,6 +151,19 @@ public struct ToolPlaygroundState: Sendable, Equatable {
         reportSummary = ""
         errorMessage = nil
         displayPreview = preview(for: tool, finalText: "")
+    }
+
+    /// 清理校验失败时的单次运行输出，同时保留用户输入字段。
+    private mutating func clearRunScopedFieldsForValidationFailure() {
+        streamedText = ""
+        promptPreview = ""
+        toolCallRows = []
+        permissionRows = []
+        skippedSideEffects = []
+        lastReport = nil
+        reportSummary = ""
+        errorMessage = nil
+        displayPreview.summary = ""
     }
 
     /// 生成 DisplayMode 预览。

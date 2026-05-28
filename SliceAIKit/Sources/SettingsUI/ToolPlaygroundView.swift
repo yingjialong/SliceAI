@@ -156,8 +156,7 @@ struct ToolPlaygroundView: View {
         guard validationErrors.isEmpty else {
             let message = validationErrors.map { $0.localizedDescription }.joined(separator: "\n")
             activeRunID = nil
-            state.status = .failed(message)
-            state.errorMessage = message
+            state.markValidationFailed(message)
             print("[ToolPlaygroundView] startRun blocked by validation errors count=\(validationErrors.count)")
             return
         }

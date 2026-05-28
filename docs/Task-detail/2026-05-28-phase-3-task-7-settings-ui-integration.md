@@ -52,6 +52,7 @@
 3. `ToolPlaygroundView` 输出区在 streaming raw text 之外额外展示非空且不同的 `displayPreview.summary`，让 `.file` / `.replace` / `.bubble` / `.silent` dry-run 摘要可见。
 4. `saveEditingSession()` 不再用草稿里的全局 `HotkeyBindings` 覆盖当前配置；新增 `mergedHotkeysForSavingDraft(...)`，只合并当前草稿工具的 hotkey，避免复活编辑期间已删除工具的 orphan hotkey。
 5. 新增 dirty guard：creating session 默认 dirty；existing session 比较当前正式 Tool 与草稿 Tool，并只比较当前工具相关 hotkey。切换行、新增 Prompt / Agent、开始拖拽时如有未保存改动会保留当前草稿并展示“请先保存或撤销当前草稿后再继续。”
+6. Re-review follow-up：`ToolPlaygroundState.markValidationFailed(_:)` 统一处理草稿校验失败状态，清理上一轮 run-scoped 输出 / prompt / 权限 / tool-call / side-effect / display preview / report，同时保留 selection、app、window、URL 和 MCP 开关输入；`ToolPlaygroundView.startRun()` 校验失败分支改为调用该方法。
 
 ## 变动文件清单
 
@@ -77,3 +78,8 @@
 - Review follow-up SettingsUI：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path SliceAIKit --scratch-path /tmp/sliceai-task7-fix-settingsui --filter SettingsUITests` 通过，49 tests，0 failures。构建阶段仍出现既有 `CapabilitiesTests/MCPServerStoreTests.swift` unused-result warning，非本任务文件。
 - Review follow-up App build：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build` 通过，`BUILD SUCCEEDED`。Xcode 仍输出多 destination 选择 warning 和 AppIntents metadata skipped warning，非本任务新增。
 - Review follow-up Whitespace：`git diff --check` 通过，无输出。
+- Validation follow-up Red：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path SliceAIKit --scratch-path /tmp/sliceai-task7-validation-red --filter SettingsUITests.ToolPlaygroundStateTests/test_markValidationFailedClearsRunScopedStateAndPreservesInputs` 编译失败，符合预期；`ToolPlaygroundState` 尚无 `markValidationFailed(_:)`。
+- Validation follow-up Focused：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path SliceAIKit --scratch-path /tmp/sliceai-task7-validation-green --filter SettingsUITests.ToolPlaygroundStateTests/test_markValidationFailedClearsRunScopedStateAndPreservesInputs` 通过，1 test，0 failures。构建阶段仍出现既有 `CapabilitiesTests/MCPServerStoreTests.swift` unused-result warning，非本任务文件。
+- Validation follow-up Combined：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path SliceAIKit --scratch-path /tmp/sliceai-task7-validation-fix --filter 'SettingsUITests.ToolPlaygroundStateTests|SettingsUITests.ToolEditorDraftStateTests'` 通过，26 tests，0 failures。构建阶段仍出现既有 `CapabilitiesTests/MCPServerStoreTests.swift` unused-result warning，非本任务文件。
+- Validation follow-up App build：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build` 通过，`BUILD SUCCEEDED`。Xcode 仍输出多 destination 选择 warning、AppIntents metadata skipped warning 和 ad-hoc signing note，非本任务新增。
+- Validation follow-up Whitespace：`git diff --check` 通过，无输出。
