@@ -667,6 +667,93 @@ final class ExecutionEngineTests: XCTestCase {
         XCTAssertEqual(resolverCalls, 1)
     }
 
+    /// Agent pipeline 必须把 Playground runPolicy 继续传给 AgentExecutor 的 MCP gate。
+    func test_execute_agentKind_playgroundPolicyDisabledMCPReachesAgentExecutor() async throws {
+        let readRef = MCPToolRef(server: "fs", tool: "read")
+        let llm = MockToolCallingLLMProvider(turns: [
+            [
+                .toolCallDelta(ChatToolCallDelta(
+                    index: 0,
+                    id: "call-1",
+                    name: "read",
+                    argumentsDelta: "{\"path\":\"/tmp/a.txt\"}"
+                )),
+                .finished(.toolCalls)
+            ],
+            [.textDelta("done"), .finished(.stop)]
+        ])
+        let agentBroker = MockPermissionBroker()
+        let agentMCP = MockMCPClient(
+            tools: [Self.fsDescriptor: [Self.readToolDescriptor]],
+            responses: [
+                readRef: MCPCallResult(
+                    content: [.text("file contents")],
+                    structuredContent: nil,
+                    isError: false,
+                    meta: nil
+                )
+            ]
+        )
+        let agentExecutor = AgentExecutor(
+            providerResolver: MockProviderResolver(),
+            mcpClient: agentMCP,
+            permissionBroker: agentBroker,
+            keychain: MockKeychain(["openai-stub": "fake-key"]),
+            llmProviderFactory: MockLLMProviderFactory(provider: llm),
+            mcpDescriptors: { [Self.fsDescriptor] }
+        )
+        let bundle = try makeEngine(agentExecutor: agentExecutor)
+        let agent = AgentTool(
+            systemPrompt: "agent system",
+            initialUserPrompt: "read {{selection}}",
+            contexts: [],
+            provider: .fixed(providerId: "openai-stub", modelId: nil),
+            skills: [],
+            mcpAllowlist: [readRef],
+            builtinCapabilities: [],
+            maxSteps: 2,
+            stopCondition: .finalAnswerProvided
+        )
+        let agentTool = Tool(
+            id: "tool.agent.playground",
+            name: "Agent Playground",
+            icon: "A",
+            description: nil,
+            kind: .agent(agent),
+            visibleWhen: nil,
+            displayMode: .window,
+            outputBinding: nil,
+            permissions: [.mcp(server: "fs", tools: ["read"])],
+            provenance: .firstParty,
+            budget: nil,
+            hotkey: nil,
+            labelStyle: .iconAndName,
+            tags: []
+        )
+        let seed = makeStubSeed(
+            isDryRun: true,
+            triggerSource: .playground,
+            runPolicy: .playground(allowMCPToolCalls: false)
+        )
+
+        let events = await collectEvents(from: bundle.engine.execute(tool: agentTool, seed: seed))
+
+        XCTAssertTrue(events.contains { event in
+            if case .toolCallDenied(_, let reason) = event {
+                return reason.contains("MCP calls are disabled")
+            }
+            return false
+        })
+        XCTAssertTrue(events.contains { event in
+            if case .llmChunk(let delta) = event, delta == "done" { return true }
+            return false
+        })
+        let agentGateCalls = await agentBroker.gateCalls
+        XCTAssertTrue(agentGateCalls.isEmpty)
+        let agentMCPCallCount = await agentMCP.callCount
+        XCTAssertEqual(agentMCPCallCount, 0)
+    }
+
     /// .pipeline ToolKind 同样应直接 `finishNotImplementedKind`。
     /// **关键**：fix 前 .pipeline 路径会跑 ProviderResolver 用 fake `<pipeline-default>`
     /// providerId → 抛 ProviderResolutionError.notFound → finishFailure 写
@@ -1301,6 +1388,33 @@ final class ExecutionEngineTests: XCTestCase {
         XCTAssertFalse(hasCompleted,
                        "cancelled-during-prompt-stream must NOT write .invocationCompleted; got=\(entries)")
     }
+
+    // MARK: - Shared MCP descriptors
+
+    /// Agent pipeline 测试用 `fs` MCP server descriptor。
+    private static let fsDescriptor = MCPDescriptor(
+        id: "fs",
+        transport: .stdio,
+        command: "mock-fs",
+        args: nil,
+        url: nil,
+        env: nil,
+        capabilities: [.tools(["read"])],
+        provenance: .selfManaged(userAcknowledgedAt: Date(timeIntervalSince1970: 0))
+    )
+
+    /// Agent pipeline 测试用 `fs.read` MCP tool descriptor。
+    private static let readToolDescriptor = MCPToolDescriptor(
+        ref: MCPToolRef(server: "fs", tool: "read"),
+        title: "Read File",
+        description: "Read a file",
+        inputSchema: [
+            "type": .string("object"),
+            "properties": .object([
+                "path": .object(["type": .string("string")])
+            ])
+        ]
+    )
 }
 
 // MARK: - 辅助：cancellation 测试用 LLMProvider

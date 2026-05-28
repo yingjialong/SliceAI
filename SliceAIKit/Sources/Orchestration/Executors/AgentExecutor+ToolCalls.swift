@@ -20,6 +20,7 @@ struct AgentToolCallProcessingResult: Sendable {
 struct AgentToolTurnProcessingContext: Sendable {
     let catalog: AgentToolCatalog
     let tool: Tool
+    let runPolicy: ExecutionRunPolicy
     let continuation: AgentEventContinuation
 }
 
@@ -217,6 +218,7 @@ extension AgentExecutor {
             turn.toolCalls,
             catalog: context.catalog,
             tool: context.tool,
+            runPolicy: context.runPolicy,
             toolCallState: &toolCallState,
             continuation: context.continuation
         )
@@ -229,6 +231,7 @@ extension AgentExecutor {
         _ calls: [ChatToolCall],
         catalog: AgentToolCatalog,
         tool: Tool,
+        runPolicy: ExecutionRunPolicy,
         toolCallState: inout AgentToolCallRunState,
         continuation: AgentEventContinuation
     ) async -> AgentToolCallProcessingResult {
@@ -239,6 +242,7 @@ extension AgentExecutor {
                 call,
                 catalog: catalog,
                 tool: tool,
+                runPolicy: runPolicy,
                 toolCallState: &toolCallState,
                 continuation: continuation
             )
@@ -252,6 +256,7 @@ extension AgentExecutor {
         _ call: ChatToolCall,
         catalog: AgentToolCatalog,
         tool: Tool,
+        runPolicy: ExecutionRunPolicy,
         toolCallState: inout AgentToolCallRunState,
         continuation: AgentEventContinuation
     ) async -> ChatMessage {
@@ -280,12 +285,21 @@ extension AgentExecutor {
         guard let args = call.arguments else {
             return failToolCall(context, summary: "invalid tool arguments", content: "invalid tool arguments")
         }
+        if runPolicy.mcpToolCalls == .disabled {
+            return denyDisabledMCPToolCall(context)
+        }
         if let reason = toolCallState.skipReason(ref: ref, args: args) {
             logger.debug("agent tool call skipped reason=\(reason.summary, privacy: .public)")
             return skipToolCall(context, reason: reason)
         }
         toolCallState.recordExecution(ref: ref, args: args)
-        let message = await callAllowedTool(context, ref: ref, args: args, tool: tool)
+        let message = await callAllowedTool(
+            context,
+            ref: ref,
+            args: args,
+            tool: tool,
+            runPolicy: runPolicy
+        )
         toolCallState.recordToolMessageContent(message.content)
         return message
     }
@@ -377,14 +391,28 @@ extension AgentExecutor {
         )
     }
 
+    /// Playground 禁用 MCP 时的受控拒绝分支。
+    ///
+    /// 该分支只在 allowlist 与参数校验通过后触发，且必须早于预算记录，
+    /// 避免 disabled Playground 运行污染真实 MCP 调用统计。
+    func denyDisabledMCPToolCall(_ context: AgentToolCallContext) -> ChatMessage {
+        let reason = "MCP calls are disabled for this Playground run"
+        context.continuation.yield(.toolCallDenied(id: context.uiId, reason: reason))
+        return toolMessage(call: context.call, content: reason)
+    }
+
     /// 已允许 tool 的权限 gate + MCP call 分支。
     func callAllowedTool(
         _ context: AgentToolCallContext,
         ref: MCPToolRef,
         args: MCPJSONValue.Object,
-        tool: Tool
+        tool: Tool,
+        runPolicy: ExecutionRunPolicy
     ) async -> ChatMessage {
-        let gate = await gateMCP(ref: ref, tool: tool)
+        guard runPolicy.mcpToolCalls == .realWithPermissionBroker else {
+            return denyDisabledMCPToolCall(context)
+        }
+        let gate = await gateMCP(ref: ref, tool: tool, runPolicy: runPolicy)
         switch gate {
         case .approved:
             context.continuation.yield(.toolCallApproved(id: context.uiId))
@@ -400,12 +428,12 @@ extension AgentExecutor {
     }
 
     /// 对一个 MCP permission 做 one-time gate。
-    func gateMCP(ref: MCPToolRef, tool: Tool) async -> GateOutcome {
+    func gateMCP(ref: MCPToolRef, tool: Tool, runPolicy: ExecutionRunPolicy) async -> GateOutcome {
         await permissionBroker.gate(
             effective: [.mcp(server: ref.server, tools: [ref.tool])],
             provenance: tool.provenance,
             scope: .oneTime,
-            isDryRun: false
+            isDryRun: runPolicy.mcpToolCalls != .realWithPermissionBroker
         )
     }
 

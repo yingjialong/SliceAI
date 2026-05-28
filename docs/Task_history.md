@@ -4,6 +4,15 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 
 ---
 
+## Task 69 · Phase 3 Task 3 Agent MCP Run Policy
+
+- **时间**：2026-05-28
+- **描述**：执行 Phase 3 ToolEditor v2 + Prompt Playground MVP implementation plan 的 Task 3，把 `ExecutionRunPolicy` 传入 AgentExecutor，并按 Playground MCP 开关控制 Agent MCP tool call。
+- **详情**：[docs/Task-detail/2026-05-28-phase-3-task-3-agent-mcp-run-policy.md](Task-detail/2026-05-28-phase-3-task-3-agent-mcp-run-policy.md)
+- **结果**：完成。Playground 禁用 MCP 时，AgentExecutor 在 allowlist / 参数校验后、预算记录前拒绝 MCP tool call，不触发 Agent 内部 PermissionBroker 或 MCP client；Playground 显式允许 MCP 时继续以非 dry-run one-time gate 调用 PermissionBroker。focused AgentExecutor / ExecutionEngine tests 通过。
+
+---
+
 ## Task 68 · Phase 3 Task 2 Playground Output Dispatcher
 
 - **时间**：2026-05-28

@@ -68,12 +68,14 @@ public actor AgentExecutor {
     ///   - agent: Tool.kind 中的 AgentTool payload。
     ///   - resolved: 已解析上下文。
     ///   - provider: ProviderResolver 已解析出的 provider。
+    ///   - runPolicy: 本次执行的运行策略；默认生产语义，Playground 可禁用 MCP tool call。
     /// - Returns: ExecutionEvent stream；错误统一 yield `.failed` 后正常 finish。
     public func run(
         tool: Tool,
         agent: AgentTool,
         resolved: ResolvedExecutionContext,
-        provider: Provider
+        provider: Provider,
+        runPolicy: ExecutionRunPolicy = .production(isDryRun: false)
     ) -> AsyncThrowingStream<ExecutionEvent, any Error> {
         AsyncThrowingStream { continuation in
             let task = Task { [weak self] in
@@ -86,6 +88,7 @@ public actor AgentExecutor {
                     agent: agent,
                     resolved: resolved,
                     provider: provider,
+                    runPolicy: runPolicy,
                     continuation: continuation
                 )
             }
@@ -99,6 +102,7 @@ public actor AgentExecutor {
         agent: AgentTool,
         resolved: ResolvedExecutionContext,
         provider: Provider,
+        runPolicy: ExecutionRunPolicy,
         continuation: AsyncThrowingStream<ExecutionEvent, any Error>.Continuation
     ) async {
         do {
@@ -107,6 +111,7 @@ public actor AgentExecutor {
                 agent: agent,
                 resolved: resolved,
                 provider: provider,
+                runPolicy: runPolicy,
                 continuation: continuation
             )
             continuation.finish()
@@ -127,6 +132,7 @@ public actor AgentExecutor {
         agent: AgentTool,
         resolved: ResolvedExecutionContext,
         provider: Provider,
+        runPolicy: ExecutionRunPolicy,
         continuation: AsyncThrowingStream<ExecutionEvent, any Error>.Continuation
     ) async throws {
         _ = providerResolver
@@ -146,7 +152,12 @@ public actor AgentExecutor {
                 continuation: continuation
             )
             guard !turn.toolCalls.isEmpty else { return }
-            let turnContext = AgentToolTurnProcessingContext(catalog: catalog, tool: tool, continuation: continuation)
+            let turnContext = AgentToolTurnProcessingContext(
+                catalog: catalog,
+                tool: tool,
+                runPolicy: runPolicy,
+                continuation: continuation
+            )
             let isBudgetExhausted = await appendToolTurnResult(
                 turn,
                 messages: &messages,

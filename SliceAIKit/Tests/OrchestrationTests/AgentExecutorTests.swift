@@ -626,6 +626,98 @@ final class AgentExecutorTests: XCTestCase {
         XCTAssertEqual(brokerCallCount, 1)
     }
 
+    /// Playground 禁用 MCP 时，即使 tool 在 allowlist 内，也必须在 broker 之前拒绝。
+    func test_agentExecutor_playgroundPolicyDisabledMCPDeniesAllowedToolBeforeBroker() async throws {
+        let llm = MockToolCallingLLMProvider(turns: [
+            toolCallTurn(id: "call-1", name: "read", arguments: "{\"path\":\"/tmp/a.txt\"}"),
+            finalAnswerTurn("done")
+        ])
+        let broker = MockPermissionBroker()
+        let executor = makeExecutor(llm: llm, broker: broker, mcpClient: makeMCPClient())
+        let agent = makeAgent(allowlist: [readRef])
+
+        let events = await collectEvents(from: await executor.run(
+            tool: makeTool(agent: agent),
+            agent: agent,
+            resolved: makeResolvedContext(),
+            provider: MockProvider.openAIStub(),
+            runPolicy: .playground(allowMCPToolCalls: false)
+        ))
+
+        XCTAssertTrue(events.contains { event in
+            if case .toolCallDenied(_, let reason) = event {
+                return reason.contains("MCP calls are disabled")
+            }
+            return false
+        })
+        let gateCalls = await broker.gateCalls
+        XCTAssertTrue(gateCalls.isEmpty)
+    }
+
+    /// Playground 禁用 MCP 的拒绝不应消耗 Agent tool-call budget。
+    func test_agentExecutor_playgroundPolicyDisabledMCPDoesNotConsumeToolBudget() async throws {
+        let llm = MockToolCallingLLMProvider(turns: [
+            toolCallTurn(id: "call-1", name: "read", arguments: "{\"path\":\"/tmp/a.txt\"}"),
+            toolCallTurn(id: "call-2", name: "read", arguments: "{\"path\":\"/tmp/b.txt\"}"),
+            finalAnswerTurn("done")
+        ])
+        let broker = MockPermissionBroker()
+        let mcp = makeMCPClient()
+        let executor = makeExecutor(llm: llm, broker: broker, mcpClient: mcp)
+        let policy = AgentToolCallPolicy(
+            maxTotalCalls: 1,
+            maxCallsPerTurn: 1,
+            perToolLimits: [],
+            duplicateArgumentStrategy: .allow,
+            stopOnRateLimit: true
+        )
+        let agent = makeAgent(allowlist: [readRef], maxSteps: 2, toolCallPolicy: policy)
+
+        let events = await collectEvents(from: await executor.run(
+            tool: makeTool(agent: agent),
+            agent: agent,
+            resolved: makeResolvedContext(),
+            provider: MockProvider.openAIStub(),
+            runPolicy: .playground(allowMCPToolCalls: false)
+        ))
+
+        let disabledDenials = events.filter { event in
+            if case .toolCallDenied(_, let reason) = event {
+                return reason.contains("MCP calls are disabled")
+            }
+            return false
+        }
+        XCTAssertEqual(disabledDenials.count, 2)
+        XCTAssertEqual(llm.toolStreamCallCount, 3)
+        let mcpCallCount = await mcp.callCount
+        XCTAssertEqual(mcpCallCount, 0)
+        let gateCalls = await broker.gateCalls
+        XCTAssertTrue(gateCalls.isEmpty)
+    }
+
+    /// Playground 显式允许 MCP 时，broker gate 必须是真实 one-time 调用而不是 dry-run。
+    func test_agentExecutor_playgroundPolicyAllowedMCPPassesNonDryRunToBroker() async throws {
+        let llm = MockToolCallingLLMProvider(turns: [
+            toolCallTurn(id: "call-1", name: "read", arguments: "{\"path\":\"/tmp/a.txt\"}"),
+            finalAnswerTurn("done")
+        ])
+        let broker = MockPermissionBroker()
+        let executor = makeExecutor(llm: llm, broker: broker, mcpClient: makeMCPClient())
+        let agent = makeAgent(allowlist: [readRef])
+
+        _ = await collectEvents(from: await executor.run(
+            tool: makeTool(agent: agent),
+            agent: agent,
+            resolved: makeResolvedContext(),
+            provider: MockProvider.openAIStub(),
+            runPolicy: .playground(allowMCPToolCalls: true)
+        ))
+
+        let gateCalls = await broker.gateCalls
+        XCTAssertEqual(gateCalls.last?.isDryRun, false)
+        XCTAssertEqual(gateCalls.last?.scope, .oneTime)
+    }
+
     /// 多 server 暴露同名非 allowlist 工具时，不应阻断实际 allowlist 内的不同工具。
     func test_agentExecutor_allowsMultiServerCatalogWhenOnlyNonAllowlistedNamesOverlap() async throws {
         let queryRef = MCPToolRef(server: "db", tool: "query")
