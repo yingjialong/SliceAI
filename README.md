@@ -23,6 +23,7 @@ Phase 1 MCP + Context 主干已完成 `v0.3` release prep：stdio / Streamable H
 - Output lifecycle、`.silent`、`.file` final text 写入、`.replace` 选区替换、`.bubble` final text 气泡和 `.structured` JSON 结构化渲染
 - 本地 TTS side effect：permission gate 通过后用 macOS AVSpeech 朗读 final text，dry-run 不发声
 - English Tutor 默认工具：绑定内置 `english-tutor` skill，输出 structured JSON，并优先朗读 `ttsText`
+- ToolEditor v2 + Prompt Playground MVP：支持在 Settings 中编辑未保存 Tool 草稿并试跑；Prompt / Agent Tool 复用真实 ExecutionEngine，输出进入右侧 preview，side effects dry-run，MCP tool call 默认禁用并需本次运行显式确认
 - API Key 存 macOS Keychain
 
 ## Build from source

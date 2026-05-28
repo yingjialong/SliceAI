@@ -53,6 +53,16 @@
 | `InvocationGate` | single-flight 状态唯一来源，阻止旧 invocation 污染新结果。 |
 | `AuditLogProtocol.append(_:)` | 审计日志抽象，生产实现为 JSONL append。 |
 
+### Playground Run Policy
+
+Phase 3 增加 `ExecutionRunPolicy`：
+
+- `production`：生产触发，输出走生产 sink，side effects 由 `isDryRun` 决定是否执行。
+- `playground`：Settings Playground 触发，真实 LLM，side effects dry-run，输出走 preview sink。
+- Playground MCP 默认 disabled；用户显式允许后才进入 allowlist + PermissionBroker + MCP client。
+
+`ExecutionEngine.execute(tool:seed:)` 仍是唯一执行入口；Playground 通过专用 runner 和专用 output dispatcher 复用同一执行链。
+
 ## 权限覆盖语义
 
 `EffectivePermissions.undeclared` 的判断方向是 declared 覆盖 effective：只要某个 effective permission 找不到任何 declared cover，就视为漏报并在执行前失败。

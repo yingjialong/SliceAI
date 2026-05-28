@@ -4,6 +4,13 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 
 ---
 
+## Task 74 · Phase 3 Task 8 Documentation And Final Gate
+
+- **时间**：2026-05-28
+- **描述**：执行 Phase 3 ToolEditor v2 + Prompt Playground MVP implementation plan 的 Task 8，完成模块文档、项目状态文档和 final gate，并提交本阶段收尾 commit。
+- **详情**：[docs/Task-detail/2026-05-28-phase-3-tool-editor-playground-mvp-plan.md](Task-detail/2026-05-28-phase-3-tool-editor-playground-mvp-plan.md)
+- **结果**：完成。已更新 README、AGENTS、master todolist、Orchestration 和 SettingsUI 模块文档，并复用同一个 MVP plan task detail 记录 Task 8。Final gate：SwiftPM full tests 882 tests / 1 skipped / 0 failures，通过；`git diff --check` 通过；App Debug build 通过；SwiftLint 因本机 `swiftlint` 不在 PATH 未运行成功，已按环境缺失记录。
+
 ## Task 73 · Phase 3 Task 7 Settings UI Integration
 
 - **时间**：2026-05-28

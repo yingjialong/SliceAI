@@ -17,7 +17,10 @@
 - [x] 更新 Task_history 和 master todolist。
 - [x] 使用 `claude-review-loop` 对 plan 做 3 轮只读评审并拿到 Round 3 approve。
 - [x] 按 Codex plan review 修复实现计划中的安全 / 校验 / UI 展示缺口。
-- [ ] 用户确认执行方式。
+- [x] 用户确认执行方式并完成 Task 1-7 实现。
+- [x] Task 8 更新模块文档和项目状态文档。
+- [x] Task 8 运行 final gate 并记录结果。
+- [x] Task 8 准备收尾 commit。
 
 ## 实施内容
 
@@ -48,7 +51,7 @@
 
 ## 验证
 
-本任务只修改文档，验证范围：
+Plan 生成阶段只修改文档，验证范围：
 
 - `git diff --check`：通过，无输出。
 - `rg -n "[ \t]+$" ...`：通过，未发现新增文档行尾空白。
@@ -57,6 +60,15 @@
 - Codex plan review fixes：已更新 plan 文档；尚未运行 Swift / Xcode，因为本轮仍只修改文档和计划片段。
 - Swift / Xcode 测试未运行，因为本任务没有改生产代码，测试文件仅在计划中描述，尚未创建。
 
+### 2026-05-28 Task 8 Final Gate
+
+Task 8 是 Phase 3 ToolEditor v2 + Prompt Playground MVP 的文档收尾和 final gate；Task 1-7 已完成实现并通过两轮 review。本节记录最终验证，不额外创建无关 task detail。
+
+- `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path SliceAIKit --scratch-path /tmp/sliceai-task8-full-tests`：通过。执行 882 tests，1 skipped，0 failures；构建阶段出现既有 `MCPServerStoreTests.swift:196` unused-result warning，不影响退出码。
+- `swiftlint lint --strict`：未运行成功。失败原因为本机环境缺失，`zsh:1: command not found: swiftlint`；按任务约束未安装工具。
+- `git diff --check`：通过，无输出。
+- `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build`：通过，输出 `** BUILD SUCCEEDED **`；Xcode 选择多个 matching destinations 中的第一个 My Mac，为非阻塞 warning。
+
 ## 变动文件清单
 
 - `docs/superpowers/plans/2026-05-28-phase-3-tool-editor-playground-mvp.md`
@@ -64,9 +76,16 @@
 - `docs/Task_history.md`
 - `docs/v2-refactor-master-todolist.md`
 
+Task 8 追加变动：
+
+- `README.md`
+- `AGENTS.md`
+- `docs/Module/Orchestration.md`
+- `docs/Module/SettingsUI.md`
+- `docs/Task-detail/2026-05-28-phase-3-tool-editor-playground-mvp-plan.md`
+- `docs/Task_history.md`
+- `docs/v2-refactor-master-todolist.md`
+
 ## 下一步
 
-用户选择执行方式：
-
-1. Subagent-Driven：按 plan 每个 task 一个新 subagent，完成后 review。
-2. Inline Execution：在当前会话使用 executing-plans 顺序执行。
+Task 8 完成后，下一步做 Phase 3 Playground 真实 App smoke，确认后再评估样本管理 / A-B / 原生 provider 的后续切片。样本持久化、A/B 对比、版本历史、原生 Anthropic / Gemini / Ollama、Memory 和 Cost Panel 仍是技术债务 / 后续切片，不属于本次 MVP 收尾。

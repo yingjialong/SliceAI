@@ -17,8 +17,8 @@
 |---|---|
 | 最后更新 | 2026-05-28 |
 | 当前 Phase | **Phase 3 Prompt IDE + 本地模型（kickoff）** |
-| 当前 Milestone | **Phase 3 ToolEditor v2 + Prompt Playground MVP plan 已生成并通过 Claude review** |
-| 下一个动作 | 用户选择 Subagent-Driven 或 Inline Execution，按 plan 执行 Phase 3 ToolEditor v2 + Prompt Playground MVP |
+| 当前 Milestone | **Phase 3 ToolEditor v2 + Prompt Playground MVP implementation** |
+| 下一个动作 | 做 Phase 3 Playground 真实 App smoke，确认后评估样本管理 / A-B / 原生 provider 的下一切片 |
 | 阻塞 | 无已知产品代码阻塞；`v0.3.0` draft release 已生成并校验通过，但用户已决定暂缓人工发布 |
 
 **Milestone 状态**
@@ -76,7 +76,7 @@
 | **0** | 底层重构 | ✅ 已完成并正式发布 `v0.2.0` | 15–21 (M1+M2+M3) | **无**（只重构） | Orchestration + Capabilities 骨架、Tool 三态、ExecutionSeed/ResolvedContext、Permission + Provenance + PermissionGraph + PathSandbox hook、v2 schema + 独立 config 路径 |
 | **1** | MCP + Context 主干 | ✅ 已完成；`v0.3.0` tag + GitHub draft release 已生成，人工发布暂缓 | 20–30 | MCP 支持 / 5 个核心 ContextProvider / Per-Tool Hotkey / 基础自定义 Agent Tool | MCPClient（stdio + Streamable HTTP）+ MCPServersPage + AgentExecutor + Agent Tool 编辑器 + `web-search-summarize` 首个真 Agent Tool |
 | **2** | Skill + 多 DisplayMode | ✅ 核心 completion 已完成；Phase 2 release 已按用户决定跳过 | — | Skill 接入 / replace / bubble / structured / TTS / English Tutor | Skill Registry MVP、本地 Skill E2E、公开仓库 smoke、supporting files 只读加载、多 DisplayMode、本地 TTS、English Tutor 和真实 App smoke 已完成；Skill diagnostics、scripts 策略和完整 app 成功率矩阵可作为后续 hardening，不阻塞 Phase 3 |
-| **3** | Prompt IDE + 本地模型 | 🟨 首个切片 spec + plan 已完成并通过 Claude review | — | Playground / A-B / Ollama & Anthropic 原生 / Memory | 下一步按 ToolEditor v2 + Prompt Playground MVP plan 执行；不要同时展开 providers / Memory / Cost Panel |
+| **3** | Prompt IDE + 本地模型 | 🟨 首个切片 ToolEditor v2 + Prompt Playground MVP implementation 已完成 | — | Playground / A-B / Ollama & Anthropic 原生 / Memory | 下一步做真实 App smoke；样本持久化、A/B、版本历史、原生 provider、Memory 和 Cost Panel 留作后续切片 |
 | **4** | 生态与分享 | Directional | — | Tool Pack / Marketplace / SliceAI as MCP server / Shortcuts / Services | 进入前重新 spec；Pack 签名体系在 §3.9.4 已埋 hook |
 | **5** | 高级编排 | Directional | — | Pipeline / 智能路由 / Smart Actions | 进入前重新 spec |
 

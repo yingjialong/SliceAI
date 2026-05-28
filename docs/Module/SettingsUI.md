@@ -1,4 +1,4 @@
-# SettingsUI Module
+# SettingsUI
 
 ## 模块职责
 
@@ -7,6 +7,8 @@
 该模块负责编辑内存中的 `Configuration`，并通过注入的 `SettingsViewModel` 写回 `ConfigurationStore`。API Key 只通过 `KeychainAccessing` 读写，不进入配置文件。
 
 ## ToolEditor v2
+
+ToolEditor v2 使用 `ToolEditorDraftSession` 保存未提交草稿。左侧编辑器修改 draft，不直接写 `Configuration.tools`；点击 Save 后通过 `ToolDraftValidator` 校验并写回配置。Revert 丢弃草稿。
 
 Phase 3 Task 7 后，Tools 页面不再把编辑器直接绑定到 `configuration.tools[index]`：
 
@@ -22,6 +24,8 @@ Phase 3 Task 7 后，Tools 页面不再把编辑器直接绑定到 `configuratio
 保存草稿时只合并当前工具相关 hotkey：保留当前 `configuration.hotkeys.toggleCommandPalette` 和其它工具最新 hotkey，删除重命名工具的旧 id hotkey，并按当前草稿工具的 hotkey 写入或清除。不要把打开编辑器时的旧全局 hotkeys 快照整包写回。
 
 ## Prompt Playground UI
+
+右侧 Prompt Playground 使用 `ToolPlaygroundView` 和 `ToolPlaygroundState` 消费 Orchestration `ExecutionEvent`。Playground run 的 LLM 可真实调用，side effects 只 dry-run，MCP tool call 默认禁用，必须由用户显式打开本次运行开关。
 
 `ToolEditorV2View` 采用左侧编辑器 + 右侧 `ToolPlaygroundView` 的双栏布局。右侧 Playground：
 

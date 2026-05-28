@@ -7,7 +7,7 @@
 - 项目定位：macOS 原生、开源的划词触发型 LLM / Agent 工具栏。
 - 平台基线：macOS 14+、Xcode 26+、Swift 6.0、SwiftPM local package。
 - 当前分支：`codex/phase3-tool-editor-playground`；`main` 已包含 Phase 2 completion，Phase 3 spec / plan / implementation 留在该分支继续。
-- 当前阶段：用户已选择跳过 Phase 2 release，进入 Phase 3 Prompt IDE + 本地模型 kickoff。Task 63 Phase 2 completion 已完成；Skill Registry MVP、真实本地 Skill E2E、公开 Anthropic / OpenAI / Codex skill 仓库 smoke、supporting files 只读加载、Output lifecycle、SideEffect executor、`.silent` / `.file` / `.replace` / `.bubble` / `.structured` DisplayMode、本地 TTS capability 和首方 English Tutor 默认工具均已完成；最终 automated gate、公开仓库 smoke 和真实 App smoke 均已通过。
+- 当前阶段：用户已选择跳过 Phase 2 release，进入 Phase 3 Prompt IDE + 本地模型 kickoff。Task 63 Phase 2 completion 已完成；Skill Registry MVP、真实本地 Skill E2E、公开 Anthropic / OpenAI / Codex skill 仓库 smoke、supporting files 只读加载、Output lifecycle、SideEffect executor、`.silent` / `.file` / `.replace` / `.bubble` / `.structured` DisplayMode、本地 TTS capability 和首方 English Tutor 默认工具均已完成；最终 automated gate、公开仓库 smoke 和真实 App smoke 均已通过。Phase 3 ToolEditor v2 + Prompt Playground MVP 已完成首个实现切片。
 - 已发布状态：`v0.2.0` 已正式发布；`v0.3.0` tag 和 GitHub draft release 已生成并校验通过，但用户明确暂缓人工发布。
 - 根工程是 Swift/macOS 项目，不是 Python 项目；PEP 8、Alembic、uv 规则通常不适用于当前仓库。
 
@@ -65,6 +65,7 @@
 - Phase 2 `.silent` / `.file` / `.replace` / `.bubble` / `.structured` DisplayMode：`.silent` 不落窗；`.file` 在 finish 阶段写入 `appendToFile` 目标，并跳过重复的 appendToFile side effect；`.replace` 在 finish 阶段通过 AX 替换选区，失败时复制到剪贴板并通知；`.bubble` 在 finish 后展示自动消失气泡；`.structured` 把顶层 JSON object 渲染为结构化字段视图。
 - Phase 2 SideEffect executor：`copyToClipboard`、`appendToFile`、`notify`、`callMCP`、`tts` 已有执行边界并接入生产 `ExecutionEngine`；本地 TTS 使用 macOS AVFoundation `AVSpeechSynthesizer`；`writeMemory` 仍明确 unsupported。
 - Phase 2 English Tutor：默认配置 schema v4 新增 `english-tutor`，v3 配置加载时自动补入一次，v4 用户删除后不会重加；内置 `english-tutor` skill 由 `LocalSkillRegistry` 默认提供。
+- Phase 3 ToolEditor v2 + Prompt Playground MVP：Settings Tools 页面支持未保存 Tool 草稿编辑、Save/Revert、右侧 Prompt Playground 试跑；Prompt / Agent Tool 复用真实 `ExecutionEngine`，输出进入 preview，side effects dry-run，MCP tool call 默认禁用并需本次运行显式打开。
 
 ## 明确未完成 / 不应误报已完成
 
@@ -72,7 +73,7 @@
 - Skill supporting files 已支持只读读取 `references/` 与文本型 `assets/`；`scripts/` 不读取、不执行，二进制 assets、`agents/openai.yaml` 解析、script 授权策略仍未实现。
 - Marketplace、远端安装、skill 自动更新、Tool Pack、`.slicepack` 尚未实现。
 - InlineReplaceOverlay 尚未实现；`.replace` 当前是 AX 替换 + 剪贴板通知 fallback。
-- 原生 Anthropic / Gemini / Ollama provider、Prompt Playground、Memory、Cost Panel 尚未实现。
+- 样本持久化、A/B 对比、版本历史、原生 Anthropic / Gemini / Ollama provider、Memory 和 Cost Panel 仍未实现。
 - `config.schema.json` 已更新到 `Configuration.currentSchemaVersion = 4` 和 v2/Phase 2 配置模型；后续修改配置模型时必须同步更新 schema。
 
 ## 常用命令
