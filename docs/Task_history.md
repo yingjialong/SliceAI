@@ -4,6 +4,15 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 
 ---
 
+## Task 75 · Phase 3 Playground Review Fix
+
+- **时间**：2026-05-28
+- **描述**：修复 Phase 3 ToolEditor v2 + Prompt Playground MVP 最终 code review 发现的问题：Playground preflight 权限 gate 不再复用 side-effect dry-run，Prompt / Agent 执行链补齐 `.promptRendered` 生产者，Playground UI 补 app/window/url 输入和取消终态。
+- **详情**：[docs/Task-detail/2026-05-28-phase-3-tool-editor-playground-mvp-plan.md](Task-detail/2026-05-28-phase-3-tool-editor-playground-mvp-plan.md)
+- **结果**：完成。按 TDD 先写失败测试并确认红灯，再实现最小修复；focused tests、PromptExecutor tests、全量 SwiftPM tests 和 `git diff --check` 均通过。未推送远端。
+
+---
+
 ## Task 74 · Phase 3 Task 8 Documentation And Final Gate
 
 - **时间**：2026-05-28

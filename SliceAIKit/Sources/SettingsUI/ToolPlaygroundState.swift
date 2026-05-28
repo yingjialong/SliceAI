@@ -11,6 +11,8 @@ public enum ToolPlaygroundRunStatus: Sendable, Equatable {
     case running
     /// 正在取消。
     case cancelling
+    /// 已取消。
+    case cancelled
     /// 执行成功。
     case succeeded
     /// 执行失败，携带用户可读错误文案。
@@ -88,6 +90,11 @@ public struct ToolPlaygroundState: Sendable, Equatable {
     /// 标记 Playground 正在取消。
     public mutating func markCancelling() {
         status = .cancelling
+    }
+
+    /// 标记 Playground 取消已完成。
+    public mutating func markCancelled() {
+        status = .cancelled
     }
 
     /// 标记草稿校验失败，并清理上一轮运行输出。

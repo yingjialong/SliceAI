@@ -8,9 +8,9 @@
 
 - 执行入口：`ExecutionEngine.execute(tool:seed:)`。
 - 上下文采集：`ContextCollector`、`ContextProviderRegistry`。Phase 1 M2 Task 7 后，Capabilities 已提供 `selection`、`app.windowTitle`、`app.url`、`clipboard.current`、`file.read` 五个核心 provider，可通过 registry 注入 collector。
-- 权限闭环：`PermissionGraph`、`PermissionBroker`、`PermissionConsentPresenting`、`PermissionGrantStore`、`EffectivePermissions`。Phase 1 M2 Task 6 后，`EffectivePermissions.undeclared` 使用 case-aware coverage；Task 8 后，生产 `PermissionBroker` 通过 UI-free presenter 在 broker 内部解析 consent，不再把运行期确认需求直接交给 `ExecutionEngine`；Task 9 后，App target 提供 `AppPermissionConsentPresenter` 作为真实 AppKit presenter。
+- 权限闭环：`PermissionGraph`、`PermissionBroker`、`PermissionConsentPresenting`、`PermissionGrantStore`、`EffectivePermissions`。Phase 1 M2 Task 6 后，`EffectivePermissions.undeclared` 使用 case-aware coverage；Task 8 后，生产 `PermissionBroker` 通过 UI-free presenter 在 broker 内部解析 consent，不再把运行期确认需求直接交给 `ExecutionEngine`；Task 9 后，App target 提供 `AppPermissionConsentPresenter` 作为真实 AppKit presenter。Phase 3 review-fix 后，Playground preflight 只用真实 gate 检查 LLM 前会真实读取的 context / builtin 权限，不再用 side-effect dry-run 放行上下文读取。
 - Provider 解析：`ProviderResolver`、`DefaultProviderResolver`。
-- Prompt / Agent 执行：`PromptExecutor` 负责 prompt 渲染、Keychain 取 key、调用 `LLMProviderFactory` 和流式 provider；`AgentExecutor` 负责 OpenAI-compatible tool calling、MCP allowlist、ReAct loop、tool-call lifecycle 和 skill 渐进式加载。
+- Prompt / Agent 执行：`PromptExecutor` 负责 prompt 渲染、Keychain 取 key、调用 `LLMProviderFactory` 和流式 provider；`AgentExecutor` 负责 OpenAI-compatible tool calling、MCP allowlist、ReAct loop、tool-call lifecycle 和 skill 渐进式加载。两条路径都会在首个 LLM chunk 前产出已脱敏截断的 `.promptRendered(preview:)`。
 - 输出派发：`OutputDispatcher`、`WindowSinkProtocol`、`FinalTextFileAppending`、`TextReplacementClient`、`BubbleOutputSink`、`StructuredOutputSink`、`SideEffectExecutor`、`InvocationGate`。
 - Playground：`ToolPlaygroundRunner` 负责把 Settings 中的未保存 Tool 草稿转换为 dry-run `ExecutionSeed`，并通过专用 `PlaygroundOutputDispatcher` 收集预览输出。
 - 遥测：`CostAccounting`、`JSONLAuditLog`、`InvocationReport`、`ExecutionEvent`。
@@ -23,7 +23,7 @@
 
 1. 发送 `.started`。
 2. `PermissionGraph.compute` 计算 effective permissions，并通过 `Permission.covers` 校验每个 effective permission 是否被 declared permission 覆盖。
-3. `PermissionBroker.gate` 对权限集合做授权决策；cacheable grant 命中时直接放行，否则通过 App 层注入的 `PermissionConsentPresenting` 获取 approve / deny。
+3. `PermissionBroker.gate` 对权限集合做授权决策；cacheable grant 命中时直接放行，否则通过 App 层注入的 `PermissionConsentPresenting` 获取 approve / deny。生产路径 gate `effective.union`；Playground preflight 只 gate `effective.fromContexts ∪ effective.fromBuiltins`，并强制 `isDryRun = false`。
 4. `ContextCollector.resolve` 并发解析 `ContextRequest`；内置 provider 可采集 seed/app 快照、剪贴板和 `PathSandbox` 允许的文件内容。
 5. `ProviderResolver.resolve` 解析 `ProviderSelection`。
 6. `.prompt` 工具进入 `PromptExecutor`；`.agent` 工具进入 `AgentExecutor`；`.pipeline` 仍返回 not implemented。
@@ -60,6 +60,7 @@ Phase 3 增加 `ExecutionRunPolicy`：
 - `production`：生产触发，输出走生产 sink，side effects 由 `isDryRun` 决定是否执行。
 - `playground`：Settings Playground 触发，真实 LLM，side effects dry-run，输出走 preview sink。
 - Playground MCP 默认 disabled；用户显式允许后才进入 allowlist + PermissionBroker + MCP client。
+- Playground preflight 不 gate side effects 或 MCP allowlist；side effects 仍在 finish 阶段 dry-run，MCP tool call 仍由 `AgentExecutor` 每次按 run policy 控制。
 
 `ExecutionEngine.execute(tool:seed:)` 仍是唯一执行入口；Playground 通过专用 runner 和专用 output dispatcher 复用同一执行链。
 

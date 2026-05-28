@@ -184,7 +184,8 @@ public actor ExecutionEngine {
         guard await runPermissionGate(
             tool: tool,
             effective: effective,
-            isDryRun: context.runPolicy.sideEffects == .dryRun,
+            gatePermissions: preflightGatePermissions(for: effective, runPolicy: context.runPolicy),
+            isDryRun: preflightGateIsDryRun(for: context.runPolicy),
             context: context
         ) else { return }
 

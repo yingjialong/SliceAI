@@ -193,6 +193,16 @@ final class ToolPlaygroundStateTests: XCTestCase {
         XCTAssertEqual(state.status, .cancelling)
     }
 
+    /// 取消完成后状态应离开 cancelling，避免 UI 永久展示取消中。
+    func test_markCancelledLeavesCancellingStatus() {
+        var state = ToolPlaygroundState()
+
+        state.markCancelling()
+        state.markCancelled()
+
+        XCTAssertEqual(state.status, .cancelled)
+    }
+
     /// 构造最小 Prompt Tool，供 reducer 测试聚焦状态行为。
     private func makeTool(displayMode: DisplayMode) -> Tool {
         Tool(

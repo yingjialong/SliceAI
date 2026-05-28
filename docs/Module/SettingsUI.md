@@ -30,9 +30,11 @@ Phase 3 Task 7 后，Tools 页面不再把编辑器直接绑定到 `configuratio
 `ToolEditorV2View` 采用左侧编辑器 + 右侧 `ToolPlaygroundView` 的双栏布局。右侧 Playground：
 
 - 使用 `ToolPlaygroundRunner` 复用 Orchestration 执行链。
+- 提供 Selection、App、Window、URL 输入，让用户确认本次试跑上下文。
 - 默认禁用真实 MCP tool call，用户需打开“允许本次运行调用 MCP tools”。
 - 所有 side effects 仍由 run policy dry-run，不写文件、剪贴板、前台选区、通知或 TTS。
 - 通过 `ToolPlaygroundState.reduce(_:,tool:)` 展示 streaming 输出、prompt preview、权限提示、tool-call lifecycle、side effect dry-run、DisplayMode preview、report 和错误。
+- Header 展示 idle / running / cancelling / cancelled / succeeded / failed 状态；Cancel 完成后状态会落到 cancelled，不再永久停在 cancelling。
 - 每次运行都有独立 token；重复 Run、Cancel、Clear 或视图消失后，旧 Task 不得继续回写当前 UI state。
 - streaming raw text 存在时仍要展示不同的 DisplayMode dry-run summary，避免 `.file` / `.replace` / `.bubble` / `.silent` 试跑结果只剩原文。
 

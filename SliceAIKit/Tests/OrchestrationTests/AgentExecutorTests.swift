@@ -144,6 +144,16 @@ final class AgentExecutorTests: XCTestCase {
         return events
     }
 
+    /// 过滤 prompt preview 事件，让旧 tool-call 生命周期断言聚焦原有顺序。
+    /// - Parameter events: AgentExecutor 事件流。
+    /// - Returns: 移除 `.promptRendered` 后的事件列表。
+    private func eventsWithoutPromptRendered(_ events: [ExecutionEvent]) -> [ExecutionEvent] {
+        events.filter { event in
+            if case .promptRendered = event { return false }
+            return true
+        }
+    }
+
     /// 构造一个完整 tool call turn。
     /// - Parameters:
     ///   - id: provider tool_call_id。
@@ -602,28 +612,54 @@ final class AgentExecutorTests: XCTestCase {
             provider: MockProvider.openAIStub()
         ))
 
-        guard case .toolCallProposed(let id, let ref, let args) = events[0] else {
-            XCTFail("event[0] expected proposed, got \(events)"); return
+        let lifecycleEvents = eventsWithoutPromptRendered(events)
+        guard case .toolCallProposed(let id, let ref, let args) = lifecycleEvents[0] else {
+            XCTFail("event[0] expected proposed, got \(lifecycleEvents)"); return
         }
         XCTAssertEqual(ref, readRef)
         XCTAssertTrue(args.contains("path"))
-        guard case .toolCallApproved(let approvedId) = events[1] else {
-            XCTFail("event[1] expected approved, got \(events)"); return
+        guard case .toolCallApproved(let approvedId) = lifecycleEvents[1] else {
+            XCTFail("event[1] expected approved, got \(lifecycleEvents)"); return
         }
         XCTAssertEqual(approvedId, id)
-        guard case .toolCallResult(let resultId, let summary) = events[2] else {
-            XCTFail("event[2] expected result, got \(events)"); return
+        guard case .toolCallResult(let resultId, let summary) = lifecycleEvents[2] else {
+            XCTFail("event[2] expected result, got \(lifecycleEvents)"); return
         }
         XCTAssertEqual(resultId, id)
         XCTAssertTrue(summary.contains("file contents"))
-        guard case .llmChunk(let delta) = events[3] else {
-            XCTFail("event[3] expected final llm chunk, got \(events)"); return
+        guard case .llmChunk(let delta) = lifecycleEvents[3] else {
+            XCTFail("event[3] expected final llm chunk, got \(lifecycleEvents)"); return
         }
         XCTAssertEqual(delta, "Read complete")
         let mcpCallCount = await mcp.callCount
         let brokerCallCount = await broker.gateCalls.count
         XCTAssertEqual(mcpCallCount, 1)
         XCTAssertEqual(brokerCallCount, 1)
+    }
+
+    /// Agent path 应在首轮 LLM 调用前产出脱敏 prompt preview。
+    func test_agentRunYieldsPromptRenderedPreview() async throws {
+        let llm = MockToolCallingLLMProvider(turns: [
+            finalAnswerTurn("Done")
+        ])
+        let executor = makeExecutor(llm: llm, mcpClient: makeMCPClient())
+        let agent = makeAgent(allowlist: [], maxSteps: 1)
+
+        let events = await collectEvents(from: await executor.run(
+            tool: makeTool(agent: agent),
+            agent: agent,
+            resolved: makeResolvedContext(),
+            provider: MockProvider.openAIStub()
+        ))
+
+        XCTAssertTrue(events.contains { event in
+            if case .promptRendered(let preview) = event {
+                XCTAssertTrue(preview.contains("system:"))
+                XCTAssertTrue(preview.contains("user:"))
+                return true
+            }
+            return false
+        })
     }
 
     /// Playground 禁用 MCP 时，即使 tool 在 allowlist 内，也必须在 broker 之前拒绝。
@@ -778,13 +814,14 @@ final class AgentExecutorTests: XCTestCase {
         let mcpCallCount = await mcp.callCount
         XCTAssertEqual(brokerCallCount, 0)
         XCTAssertEqual(mcpCallCount, 0)
-        guard case .toolCallProposed(let proposedId, let ref, _) = events[0] else {
-            XCTFail("event[0] expected proposed, got \(events)"); return
+        let lifecycleEvents = eventsWithoutPromptRendered(events)
+        guard case .toolCallProposed(let proposedId, let ref, _) = lifecycleEvents[0] else {
+            XCTFail("event[0] expected proposed, got \(lifecycleEvents)"); return
         }
         XCTAssertEqual(ref.server, "<redacted>")
         XCTAssertEqual(ref.tool, writeRef.tool)
-        guard case .toolCallDenied(let deniedId, let reason) = events[1] else {
-            XCTFail("event[1] expected denied, got \(events)"); return
+        guard case .toolCallDenied(let deniedId, let reason) = lifecycleEvents[1] else {
+            XCTFail("event[1] expected denied, got \(lifecycleEvents)"); return
         }
         XCTAssertEqual(deniedId, proposedId)
         XCTAssertTrue(reason.contains("not allowed"))
@@ -841,8 +878,9 @@ final class AgentExecutorTests: XCTestCase {
 
         let mcpCallCount = await mcp.callCount
         XCTAssertEqual(mcpCallCount, 0)
-        guard case .toolCallDenied(_, let reason) = events[1] else {
-            XCTFail("event[1] expected denied, got \(events)"); return
+        let lifecycleEvents = eventsWithoutPromptRendered(events)
+        guard case .toolCallDenied(_, let reason) = lifecycleEvents[1] else {
+            XCTFail("event[1] expected denied, got \(lifecycleEvents)"); return
         }
         XCTAssertFalse(reason.contains("secret-token"))
         XCTAssertTrue(reason.contains("<redacted>"))

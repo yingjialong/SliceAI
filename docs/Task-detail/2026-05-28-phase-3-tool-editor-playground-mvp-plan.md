@@ -89,3 +89,54 @@ Task 8 追加变动：
 ## 下一步
 
 Task 8 完成后，下一步做 Phase 3 Playground 真实 App smoke，确认后再评估样本管理 / A-B / 原生 provider 的后续切片。样本持久化、A/B 对比、版本历史、原生 Anthropic / Gemini / Ollama、Memory 和 Cost Panel 仍是技术债务 / 后续切片，不属于本次 MVP 收尾。
+
+## 2026-05-28 Review Fix
+
+### 背景
+
+最终 code review 发现 4 个问题：Playground preflight permission gate 错误复用 side-effect dry-run，`ExecutionEvent.promptRendered` 没有生产者，Playground UI 缺少 app / window / URL 输入入口，以及 Cancel 后 UI 可能永久停在 cancelling。
+
+### ToDoList
+
+- [x] 先写 Playground preflight、Prompt / Agent `promptRendered`、Cancel 终态回归测试。
+- [x] 运行 focused tests 确认红灯。
+- [x] 修复 Playground preflight：只 gate `fromContexts ∪ fromBuiltins`，并强制 `isDryRun = false`。
+- [x] 修复 Prompt / Agent prompt preview 生产与 ExecutionEngine 转发。
+- [x] 修复 Playground UI：补 App / Window / URL 输入、状态展示和 cancelled 终态。
+- [x] 更新 Orchestration / SettingsUI 模块文档和 Task_history。
+- [x] 运行 focused / full tests 与 `git diff --check`。
+
+### 修改逻辑
+
+- `ExecutionEngine` 新增 preflight helper。生产路径仍 gate `effective.union`，生产 dry-run 仍保留 `.wouldRequireConsent` 语义；Playground 只对 LLM 前真实使用的 context / builtin 权限做真实 gate，side effects 继续在 finish 阶段 dry-run，MCP tool call 继续由 `AgentExecutor` 的 per-call gate 控制。
+- `PromptExecutor` 在渲染 messages 后、读取 Keychain 和调用 LLM 前 yield `.promptRendered`；`ExecutionEngine.runPromptStream` 转发为 `ExecutionEvent.promptRendered`。
+- `AgentExecutor` 在构造首轮 messages 后、第一轮 LLM 前 yield `.promptRendered`。
+- 新增 `PromptPreviewRenderer`，把 `[ChatMessage]` 渲染为 `role: content` 多行预览，并通过 `Redaction.scrub` 脱敏和截断。
+- `ToolPlaygroundView` 增加 App / Window / URL 输入字段，Header 展示 run status；Cancel 调用后从 `.cancelling` 落到 `.cancelled`。
+
+### 变动文件清单
+
+- `SliceAIKit/Sources/Orchestration/Engine/ExecutionEngine.swift`
+- `SliceAIKit/Sources/Orchestration/Engine/ExecutionEngine+Steps.swift`
+- `SliceAIKit/Sources/Orchestration/Executors/PromptExecutor.swift`
+- `SliceAIKit/Sources/Orchestration/Executors/AgentExecutor.swift`
+- `SliceAIKit/Sources/Orchestration/Internal/PromptPreviewRenderer.swift`
+- `SliceAIKit/Sources/SettingsUI/ToolPlaygroundState.swift`
+- `SliceAIKit/Sources/SettingsUI/ToolPlaygroundView.swift`
+- `SliceAIKit/Tests/OrchestrationTests/ExecutionEngineTests.swift`
+- `SliceAIKit/Tests/OrchestrationTests/AgentExecutorTests.swift`
+- `SliceAIKit/Tests/OrchestrationTests/PromptExecutorTests.swift`
+- `SliceAIKit/Tests/SettingsUITests/ToolPlaygroundStateTests.swift`
+- `docs/Module/Orchestration.md`
+- `docs/Module/SettingsUI.md`
+- `docs/Task_history.md`
+- `docs/Task-detail/2026-05-28-phase-3-tool-editor-playground-mvp-plan.md`
+
+### TDD 红绿过程
+
+- Red：新增测试后运行 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path SliceAIKit --scratch-path /tmp/sliceai-review-fix-red-tests --filter 'OrchestrationTests.ExecutionEngineTests|OrchestrationTests.AgentExecutorTests|SettingsUITests.ToolPlaygroundStateTests|SliceCoreTests.ExecutionRunPolicyTests'`，按预期失败。失败点为 `ToolPlaygroundState.markCancelled()` / `.cancelled` 缺失。
+- Green：实现最小修复后，focused suite 首次暴露旧测试固定事件下标问题；更新断言后通过 79 tests / 0 failures。
+- PromptExecutor 回归：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path SliceAIKit --scratch-path /tmp/sliceai-review-fix-prompt-tests --filter OrchestrationTests.PromptExecutorTests` 首次暴露新增 `.promptRendered` 后旧精确序列断言失效；更新断言后通过 21 tests / 0 failures。
+- Full：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path SliceAIKit --scratch-path /tmp/sliceai-review-fix-full-tests` 通过，886 tests，1 skipped，0 failures；构建阶段仍有既有 `MCPServerStoreTests.swift:196` unused-result warning。
+- `git diff --check`：通过，无输出。
+- `command -v swiftlint || true`：无输出；本机 `swiftlint` 不在 PATH，本轮未运行 SwiftLint。

@@ -111,6 +111,16 @@ final class PromptExecutorTests: XCTestCase {
         return out
     }
 
+    /// 去掉 prompt preview 事件，便于旧的 chunk/completed 顺序断言保持聚焦。
+    /// - Parameter elements: PromptExecutor 原始流元素。
+    /// - Returns: 移除 `.promptRendered` 后的元素。
+    private func elementsWithoutPromptRendered(_ elements: [PromptStreamElement]) -> [PromptStreamElement] {
+        elements.filter { element in
+            if case .promptRendered = element { return false }
+            return true
+        }
+    }
+
     // MARK: - Test 1: happy path 顺序
 
     /// LLM yield 3 chunks → stream 应产出 3 .chunk + 1 .completed，顺序严格
@@ -132,11 +142,14 @@ final class PromptExecutorTests: XCTestCase {
         )
         let elements = try await collect(stream)
 
-        XCTAssertEqual(elements.count, 4, "应 yield 3 chunks + 1 completed = 4 个元素")
-        guard case .chunk(let c0) = elements[0] else { return XCTFail("element[0] 应为 .chunk") }
-        guard case .chunk(let c1) = elements[1] else { return XCTFail("element[1] 应为 .chunk") }
-        guard case .chunk(let c2) = elements[2] else { return XCTFail("element[2] 应为 .chunk") }
-        guard case .completed = elements[3] else { return XCTFail("element[3] 应为 .completed") }
+        XCTAssertEqual(elements.count, 5, "应 yield 1 preview + 3 chunks + 1 completed = 5 个元素")
+        guard case .promptRendered = elements[0] else {
+            return XCTFail("element[0] 应为 .promptRendered")
+        }
+        guard case .chunk(let c0) = elements[1] else { return XCTFail("element[1] 应为 .chunk") }
+        guard case .chunk(let c1) = elements[2] else { return XCTFail("element[2] 应为 .chunk") }
+        guard case .chunk(let c2) = elements[3] else { return XCTFail("element[3] 应为 .chunk") }
+        guard case .completed = elements[4] else { return XCTFail("element[4] 应为 .completed") }
         XCTAssertEqual(c0, "Hello ")
         XCTAssertEqual(c1, "from ")
         XCTAssertEqual(c2, "GPT")
@@ -159,9 +172,12 @@ final class PromptExecutorTests: XCTestCase {
         )
         let elements = try await collect(stream)
 
-        XCTAssertEqual(elements.count, 1, "空 chunk 输入应只产出 .completed")
-        guard case .completed(let stats) = elements[0] else {
-            return XCTFail("element[0] 应为 .completed")
+        XCTAssertEqual(elements.count, 2, "空 chunk 输入应产出 preview + .completed")
+        guard case .promptRendered = elements[0] else {
+            return XCTFail("element[0] 应为 .promptRendered")
+        }
+        guard case .completed(let stats) = elements[1] else {
+            return XCTFail("element[1] 应为 .completed")
         }
         // 空 chunk → outputTokens = 0 / 4 = 0
         XCTAssertEqual(stats.outputTokens, 0, "空输出应 outputTokens=0")
@@ -514,7 +530,7 @@ final class PromptExecutorTests: XCTestCase {
         XCTAssertGreaterThan(stats.inputTokens, 0)
         XCTAssertGreaterThan(stats.outputTokens, 0)
         // 前 N-1 都应是 chunk
-        for (idx, element) in elements.dropLast().enumerated() {
+        for (idx, element) in elementsWithoutPromptRendered(elements).dropLast().enumerated() {
             guard case .chunk = element else {
                 return XCTFail("element[\(idx)] 应为 .chunk")
             }
@@ -615,9 +631,10 @@ final class PromptExecutorTests: XCTestCase {
             caughtError = error
         }
 
+        let contentElements = elementsWithoutPromptRendered(collected)
         // 已 yield 2 chunk 应保留；不应有 .completed（错误中断）
-        XCTAssertEqual(collected.count, 2)
-        for element in collected {
+        XCTAssertEqual(contentElements.count, 2)
+        for element in contentElements {
             guard case .chunk = element else { return XCTFail("中断前元素应全为 .chunk") }
         }
         // 注：caughtError 是 (any Error)?；先解包再 cast 再 case 匹配

@@ -140,6 +140,7 @@ public actor AgentExecutor {
         let llm = try await makeLLMProvider(provider: provider)
         let catalog = try await makeToolCatalog(tool: tool, agent: agent)
         var messages = makeInitialMessages(agent: agent, resolved: resolved, catalog: catalog)
+        continuation.yield(.promptRendered(preview: PromptPreviewRenderer.render(messages: messages)))
         let model = resolveModel(selection: agent.provider, fallback: provider.defaultModel)
         let maxSteps = max(1, agent.maxSteps)
         var toolCallState = makeToolCallRunState(agent: agent, catalog: catalog, maxSteps: maxSteps)

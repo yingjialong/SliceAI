@@ -40,13 +40,16 @@ struct ToolPlaygroundView: View {
             Text("Playground")
                 .font(SliceFont.headline)
             Spacer()
+            Text(statusText)
+                .font(SliceFont.caption)
+                .foregroundColor(SliceColor.textSecondary)
             Text("side effects dry-run")
                 .font(SliceFont.caption)
                 .foregroundColor(SliceColor.textSecondary)
         }
     }
 
-    /// 本次试跑的 selection 和 MCP 显式开关。
+    /// 本次试跑的 selection、前台 App 上下文和 MCP 显式开关。
     private var inputs: some View {
         VStack(alignment: .leading, spacing: SliceSpacing.sm) {
             PromptTextEditor(
@@ -56,6 +59,15 @@ struct ToolPlaygroundView: View {
                 text: $state.selectionText,
                 minHeight: 88
             )
+            TextField("App", text: $state.appName)
+                .textFieldStyle(.roundedBorder)
+                .font(SliceFont.body)
+            TextField("Window", text: $state.windowTitle)
+                .textFieldStyle(.roundedBorder)
+                .font(SliceFont.body)
+            TextField("URL", text: $state.urlText)
+                .textFieldStyle(.roundedBorder)
+                .font(SliceFont.body)
             Toggle("允许本次运行调用 MCP tools", isOn: $state.allowMCPToolCalls)
                 .font(SliceFont.caption)
         }
@@ -143,6 +155,24 @@ struct ToolPlaygroundView: View {
             && state.displayPreview.summary != state.streamedText
     }
 
+    /// 当前运行状态的紧凑展示文本。
+    private var statusText: String {
+        switch state.status {
+        case .idle:
+            return "idle"
+        case .running:
+            return "running"
+        case .cancelling:
+            return "cancelling"
+        case .cancelled:
+            return "cancelled"
+        case .succeeded:
+            return "succeeded"
+        case .failed:
+            return "failed"
+        }
+    }
+
     /// 启动一次 Playground 运行。
     private func startRun() {
         guard let runner else { return }
@@ -197,6 +227,7 @@ struct ToolPlaygroundView: View {
     private func cancelRun() {
         state.markCancelling()
         cancelActiveRun()
+        state.markCancelled()
     }
 
     /// 清空 Playground 输入与输出状态。

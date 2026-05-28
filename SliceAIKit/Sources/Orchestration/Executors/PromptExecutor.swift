@@ -9,6 +9,8 @@ import SliceCore
 /// 改用枚举 stream + 顶层 `for try await` 顺序消费 → caller 直接读 local var 写入 `promptUsage`，
 /// 无跨 task 边界，Swift 6 编译通过。
 public enum PromptStreamElement: Sendable, Equatable {
+    /// LLM 调用前渲染出的脱敏 prompt 预览。
+    case promptRendered(String)
     /// LLM 流式输出的一个增量片段
     case chunk(String)
     /// LLM stream 结束时一次性发出，携带最终 usage 估算
@@ -168,7 +170,12 @@ public actor PromptExecutor {
         //    这样 unsupported kind 不会被误报为"未配置 API Key"。
         try llmProviderFactory.validate(provider: provider)
 
-        // 2. 解析 Keychain account；非 keychain: 前缀或空 API Key 一律按未授权处理
+        // 2. 注入内置变量并渲染 prompt，先产出预览再读取 Keychain / 发起网络请求。
+        //    Playground 权限被拒时不会走到这里；走到这里后 preview 仍必须脱敏。
+        let messages = renderMessages(promptTool: promptTool, resolved: resolved)
+        continuation.yield(.promptRendered(PromptPreviewRenderer.render(messages: messages)))
+
+        // 3. 解析 Keychain account；非 keychain: 前缀或空 API Key 一律按未授权处理
         guard let account = provider.keychainAccount else {
             throw SliceError.provider(.unauthorized)
         }
@@ -180,11 +187,6 @@ public actor PromptExecutor {
               !apiKey.isEmpty else {
             throw SliceError.provider(.unauthorized)
         }
-
-        // 3. 注入内置变量
-        //    约定：内置变量总是覆盖同名工具变量，避免用户配置
-        //    `variables = ["selection": "..."]` 把真实选区盖掉
-        let messages = renderMessages(promptTool: promptTool, resolved: resolved)
 
         // 4. 构造 ChatRequest
         //    model 选择：promptTool.provider.fixed.modelId 优先，缺省 fall back provider.defaultModel。

@@ -55,11 +55,12 @@ extension ExecutionEngine {
     func runPermissionGate(
         tool: Tool,
         effective: EffectivePermissions,
+        gatePermissions: Set<Permission>,
         isDryRun: Bool,
         context: FlowContext
     ) async -> Bool {
         let outcome = await permissionBroker.gate(
-            effective: effective.union,
+            effective: gatePermissions,
             provenance: tool.provenance,
             scope: .session,
             isDryRun: isDryRun
@@ -86,6 +87,31 @@ extension ExecutionEngine {
             context.continuation.yield(.permissionWouldBeRequested(permission: permission, uxHint: uxHint))
             return true
         }
+    }
+
+    /// 计算主流程 preflight 应 gate 的权限集合。
+    ///
+    /// Playground 只提前 gate LLM 前会真实读取的上下文与内置能力权限；side effect 保持后续
+    /// dry-run gate，MCP tool call 继续交由 AgentExecutor 的逐次 gate 处理。
+    func preflightGatePermissions(
+        for effective: EffectivePermissions,
+        runPolicy: ExecutionRunPolicy
+    ) -> Set<Permission> {
+        if runPolicy.source == .playground {
+            return effective.fromContexts.union(effective.fromBuiltins)
+        }
+        return effective.union
+    }
+
+    /// 计算主流程 preflight 是否使用 dry-run gate。
+    ///
+    /// Playground 的上下文 / builtin preflight 必须是真实 gate，避免需确认权限被
+    /// `.wouldRequireConsent` 静默放行；生产 dry-run 继续保留原有 wouldRequireConsent 语义。
+    func preflightGateIsDryRun(for runPolicy: ExecutionRunPolicy) -> Bool {
+        if runPolicy.source == .playground {
+            return false
+        }
+        return runPolicy.sideEffects == .dryRun
     }
 
     /// Step 3：ContextCollector 平铺并发解析 ContextRequest。
@@ -202,6 +228,8 @@ extension ExecutionEngine {
             try await output.begin(context: outputContext)
             for try await element in stream {
                 switch element {
+                case .promptRendered(let preview):
+                    context.continuation.yield(.promptRendered(preview: preview))
                 case .chunk(let chunk):
                     guard try await dispatchPromptChunk(
                         chunk,

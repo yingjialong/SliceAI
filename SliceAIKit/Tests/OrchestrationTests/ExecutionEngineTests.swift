@@ -233,19 +233,22 @@ final class ExecutionEngineTests: XCTestCase {
 
         let events = await collectEvents(from: bundle.engine.execute(tool: tool, seed: seed))
 
-        // 事件序列：.started → .llmChunk("Hello") → .llmChunk(" world") → .finished
-        XCTAssertEqual(events.count, 4, "happy path should produce 4 events; got: \(events)")
+        // 事件序列：.started → .promptRendered → .llmChunk("Hello") → .llmChunk(" world") → .finished
+        XCTAssertEqual(events.count, 5, "happy path should produce 5 events; got: \(events)")
         guard case .started = events.first else {
             XCTFail("event[0] expected .started, got \(events[0])"); return
         }
-        guard case .llmChunk(let delta1) = events[1], delta1 == "Hello" else {
-            XCTFail("event[1] expected .llmChunk(\"Hello\"), got \(events[1])"); return
+        guard case .promptRendered = events[1] else {
+            XCTFail("event[1] expected .promptRendered, got \(events[1])"); return
         }
-        guard case .llmChunk(let delta2) = events[2], delta2 == " world" else {
-            XCTFail("event[2] expected .llmChunk(\" world\"), got \(events[2])"); return
+        guard case .llmChunk(let delta1) = events[2], delta1 == "Hello" else {
+            XCTFail("event[2] expected .llmChunk(\"Hello\"), got \(events[2])"); return
         }
-        guard case .finished(let report) = events[3] else {
-            XCTFail("event[3] expected .finished, got \(events[3])"); return
+        guard case .llmChunk(let delta2) = events[3], delta2 == " world" else {
+            XCTFail("event[3] expected .llmChunk(\" world\"), got \(events[3])"); return
+        }
+        guard case .finished(let report) = events[4] else {
+            XCTFail("event[4] expected .finished, got \(events[4])"); return
         }
         XCTAssertEqual(report.outcome, .success)
         XCTAssertTrue(report.flags.isEmpty, "happy path should have no flags")
@@ -495,6 +498,92 @@ final class ExecutionEngineTests: XCTestCase {
             if case .sideEffectSkippedDryRun(.copyToClipboard) = event { return true }
             return false
         })
+    }
+
+    /// Playground preflight 不能复用 sideEffects dry-run；真实上下文权限需确认时必须在 LLM 前终止。
+    func test_playgroundPreflightGatesContextPermissionsAsRealBeforeContextAndLLM() async throws {
+        let broker = MockPermissionBroker(
+            outcomeFunction: { _, _, _, _, isDryRun in
+                isDryRun
+                    ? .wouldRequireConsent(permission: .clipboard, uxHint: "Clipboard access")
+                    : .requiresUserConsent(permission: .clipboard, uxHint: "Clipboard access")
+            }
+        )
+        let providers: [String: any ContextProvider] = [
+            "clipboard.current": ClipboardCurrentContextProvider(readString: {
+                XCTFail("Playground context provider must not run before real context permission consent")
+                return "clipboard secret"
+            })
+        ]
+        let bundle = try makeEngine(
+            broker: broker,
+            contextProviders: providers,
+            chunks: [ChatChunk(delta: "must not stream", finishReason: nil)]
+        )
+        let tool = makeStubTool(
+            permissions: [.clipboard],
+            contexts: [ContextRequest(
+                key: ContextKey(rawValue: "ctx.clipboard"),
+                provider: "clipboard.current",
+                args: [:],
+                cachePolicy: .none,
+                requiredness: .required
+            )]
+        )
+        let seed = makeStubSeed(
+            triggerSource: .playground,
+            runPolicy: .playground(allowMCPToolCalls: false)
+        )
+
+        let events = await collectEvents(from: bundle.engine.execute(tool: tool, seed: seed))
+
+        let gateCalls = await bundle.broker.gateCalls
+        XCTAssertEqual(gateCalls.first?.effective, [.clipboard])
+        XCTAssertEqual(gateCalls.first?.isDryRun, false)
+        XCTAssertFalse(events.contains { event in
+            if case .llmChunk = event { return true }
+            return false
+        }, "LLM must not run when real context permission requires consent")
+        XCTAssertFalse(events.contains { event in
+            if case .permissionWouldBeRequested = event { return true }
+            return false
+        }, "Context preflight consent must not be downgraded to dry-run placeholder")
+        XCTAssertTrue(events.contains { event in
+            if case .failed(.toolPermission(.notGranted(.clipboard))) = event { return true }
+            return false
+        })
+    }
+
+    /// Prompt path 应在第一个 LLM chunk 前产出脱敏后的 prompt preview。
+    func test_promptPathYieldsPromptRenderedBeforeFirstLLMChunk() async throws {
+        let bundle = try makeEngine(
+            chunks: [ChatChunk(delta: "answer", finishReason: nil)]
+        )
+        var tool = makeStubTool()
+        if case .prompt(var prompt) = tool.kind {
+            prompt.systemPrompt = "system sk-1234567890123456"
+            prompt.userPrompt = "user {{selection}}"
+            tool.kind = .prompt(prompt)
+        }
+
+        let events = await collectEvents(from: bundle.engine.execute(tool: tool, seed: makeStubSeed()))
+
+        let promptIndex = events.firstIndex { event in
+            if case .promptRendered(let preview) = event {
+                XCTAssertTrue(preview.contains("system:"))
+                XCTAssertTrue(preview.contains("user:"))
+                XCTAssertFalse(preview.contains("sk-1234567890123456"))
+                return true
+            }
+            return false
+        }
+        let firstChunkIndex = events.firstIndex { event in
+            if case .llmChunk = event { return true }
+            return false
+        }
+        XCTAssertNotNil(promptIndex)
+        XCTAssertNotNil(firstChunkIndex)
+        XCTAssertLessThan(try XCTUnwrap(promptIndex), try XCTUnwrap(firstChunkIndex))
     }
 
     /// Runner 应在进入 ExecutionEngine 前拒绝非法草稿，避免 LLM / MCP 被误触发。
