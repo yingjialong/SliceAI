@@ -81,7 +81,7 @@ let package = Package(
                     dependencies: ["DesignSystem", "SliceCore"],
                     swiftSettings: swiftSettings),
         .testTarget(name: "SettingsUITests",
-                    dependencies: ["SettingsUI", "SliceCore", "Capabilities"],
+                    dependencies: ["SettingsUI", "SliceCore", "Capabilities", "Orchestration"],
                     swiftSettings: swiftSettings),
     ]
 )

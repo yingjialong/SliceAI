@@ -4,6 +4,13 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 
 ---
 
+## Task 72 · Phase 3 Task 6 Playground State Reducer
+
+- **时间**：2026-05-28
+- **描述**：执行 Phase 3 ToolEditor v2 + Prompt Playground MVP implementation plan 的 Task 6，新增 SettingsUI Playground 状态 reducer，把 Orchestration `ExecutionEvent` 转换为右侧 Playground UI 可展示的状态、DisplayMode dry-run 预览、权限提示、tool-call 行、report 和错误摘要。
+- **详情**：[docs/Task-detail/2026-05-28-phase-3-task-6-playground-state-reducer.md](Task-detail/2026-05-28-phase-3-task-6-playground-state-reducer.md)
+- **结果**：完成。已新增 `ToolPlaygroundState` reducer 与 focused tests；`SettingsUITests` 已补 `Orchestration` test dependency。focused reducer tests 与 `git diff --check` 通过。
+
 ## Task 71 · Phase 3 Task 5 ToolEditor Draft State
 
 - **时间**：2026-05-28
