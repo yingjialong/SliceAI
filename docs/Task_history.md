@@ -4,6 +4,13 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 
 ---
 
+## Task 70 · Phase 3 Task 4 Tool Playground Runner
+
+- **时间**：2026-05-28
+- **描述**：执行 Phase 3 ToolEditor v2 + Prompt Playground MVP implementation plan 的 Task 4，新增 Tool Playground Runner，并在 AppContainer 中创建 Playground 专用 ExecutionEngine，支持未保存 Tool 草稿 dry-run 试跑。
+- **详情**：[docs/Task-detail/2026-05-28-phase-3-task-4-tool-playground-runner.md](Task-detail/2026-05-28-phase-3-task-4-tool-playground-runner.md)
+- **结果**：完成。已新增 `ToolPlaygroundRunner`，非法草稿会在进入 engine 前失败；AppContainer 创建 Playground 专用 engine，共享生产上下文 / 权限 / Provider / MCP / Skill / Cost / Audit 依赖，仅替换 preview output 并禁用 side effect executor。为修正 plan 前置依赖，已提前给 `SettingsViewModel` 增加最小 `playgroundRunner` 注入点，未展开 UI 集成。focused tests 与 App Debug build 通过。
+
 ## Task 69 · Phase 3 Task 3 Agent MCP Run Policy
 
 - **时间**：2026-05-28

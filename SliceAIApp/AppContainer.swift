@@ -33,6 +33,7 @@ private struct RuntimeDependencies {
     let outputDispatcher: any OutputDispatcherProtocol
     let invocationGate: InvocationGate
     let resultPanelAdapter: ResultPanelWindowSinkAdapter
+    let playgroundRunner: any ToolPlaygroundRunning
 }
 
 /// bootstrap 期间创建出的输出依赖集合。
@@ -185,6 +186,7 @@ final class AppContainer {
             bubblePanel: ui.bubblePanel,
             skillRegistry: skillRegistry
         ))
+        ui.settingsViewModel.playgroundRunner = v2Runtime.playgroundRunner
 
         return AppContainer(
             configStore: configStore,
@@ -289,12 +291,14 @@ final class AppContainer {
             sideEffectExecutor: sideEffectExecutor
         )
         let executionEngine = makeExecutionEngine(dependencies: engineDependencies)
+        let playgroundRunner = makePlaygroundRunner(dependencies: engineDependencies)
 
         return RuntimeDependencies(
             executionEngine: executionEngine,
             outputDispatcher: outputs.outputDispatcher,
             invocationGate: outputs.invocationGate,
-            resultPanelAdapter: outputs.resultPanelAdapter
+            resultPanelAdapter: outputs.resultPanelAdapter,
+            playgroundRunner: playgroundRunner
         )
     }
 
@@ -370,6 +374,33 @@ final class AppContainer {
             agentExecutor: dependencies.agentExecutor,
             sideEffectExecutor: dependencies.sideEffectExecutor
         )
+    }
+
+    /// 创建 Settings Playground 专用 runner。
+    ///
+    /// Playground 复用生产上下文、权限、Provider、Prompt、MCP、Skill、Cost 和 Audit 依赖；
+    /// 只替换输出 dispatcher，并禁用 side effect executor，避免试跑污染生产 UI 或外部状态。
+    ///
+    /// - Parameter dependencies: 生产执行引擎依赖集合。
+    /// - Returns: 可注入 SettingsUI 的 Playground runner。
+    private static func makePlaygroundRunner(
+        dependencies: ExecutionEngineDependencies
+    ) -> any ToolPlaygroundRunning {
+        let previewEngine = ExecutionEngine(
+            contextCollector: ContextCollector(registry: dependencies.providerRegistry),
+            permissionBroker: dependencies.permissionBroker,
+            permissionGraph: PermissionGraph(providerRegistry: dependencies.providerRegistry),
+            providerResolver: dependencies.providerResolver,
+            promptExecutor: dependencies.promptExecutor,
+            mcpClient: dependencies.mcpClient,
+            skillRegistry: dependencies.skillRegistry,
+            costAccounting: dependencies.costAccounting,
+            auditLog: dependencies.auditLog,
+            output: PlaygroundOutputDispatcher(),
+            agentExecutor: dependencies.agentExecutor,
+            sideEffectExecutor: nil
+        )
+        return ToolPlaygroundRunner(engine: previewEngine)
     }
 }
 

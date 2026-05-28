@@ -42,18 +42,20 @@ final class ExecutionEngineTests: XCTestCase {
     ///   - id: tool id，默认 "test.tool"
     ///   - permissions: tool 静态声明的权限，默认空
     ///   - contexts: PromptTool.contexts，默认空
-    ///   - sideEffects: outputBinding.sideEffects；非空时 outputBinding.primary 与 displayMode 同为 .window
+    ///   - displayMode: Tool 展示模式；默认 .window
+    ///   - sideEffects: outputBinding.sideEffects；非空时 outputBinding.primary 与 displayMode 保持一致
     ///   - providerSelection: ProviderSelection；默认 fixed providerId="test-provider"
     private func makeStubTool(
         id: String = "test.tool",
         permissions: [Permission] = [],
         contexts: [ContextRequest] = [],
+        displayMode: DisplayMode = .window,
         sideEffects: [SideEffect] = [],
         providerSelection: ProviderSelection = .fixed(providerId: "test-provider", modelId: nil)
     ) -> Tool {
         let outputBinding: OutputBinding? = sideEffects.isEmpty
             ? nil
-            : OutputBinding(primary: .window, sideEffects: sideEffects)
+            : OutputBinding(primary: displayMode, sideEffects: sideEffects)
         return Tool(
             id: id,
             name: "Test Tool",
@@ -69,7 +71,7 @@ final class ExecutionEngineTests: XCTestCase {
                 variables: [:]
             )),
             visibleWhen: nil,
-            displayMode: .window,
+            displayMode: displayMode,
             outputBinding: outputBinding,
             permissions: permissions,
             provenance: .firstParty,
@@ -131,6 +133,8 @@ final class ExecutionEngineTests: XCTestCase {
     ///     `apiKeyRef = "keychain:openai-stub"` 解析出的 account 一致；不一致会让 PromptExecutor 抛 .unauthorized
     ///   - audit: AuditLog mock；默认空 MockAuditLog
     ///   - output: OutputDispatcher mock；默认 MockOutputDispatcher
+    ///   - outputDispatcher: 任意 OutputDispatcherProtocol；用于注入 Playground 专用 dispatcher。
+    ///     传入时 return tuple 的 output 仍返回 actualOutput，避免旧测试断言字段变化。
     ///   - llmProviderOverride: 测试需要 cancellation / 阻塞行为时注入的自定义 LLMProvider；
     ///     非 nil 时**忽略** `chunks` 并直接走 override。默认 nil → MockLLMProvider(chunks:)。
     /// - Returns: (ExecutionEngine, broker, audit, output, resolver, costAccounting) 元组，便于断言阶段读出注入实例
@@ -142,6 +146,7 @@ final class ExecutionEngineTests: XCTestCase {
         keychainStore: [String: String] = ["openai-stub": "fake-key"],
         audit: MockAuditLog? = nil,
         output: MockOutputDispatcher? = nil,
+        outputDispatcher: (any OutputDispatcherProtocol)? = nil,
         llmProviderOverride: (any LLMProvider)? = nil,
         agentExecutor: AgentExecutor? = nil
     ) throws -> (
@@ -164,6 +169,7 @@ final class ExecutionEngineTests: XCTestCase {
         let actualResolver = resolver ?? MockProviderResolver()
         let actualAudit = audit ?? MockAuditLog()
         let actualOutput = output ?? MockOutputDispatcher()
+        let engineOutput: any OutputDispatcherProtocol = outputDispatcher ?? actualOutput
         let llmProvider: any LLMProvider = llmProviderOverride ?? MockLLMProvider(chunks: chunks)
         let promptExecutor = PromptExecutor(
             keychain: MockKeychain(keychainStore),
@@ -180,7 +186,7 @@ final class ExecutionEngineTests: XCTestCase {
             skillRegistry: MockSkillRegistry(),
             costAccounting: costAccounting,
             auditLog: actualAudit,
-            output: actualOutput,
+            output: engineOutput,
             agentExecutor: agentExecutor
         )
         return (engine, actualBroker, actualAudit, actualOutput, actualResolver, costAccounting)
@@ -454,6 +460,67 @@ final class ExecutionEngineTests: XCTestCase {
 
         let costRecords = try await bundle.costAccounting.findByToolId("tool.playground")
         XCTAssertEqual(costRecords.first?.source, .playground)
+    }
+
+    /// Playground dry-run 应标记报告并跳过 side effects，且可使用专用输出 dispatcher。
+    func test_playgroundRun_marksReportAndSkipsSideEffects() async throws {
+        let output = PlaygroundOutputDispatcher()
+        let bundle = try makeEngine(chunks: [
+            ChatChunk(delta: "Hello", finishReason: nil)
+        ], outputDispatcher: output)
+        let tool = makeStubTool(
+            permissions: [.clipboard],
+            displayMode: .window,
+            sideEffects: [.copyToClipboard]
+        )
+        let seed = makeStubSeed(
+            isDryRun: true,
+            triggerSource: .playground,
+            runPolicy: .playground(allowMCPToolCalls: false)
+        )
+
+        let events = await collectEvents(from: bundle.engine.execute(tool: tool, seed: seed))
+
+        let report = try XCTUnwrap(events.compactMap { event -> InvocationReport? in
+            if case .finished(let report) = event { return report }
+            return nil
+        }.last)
+        XCTAssertTrue(report.flags.contains(.playground))
+        XCTAssertTrue(report.flags.contains(.dryRun))
+        XCTAssertEqual(report.outcome, .dryRunCompleted)
+        XCTAssertTrue(events.contains { event in
+            if case .sideEffectSkippedDryRun(.copyToClipboard) = event { return true }
+            return false
+        })
+    }
+
+    /// Runner 应在进入 ExecutionEngine 前拒绝非法草稿，避免 LLM / MCP 被误触发。
+    func test_toolPlaygroundRunner_rejectsInvalidToolBeforeEngineRun() async throws {
+        let output = PlaygroundOutputDispatcher()
+        let bundle = try makeEngine(chunks: [
+            ChatChunk(delta: "must not stream", finishReason: nil)
+        ], outputDispatcher: output)
+        let runner = ToolPlaygroundRunner(engine: bundle.engine)
+        var tool = makeStubTool(displayMode: .window)
+        tool.outputBinding = OutputBinding(primary: .file, sideEffects: [])
+
+        let events = await collectEvents(from: runner.run(ToolPlaygroundRunRequest(
+            tool: tool,
+            selectionText: "hello",
+            appName: "Playground",
+            windowTitle: nil,
+            url: nil,
+            allowMCPToolCalls: false
+        )))
+
+        XCTAssertTrue(events.contains { event in
+            if case .failed(.configuration(.validationFailed(_))) = event { return true }
+            return false
+        })
+        XCTAssertFalse(events.contains { event in
+            if case .llmChunk = event { return true }
+            return false
+        })
     }
 
     /// 6. requiresUserConsent (non-dry-run) —— Mock 返回 .requiresUserConsent → .failed(.toolPermission(.notGranted))

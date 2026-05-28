@@ -50,6 +50,7 @@ let package = Package(
                     "DesignSystem",
                     "Permissions",
                     "Capabilities",
+                    "Orchestration",
                 ],
                 swiftSettings: swiftSettings),
         .testTarget(name: "SliceCoreTests",

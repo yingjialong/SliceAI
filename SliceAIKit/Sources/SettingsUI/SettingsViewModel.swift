@@ -1,6 +1,7 @@
 import Capabilities
 import Foundation
 import LLMProviders
+import Orchestration
 import SliceCore
 import SwiftUI
 
@@ -32,6 +33,9 @@ public final class SettingsViewModel: ObservableObject {
     /// 当前 registry 中可绑定到 Agent Tool 的 enabled skills。
     @Published public private(set) var availableAgentSkills: [SliceCore.Skill] = []
 
+    /// Settings Playground runner；nil 时后续 UI 应隐藏或禁用 Playground 运行入口。
+    @Published public var playgroundRunner: (any ToolPlaygroundRunning)?
+
     /// v2 配置持久化 actor，生产环境注入 AppContainer 启动时创建的实例
     private let store: ConfigurationStore
 
@@ -58,11 +62,13 @@ public final class SettingsViewModel: ObservableObject {
     public init(
         store: ConfigurationStore,
         keychain: any KeychainAccessing,
-        skillRegistry: any SkillRegistryProtocol = MockSkillRegistry()
+        skillRegistry: any SkillRegistryProtocol = MockSkillRegistry(),
+        playgroundRunner: (any ToolPlaygroundRunning)? = nil
     ) {
         self.store = store
         self.keychain = keychain
         self.skillRegistry = skillRegistry
+        self.playgroundRunner = playgroundRunner
         // 先用默认值占位，reload() 异步完成后更新为真实磁盘值
         let initial = DefaultConfiguration.initial()
         self.configuration = initial
