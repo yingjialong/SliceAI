@@ -37,4 +37,4 @@
 
 ## 结果
 
-完成。`codex/phase2-completion` 已推送到 `origin/codex/phase2-completion`，另一台机器可通过 `git fetch origin && git checkout -B codex/phase2-completion origin/codex/phase2-completion` 获取最新代码和 handoff 文档。
+完成。当时 `codex/phase2-completion` 已推送到 `origin/codex/phase2-completion`，用于跨机器接续。2026-05-28 后续清理时已将 Phase 2 completion 合回 `main`，并把 Phase 3 workstream 迁移到 `origin/codex/phase3-tool-editor-playground`；后续机器应从新的 Phase 3 分支继续，而不是再从 Phase 2 分支 checkout。

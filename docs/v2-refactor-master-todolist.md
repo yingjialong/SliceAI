@@ -15,10 +15,10 @@
 
 | 字段 | 值 |
 |---|---|
-| 最后更新 | 2026-05-27 |
+| 最后更新 | 2026-05-28 |
 | 当前 Phase | **Phase 3 Prompt IDE + 本地模型（kickoff）** |
 | 当前 Milestone | **用户已选择跳过 Phase 2 release；下一步进入 Phase 3 spec 收敛** |
-| 下一个动作 | 在新机器基于 `origin/codex/phase2-completion` 启动 Phase 3 brainstorming，优先评估 ToolEditor v2 / Prompt Playground MVP |
+| 下一个动作 | 在 `origin/codex/phase3-tool-editor-playground` 上继续 Phase 3 ToolEditor v2 + Prompt Playground MVP spec / plan |
 | 阻塞 | 无已知产品代码阻塞；`v0.3.0` draft release 已生成并校验通过，但用户已决定暂缓人工发布 |
 
 **Milestone 状态**
@@ -1192,5 +1192,5 @@ fi
 
 - 用户明确选择跳过 Phase 2 release，不打 `v0.4.0` tag，不构建 / 发布 DMG，直接继续 Phase 3。
 - 新增跨机器 handoff：`docs/handoffs/2026-05-27-phase-3-prompt-ide-local-models.md`。
-- 新机器应基于 `origin/codex/phase2-completion` 继续，不要从旧 `main` 开始；Phase 3 进入实现前必须重新做 brainstorming / spec / plan。
+- 2026-05-28 已将 Phase 2 completion 合回 `main`，Phase 3 workstream 迁移到 `origin/codex/phase3-tool-editor-playground`；Phase 3 进入实现前必须完成 spec review 和 implementation plan。
 - 推荐首个 Phase 3 切片从 ToolEditor v2 / Prompt Playground MVP 评估开始，避免一次性同时展开原生 providers、Memory 和 Cost Panel。
