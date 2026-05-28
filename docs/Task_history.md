@@ -4,6 +4,15 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 
 ---
 
+## Task 65 · Phase 3 ToolEditor v2 + Prompt Playground MVP Spec
+
+- **时间**：2026-05-28
+- **描述**：启动 Phase 3 首个可实施切片的规格收敛，冻结 ToolEditor v2 + Prompt Playground MVP，明确未保存草稿试跑、Prompt / Agent Tool 覆盖、真实 LLM、权限闭环下真实 MCP、side effects dry-run、右侧预览和后续技术债务。
+- **详情**：[docs/Task-detail/2026-05-28-phase-3-tool-editor-playground-mvp-spec.md](Task-detail/2026-05-28-phase-3-tool-editor-playground-mvp-spec.md)
+- **结果**：Draft for review。已创建 spec `docs/superpowers/specs/2026-05-28-phase-3-tool-editor-playground-mvp.md`，等待用户 review；本任务不包含代码实现和 release。
+
+---
+
 ## Task 64 · Phase 3 Handoff And Remote Sync
 
 - **时间**：2026-05-27
