@@ -1,8 +1,8 @@
 # Phase 3 ToolEditor v2 + Prompt Playground MVP Spec
 
-> Status: Draft for user review
+> Status: Review fixed draft
 > Date: 2026-05-28
-> Branch: `codex/phase2-completion`
+> Branch: `codex/phase3-tool-editor-playground`
 > Scope: Phase 3 first frozen slice only
 
 ## 1. Background
@@ -105,6 +105,15 @@ public struct ExecutionRunPolicy: Sendable, Equatable {
 
 实现可以选择最小可行形态，不一定第一步就公开上述完整 API；但不能用一个含混的 `isDryRun` 同时表达所有行为。若为了兼容保留 `ExecutionSeed.isDryRun`，它只能继续表示“副作用 dry-run / 终态 outcome 标记”，并由新的 run policy 补充 MCP 和 output routing 语义。
 
+### 6.1 Telemetry Compatibility
+
+本 MVP 不扩 `config-v2.json` schema，但会影响 telemetry 语义。Implementation plan 必须明确以下兼容策略：
+
+- `InvocationReport` 至少要能区分 `.playground` 与生产触发。推荐新增 `InvocationFlag.playground` 作为最小变更；若改成结构化 source 字段，必须提供旧 audit JSONL 的向后兼容 decode。
+- `CostRecord` 目前没有 source / flags 字段。若 Playground 真实 LLM / MCP 成本要被后续 Cost Panel 过滤，MVP 至少需要一种可查询标记。推荐新增 nullable `source` 列并用 `ALTER TABLE ... ADD COLUMN` 做幂等轻量迁移；不要只把 source 写进日志文本。
+- `dryRunCompleted` 不能被误解为“没有真实成本”。Playground 可能真实调用 LLM / MCP，因此 UI 和文档必须说明 dry-run 只约束副作用，不代表免费或无外部调用。
+- telemetry 变更必须有旧数据兼容测试：旧 `audit.jsonl` / 旧 `cost.sqlite` 仍可读取或至少不阻塞 App 启动。
+
 ## 7. Data Flow
 
 ### 7.1 Draft Construction
@@ -165,6 +174,12 @@ Agent Playground 允许真实 MCP 调用，但必须复用现有 PermissionBroke
 - `.mcp` 权限仍按现有规则 gate；不可因为 Playground 而自动放行。
 - Permission UI 文案应标明“Playground run”，避免用户误以为这是生产划词触发。
 - 可缓存权限仍遵守现有 cacheable 规则，例如 Brave Web Search 的特殊缓存边界；不要为 Playground 新增更宽松规则。
+
+额外安全边界：
+
+- Playground UI 必须有显式的“允许本次运行调用 MCP tools”开关或等价确认；默认可展示将要启用的 allowlist，但不能在用户无感知时发起真实 MCP tool call。
+- 若 MCP descriptor / allowlist 不能证明工具是只读，应按可能有外部状态变化处理。允许执行，但必须通过 PermissionBroker 和 Playground 明示确认；不能因为它来自 Playground 就继承更宽松授权。
+- 已缓存的 session / persistent grant 可以减少系统权限弹窗，但 Playground 仍应在 UI 中显示本次会调用哪些 `server.tool`，避免用户把试跑误认为纯本地 preview。
 
 ### 8.2 Side Effects
 
@@ -232,6 +247,8 @@ Playground 错误应尽量就地显示在右侧面板，不打开 ResultPanel：
 - 若当前 Settings 仍是即时保存模型，ToolEditor v2 必须引入草稿层，否则“未保存草稿试跑”无法成立。
 - 推荐把 Tool editor 改为 local draft editing：打开编辑器时复制 Tool，左侧改动先进入 draft；点击 Save 后写回 `Configuration.tools[i]` 并保存；点击 Revert/Cancel 恢复正式配置。
 - 这属于 ToolEditor v2 的核心改造，不是可选 polish。否则 Playground 的“不污染正式配置”会被现有 binding 破坏。
+- draft 校验必须覆盖已有保存规则：tool id 不可重复、displayMode 与 outputBinding.primary 一致、Agent skill 最多 5 个且必须是 enabled skill、per-tool hotkey 不与其它工具 / 命令面板冲突。Run 可以在 draft 上执行，但不能绕过这些校验。
+- 若 SettingsViewModel 在编辑期间收到外部配置 reload，必须定义冲突策略。MVP 可采用简单策略：编辑器打开期间不自动覆盖本地 draft，reload 只更新旁路状态并提示用户 Revert / Save 后再刷新。
 
 ## 11. Settings Integration
 
@@ -254,6 +271,7 @@ MVP 必须覆盖以下测试：
 ### SliceCore / Orchestration
 
 - Playground run source / run policy 的 Codable 或 Equatable 测试（如果新增 SliceCore 类型）。
+- 旧 telemetry 兼容测试：旧 `InvocationReport` JSONL 和旧 `cost.sqlite` 在新增 playground source / flags 后仍可读取或迁移。
 - `ExecutionEngine` 在 Playground policy 下：
   - 真实 prompt stream 可完成。
   - side effects 只 yield skipped/dry-run，不调用 executor。
@@ -270,6 +288,7 @@ MVP 必须覆盖以下测试：
 - Revert/Cancel 丢弃草稿。
 - Prompt Tool Playground 可从临时 selection 运行并显示 streaming 输出。
 - Agent Tool Playground 可显示 tool-call lifecycle。
+- Agent Tool Playground 默认不会在无显式确认时真实调用 MCP；确认后 allowlist 内 MCP tool call 才能走 PermissionBroker。
 - DisplayMode preview：
   - `.window` 显示 streaming text。
   - `.structured` 显示字段或 parse error。
@@ -327,6 +346,8 @@ xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build
 | 不新增持久化导致用户不能保存样本 | 功能不完整 | 记录为技术债务，先验证运行闭环 |
 | 右侧 UI 承载过多信息 | Settings 页面拥挤 | 固定输出区域、折叠 tool-call rows、小屏上下布局 |
 | 审计/成本把 Playground 和生产混在一起 | 后续 Cost Panel 统计误导 | report flags/source 必须能区分 playground |
+| telemetry 标记只写 audit 不写 cost | Cost Panel 无法按 Playground 过滤真实 LLM 成本 | plan 中必须同步设计 CostRecord source 或等价可查询字段，并提供旧 sqlite 迁移 |
+| Playground 真实 MCP 默认自动执行 | 试跑可能改外部系统状态 | UI 增加显式 MCP 调用确认；未知读写属性按可能写入处理 |
 
 ## 15. Open Questions For Implementation Plan
 
@@ -339,6 +360,7 @@ xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build
 5. AgentExecutor 当前 `gateMCP(..., isDryRun: false)` 写死非 dry-run。MVP 需要明确它如何接收 run policy，避免 prompt 路径和 agent MCP 路径语义分裂。
 6. CostAccounting 是否记录 dry-run cost？本 spec 要求记录真实 LLM/MCP 成本；若字段不足，需要新增 source/flags。
 7. SettingsUI 是否继续 inline editor，还是改成独立 Tool editor scene？实现前需用窗口尺寸确认。
+8. Playground MCP 确认交互是全局开关、每次运行确认，还是按 `server.tool` 粒度确认？MVP 推荐每次运行展示本次 allowlist 并用一个显式开关确认。
 
 ## 16. Definition Of Done
 

@@ -9,7 +9,7 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 - **时间**：2026-05-28
 - **描述**：启动 Phase 3 首个可实施切片的规格收敛，冻结 ToolEditor v2 + Prompt Playground MVP，明确未保存草稿试跑、Prompt / Agent Tool 覆盖、真实 LLM、权限闭环下真实 MCP、side effects dry-run、右侧预览和后续技术债务。
 - **详情**：[docs/Task-detail/2026-05-28-phase-3-tool-editor-playground-mvp-spec.md](Task-detail/2026-05-28-phase-3-tool-editor-playground-mvp-spec.md)
-- **结果**：Draft for review。已创建 spec `docs/superpowers/specs/2026-05-28-phase-3-tool-editor-playground-mvp.md`，等待用户 review；本任务不包含代码实现和 release。
+- **结果**：Codex review 后条件通过。已创建并修订 spec `docs/superpowers/specs/2026-05-28-phase-3-tool-editor-playground-mvp.md`：补齐 Phase 3 分支口径、Playground telemetry 兼容、MCP 显式确认安全边界、ToolEditor draft 校验 / reload 策略和相关测试要求；本任务不包含代码实现和 release。
 
 ---
 
@@ -18,7 +18,7 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 - **时间**：2026-05-27
 - **描述**：用户选择跳过 Phase 2 release，后续在另一台机器的 Codex 继续 Phase 3；本任务负责推送最新分支并生成可复制的新会话接续提示词。
 - **详情**：[docs/Task-detail/2026-05-27-phase-3-handoff-remote-sync.md](Task-detail/2026-05-27-phase-3-handoff-remote-sync.md)
-- **结果**：完成。已新增跨机器 handoff 文档 `docs/handoffs/2026-05-27-phase-3-prompt-ide-local-models.md`，并将 README、AGENTS、CLAUDE 和 master todolist 更新到“跳过 Phase 2 release，进入 Phase 3 kickoff”口径；`codex/phase2-completion` 已推送到 `origin/codex/phase2-completion`。
+- **结果**：完成。已新增跨机器 handoff 文档 `docs/handoffs/2026-05-27-phase-3-prompt-ide-local-models.md`，并将 README、AGENTS、CLAUDE 和 master todolist 更新到“跳过 Phase 2 release，进入 Phase 3 kickoff”口径；初始 handoff 推送到 `origin/codex/phase2-completion`，2026-05-28 已迁移 Phase 3 workstream 到 `origin/codex/phase3-tool-editor-playground`。
 
 ---
 

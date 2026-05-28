@@ -1,10 +1,10 @@
 ---
 topic: phase-3-prompt-ide-local-models
 title: Phase 3 Prompt IDE 与本地模型
-branch: codex/phase2-completion
+branch: codex/phase3-tool-editor-playground
 status: in-progress
 created: 2026-05-27 17:28
-last_updated: 2026-05-27 17:28
+last_updated: 2026-05-28 00:00
 ---
 
 # Phase 3 Prompt IDE 与本地模型
@@ -17,12 +17,13 @@ Phase 3 的路线图主题是 Prompt IDE + 本地模型：ToolEditor v2、Prompt
 
 ## Session history
 
+- **2026-05-28 00:00 session 2**：发现另一台机器把 Phase 3 spec 推到了 Phase 2 分支；当前会话将 Phase 3 workstream 迁移到 `codex/phase3-tool-editor-playground`，并准备把 Phase 2 completion 合回 `main`。
 - **2026-05-27 17:28 session 1**：用户决定跳过 Phase 2 发布并换另一台机器继续 Phase 3；本会话新增本 handoff，更新项目状态文档到 Phase 3 kickoff 口径，并已推送 `codex/phase2-completion` 到 `origin/codex/phase2-completion`。
 
 ## Current code state
 
-- Branch: `codex/phase2-completion`
-- Remote to use on another machine: `origin/codex/phase2-completion`
+- Branch: `codex/phase3-tool-editor-playground`
+- Remote to use on another machine: `origin/codex/phase3-tool-editor-playground`
 - Recent relevant commits:
   - `7547dbf` docs: prepare phase 3 handoff
   - `bd00105` docs: record phase 2 app smoke
@@ -37,6 +38,7 @@ Phase 3 的路线图主题是 Prompt IDE + 本地模型：ToolEditor v2、Prompt
   - `AGENTS.md`: Codex 工作入口、已完成能力、不应误报能力和常用验证命令。
   - `README.md`: 项目当前状态、功能清单和最近变更记录。
   - `docs/v2-refactor-master-todolist.md`: 跨 Phase dashboard、Phase 3 路线图和从当前到 v1.0 的剩余任务总表。
+  - `docs/superpowers/specs/2026-05-28-phase-3-tool-editor-playground-mvp.md`: Phase 3 首个冻结切片 spec，已完成 Codex review 修订。
   - `docs/superpowers/specs/2026-04-23-sliceai-v2-roadmap.md`: Phase 3 方向性目标与 DoD，特别是 §4.5。
   - `docs/Task-detail/2026-05-26-phase-2-completion.md`: Phase 2 completion 的真实实现边界、验证结果和 smoke 证据。
   - `docs/superpowers/plans/2026-05-26-phase-2-completion.md`: Phase 2 implementation plan 与验证历史。
@@ -44,14 +46,14 @@ Phase 3 的路线图主题是 Prompt IDE + 本地模型：ToolEditor v2、Prompt
 ## Decisions and rationale
 
 - 跳过 Phase 2 release 是用户在 2026-05-27 的明确产品决策。不要自动打 `v0.4.0` tag、不要构建/发布 DMG，除非用户重新明确要求。
-- 另一台机器应基于远端分支 `origin/codex/phase2-completion` 开始，而不是旧的 `main`。`main` 已有 Skill Registry MVP，但不包含本分支上的 Phase 2 completion 后续 commits。
+- 另一台机器应基于远端分支 `origin/codex/phase3-tool-editor-playground` 继续 Phase 3。Phase 2 completion 应合并回 `main`；Phase 3 spec / plan / implementation 不应继续留在 Phase 2 分支。
 - Phase 3 是 Directional，不是冻结 spec。必须先用 brainstorming / spec / plan 流程重新收敛范围，再进入实现。
 - 推荐优先切片是 ToolEditor v2 / Prompt Playground foundation，而不是一次性同时做 Anthropic、Gemini、Ollama、Memory 和 Cost Panel。原因是当前 SettingsUI、ExecutionEngine、Output lifecycle 和 dry-run / permission event 结构已经能支撑 Playground MVP，风险更可控。
 - Phase 2 的 Skill diagnostics、scripts 策略、完整 app 成功率矩阵和 Phase 2 release 均未完成，但用户选择不把它们作为进入 Phase 3 的 blocker。
 
 ## Next steps (ordered by priority)
 
-1. 在新机器 checkout 并核对分支：`git fetch origin && git checkout -B codex/phase2-completion origin/codex/phase2-completion`。Done when: `git status -sb` 显示在 `codex/phase2-completion` 且工作区干净。
+1. 在新机器 checkout 并核对分支：`git fetch origin && git checkout -B codex/phase3-tool-editor-playground origin/codex/phase3-tool-editor-playground`。Done when: `git status -sb` 显示在 `codex/phase3-tool-editor-playground` 且工作区干净。
 2. 读取 required reading 后，先向用户复述当前状态，不要直接改代码。Done when: 用户确认继续 Phase 3。
 3. 使用 `superpowers:brainstorming` 为 Phase 3 重新收敛第一个冻结切片，建议候选为 “ToolEditor v2 + Prompt Playground MVP”。Done when: 明确包含/排除项、DoD 和风险边界。
 4. 创建 Phase 3 task detail 与 Task_history 索引，例如 `docs/Task-detail/2026-05-27-phase-3-prompt-playground-spec.md`。Done when: 文档包含实施前 ToDoList、验证策略和不做范围。
@@ -60,7 +62,7 @@ Phase 3 的路线图主题是 Prompt IDE + 本地模型：ToolEditor v2、Prompt
 ## Known traps / do not touch
 
 - 不要把 Phase 2 release 当成仍需立即执行的 blocker；用户已经选择跳过。
-- 不要把 `main` 当作最新完整代码继续；当前最新 Phase 2 completion 在 `codex/phase2-completion`。
+- Phase 3 spec / plan / implementation 应留在 `codex/phase3-tool-editor-playground`；不要再把 Phase 3 文档提交到 Phase 2 分支。
 - `config.schema.json` 当前对应 `Configuration.currentSchemaVersion = 4`；任何配置模型变更都必须同步 schema 和迁移测试。
 - `writeMemory` 当前在 `SideEffectExecutor` 中明确 unsupported；Phase 3 如果做 Memory，必须重新 spec 权限、存储、注入 prompt 和审计边界。
 - `.pipeline` 仍未实现真实 `PipelineExecutor`；这是 Phase 5 方向，不要混入 Phase 3 Playground MVP。
