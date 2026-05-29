@@ -13,6 +13,7 @@
 		533BA7892F9695D00078EF4F /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 533BA7812F9695D00078EF4F /* AppDelegate.swift */; };
 		533BA7A42F9695D00078EF4F /* AppDelegate+Execution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 533BA7A52F9695D00078EF4F /* AppDelegate+Execution.swift */; };
 		533BA7B22F9F00000078EF4F /* AppDelegate+Hotkeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = 533BA7B32F9F00000078EF4F /* AppDelegate+Hotkeys.swift */; };
+		533BFAC12F9F00000078EF4F /* AppContainer+Factories.swift in Sources */ = {isa = PBXBuildFile; fileRef = 533BFAC22F9F00000078EF4F /* AppContainer+Factories.swift */; };
 		533BA78A2F9695D00078EF4F /* MenuBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 533BA7842F9695D00078EF4F /* MenuBarController.swift */; };
 		533BA7A02F9695D00078EF4F /* ResultPanelWindowSinkAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 533BA7A12F9695D00078EF4F /* ResultPanelWindowSinkAdapter.swift */; };
 		533BA7A22F9695D00078EF4F /* ExecutionEventConsumer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 533BA7A32F9695D00078EF4F /* ExecutionEventConsumer.swift */; };
@@ -37,6 +38,7 @@
 		533BA7812F9695D00078EF4F /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		533BA7A52F9695D00078EF4F /* AppDelegate+Execution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+Execution.swift"; sourceTree = "<group>"; };
 		533BA7B32F9F00000078EF4F /* AppDelegate+Hotkeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+Hotkeys.swift"; sourceTree = "<group>"; };
+		533BFAC22F9F00000078EF4F /* AppContainer+Factories.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppContainer+Factories.swift"; sourceTree = "<group>"; };
 		533BA7822F9695D00078EF4F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		533BA7842F9695D00078EF4F /* MenuBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarController.swift; sourceTree = "<group>"; };
 		533BA7A12F9695D00078EF4F /* ResultPanelWindowSinkAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultPanelWindowSinkAdapter.swift; sourceTree = "<group>"; };
@@ -93,6 +95,7 @@
 				533BA7812F9695D00078EF4F /* AppDelegate.swift */,
 				533BA7A52F9695D00078EF4F /* AppDelegate+Execution.swift */,
 				533BA7B32F9F00000078EF4F /* AppDelegate+Hotkeys.swift */,
+				533BFAC22F9F00000078EF4F /* AppContainer+Factories.swift */,
 				533BA7822F9695D00078EF4F /* Assets.xcassets */,
 				533BA7842F9695D00078EF4F /* MenuBarController.swift */,
 				533BA7A32F9695D00078EF4F /* ExecutionEventConsumer.swift */,
@@ -200,6 +203,7 @@
 				533BA7892F9695D00078EF4F /* AppDelegate.swift in Sources */,
 				533BA7A42F9695D00078EF4F /* AppDelegate+Execution.swift in Sources */,
 				533BA7B22F9F00000078EF4F /* AppDelegate+Hotkeys.swift in Sources */,
+				533BFAC12F9F00000078EF4F /* AppContainer+Factories.swift in Sources */,
 				533BA78A2F9695D00078EF4F /* MenuBarController.swift in Sources */,
 				533BA7A02F9695D00078EF4F /* ResultPanelWindowSinkAdapter.swift in Sources */,
 				533BA7A22F9695D00078EF4F /* ExecutionEventConsumer.swift in Sources */,

@@ -192,7 +192,12 @@ struct ToolPlaygroundView: View {
         }
 
         state.status = .running
-        let request = ToolPlaygroundRunRequest(
+        runTask = launchRun(runner: runner, request: makeRunRequest(), runID: runID)
+    }
+
+    /// 构造本次 Playground 运行请求。
+    private func makeRunRequest() -> ToolPlaygroundRunRequest {
+        ToolPlaygroundRunRequest(
             tool: tool,
             selectionText: state.selectionText,
             appName: state.appName,
@@ -200,7 +205,15 @@ struct ToolPlaygroundView: View {
             url: playgroundURL,
             allowMCPToolCalls: state.allowMCPToolCalls
         )
-        runTask = Task { @MainActor in
+    }
+
+    /// 启动 streaming 消费 Task，并按 runID 隔离旧 run 对当前 UI 状态的回写。
+    private func launchRun(
+        runner: any ToolPlaygroundRunning,
+        request: ToolPlaygroundRunRequest,
+        runID: UUID
+    ) -> Task<Void, Never> {
+        Task { @MainActor in
             defer {
                 if activeRunID == runID {
                     activeRunID = nil

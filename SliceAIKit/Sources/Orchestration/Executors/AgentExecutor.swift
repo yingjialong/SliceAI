@@ -62,6 +62,20 @@ public actor AgentExecutor {
         self.skillRegistry = skillRegistry
     }
 
+    /// 一次 Agent run 的输入集合，避免 runSafely / runInternal 参数超过 5 个。
+    private struct AgentRunInput: Sendable {
+        /// 顶层 Tool；用于 provenance、tool id 和权限事件上下文。
+        let tool: Tool
+        /// Tool.kind 中的 AgentTool payload。
+        let agent: AgentTool
+        /// 已解析上下文。
+        let resolved: ResolvedExecutionContext
+        /// ProviderResolver 已解析出的 provider。
+        let provider: Provider
+        /// 本次执行的运行策略。
+        let runPolicy: ExecutionRunPolicy
+    }
+
     /// 执行一次 AgentTool ReAct loop。
     /// - Parameters:
     ///   - tool: 顶层 Tool；用于 provenance、tool id 和权限事件上下文。
@@ -77,20 +91,20 @@ public actor AgentExecutor {
         provider: Provider,
         runPolicy: ExecutionRunPolicy = .production(isDryRun: false)
     ) -> AsyncThrowingStream<ExecutionEvent, any Error> {
-        AsyncThrowingStream { continuation in
+        let input = AgentRunInput(
+            tool: tool,
+            agent: agent,
+            resolved: resolved,
+            provider: provider,
+            runPolicy: runPolicy
+        )
+        return AsyncThrowingStream { continuation in
             let task = Task { [weak self] in
                 guard let self else {
                     continuation.finish(throwing: CancellationError())
                     return
                 }
-                await self.runSafely(
-                    tool: tool,
-                    agent: agent,
-                    resolved: resolved,
-                    provider: provider,
-                    runPolicy: runPolicy,
-                    continuation: continuation
-                )
+                await self.runSafely(input: input, continuation: continuation)
             }
             continuation.onTermination = { _ in task.cancel() }
         }
@@ -98,22 +112,11 @@ public actor AgentExecutor {
 
     /// 包装主流程，将错误转为 `.failed` 事件。
     private func runSafely(
-        tool: Tool,
-        agent: AgentTool,
-        resolved: ResolvedExecutionContext,
-        provider: Provider,
-        runPolicy: ExecutionRunPolicy,
+        input: AgentRunInput,
         continuation: AsyncThrowingStream<ExecutionEvent, any Error>.Continuation
     ) async {
         do {
-            try await runInternal(
-                tool: tool,
-                agent: agent,
-                resolved: resolved,
-                provider: provider,
-                runPolicy: runPolicy,
-                continuation: continuation
-            )
+            try await runInternal(input: input, continuation: continuation)
             continuation.finish()
         } catch is CancellationError {
             continuation.finish()
@@ -128,22 +131,18 @@ public actor AgentExecutor {
 
     /// AgentExecutor 主流程。
     private func runInternal(
-        tool: Tool,
-        agent: AgentTool,
-        resolved: ResolvedExecutionContext,
-        provider: Provider,
-        runPolicy: ExecutionRunPolicy,
+        input: AgentRunInput,
         continuation: AsyncThrowingStream<ExecutionEvent, any Error>.Continuation
     ) async throws {
         _ = providerResolver
-        try validateSupportedStopCondition(agent.stopCondition, toolId: tool.id)
-        let llm = try await makeLLMProvider(provider: provider)
-        let catalog = try await makeToolCatalog(tool: tool, agent: agent)
-        var messages = makeInitialMessages(agent: agent, resolved: resolved, catalog: catalog)
+        try validateSupportedStopCondition(input.agent.stopCondition, toolId: input.tool.id)
+        let llm = try await makeLLMProvider(provider: input.provider)
+        let catalog = try await makeToolCatalog(tool: input.tool, agent: input.agent)
+        var messages = makeInitialMessages(agent: input.agent, resolved: input.resolved, catalog: catalog)
         continuation.yield(.promptRendered(preview: PromptPreviewRenderer.render(messages: messages)))
-        let model = resolveModel(selection: agent.provider, fallback: provider.defaultModel)
-        let maxSteps = max(1, agent.maxSteps)
-        var toolCallState = makeToolCallRunState(agent: agent, catalog: catalog, maxSteps: maxSteps)
+        let model = resolveModel(selection: input.agent.provider, fallback: input.provider.defaultModel)
+        let maxSteps = max(1, input.agent.maxSteps)
+        var toolCallState = makeToolCallRunState(agent: input.agent, catalog: catalog, maxSteps: maxSteps)
 
         for step in 0..<maxSteps {
             logger.debug("agent step \(step, privacy: .public) started")
@@ -155,8 +154,8 @@ public actor AgentExecutor {
             guard !turn.toolCalls.isEmpty else { return }
             let turnContext = AgentToolTurnProcessingContext(
                 catalog: catalog,
-                tool: tool,
-                runPolicy: runPolicy,
+                tool: input.tool,
+                runPolicy: input.runPolicy,
                 continuation: continuation
             )
             let isBudgetExhausted = await appendToolTurnResult(

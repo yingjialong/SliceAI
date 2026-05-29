@@ -107,6 +107,8 @@ public struct ToolPlaygroundState: Sendable, Equatable {
 
     /// 根据 ExecutionEvent 更新 UI 状态。
     public mutating func reduce(_ event: ExecutionEvent, tool: Tool) {
+        // tool-call 生命周期事件单独拆出，降低本函数圈复杂度。
+        if reduceToolCallEvent(event) { return }
         switch event {
         case .started(let invocationId):
             clearRunScopedFields(for: tool)
@@ -119,16 +121,6 @@ public struct ToolPlaygroundState: Sendable, Equatable {
         case .llmChunk(let delta):
             // streaming 正文属于用户可见结果，只存入 UI 状态，不写入日志。
             streamedText += delta
-        case .toolCallProposed(_, let ref, _):
-            toolCallRows.append("proposed \(ref.server).\(ref.tool)")
-        case .toolCallApproved:
-            toolCallRows.append("approved")
-        case .toolCallDenied(_, let reason):
-            toolCallRows.append("denied \(reason)")
-        case .toolCallResult(_, let summary):
-            toolCallRows.append("result \(summary)")
-        case .toolCallError(_, let summary):
-            toolCallRows.append("error \(summary)")
         case .sideEffectSkippedDryRun(let sideEffect):
             skippedSideEffects.append(sideEffect.previewName)
         case .finished(let report):
@@ -145,6 +137,25 @@ public struct ToolPlaygroundState: Sendable, Equatable {
         default:
             break
         }
+    }
+
+    /// 处理 MCP tool-call 生命周期事件；已处理则返回 true，否则交回主 reduce。
+    private mutating func reduceToolCallEvent(_ event: ExecutionEvent) -> Bool {
+        switch event {
+        case .toolCallProposed(_, let ref, _):
+            toolCallRows.append("proposed \(ref.server).\(ref.tool)")
+        case .toolCallApproved:
+            toolCallRows.append("approved")
+        case .toolCallDenied(_, let reason):
+            toolCallRows.append("denied \(reason)")
+        case .toolCallResult(_, let summary):
+            toolCallRows.append("result \(summary)")
+        case .toolCallError(_, let summary):
+            toolCallRows.append("error \(summary)")
+        default:
+            return false
+        }
+        return true
     }
 
     /// 清理单次运行作用域内的输出、权限、报告和错误状态。

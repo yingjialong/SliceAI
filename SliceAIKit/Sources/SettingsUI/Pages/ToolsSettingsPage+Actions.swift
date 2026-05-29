@@ -96,11 +96,20 @@ extension ToolsSettingsPage {
             print("[ToolsSettingsPage] saveEditingSession: validation failed count=\(errors.count)")
             return
         }
+        guard commitDraftToConfiguration(session) else { return }
+        validationErrors = []
+        editingSession = nil
+        finishSaveAfterCommit(previousHotkeys: previousHotkeys)
+    }
 
+    /// 把校验通过的草稿写回正式配置；遇到结构性错误时返回 false 并保留会话。
+    /// - Parameter session: 当前编辑会话。
+    /// - Returns: 写回成功返回 true；index 缺失或创建 id 重复时返回 false。
+    private func commitDraftToConfiguration(_ session: ToolEditorDraftSession) -> Bool {
         switch session {
         case .editingExisting(let original, let draft):
             guard let index = viewModel.configuration.tools.firstIndex(where: { $0.id == original.id }) else {
-                return
+                return false
             }
             let mergedHotkeys = Self.mergedHotkeysForSavingDraft(
                 current: viewModel.configuration.hotkeys,
@@ -113,7 +122,7 @@ extension ToolsSettingsPage {
             guard !viewModel.configuration.tools.contains(where: { $0.id == draft.tool.id }) else {
                 validationErrors = [.duplicateToolId(draft.tool.id)]
                 print("[ToolsSettingsPage] saveEditingSession: duplicate creating id=\(draft.tool.id)")
-                return
+                return false
             }
             let mergedHotkeys = Self.mergedHotkeysForSavingDraft(
                 current: viewModel.configuration.hotkeys,
@@ -123,8 +132,12 @@ extension ToolsSettingsPage {
             viewModel.configuration.tools.append(draft.tool)
             viewModel.configuration.hotkeys = mergedHotkeys
         }
-        validationErrors = []
-        editingSession = nil
+        return true
+    }
+
+    /// 草稿写回后处理 hotkey 重新注册或 debounced save。
+    /// - Parameter previousHotkeys: 写回前的全局 hotkey 配置。
+    private func finishSaveAfterCommit(previousHotkeys: HotkeyBindings) {
         if previousHotkeys != viewModel.configuration.hotkeys {
             print("[ToolsSettingsPage] saveEditingSession: hotkeys changed, reloading registrations")
             Task {
@@ -256,6 +269,36 @@ extension ToolsSettingsPage {
             candidate = "\(prefix)-\(timestamp)-\(suffix)"
         }
         return candidate
+    }
+
+    /// 创建一个兜底 Prompt Tool 草稿。
+    /// - Returns: 可用于瞬时 fallback 的 Prompt Tool。
+    func makeEmptyPromptDraftTool() -> Tool {
+        let providerId = viewModel.configuration.providers.first?.id ?? ""
+        return Tool(
+            id: makeNewToolID(prefix: "tool"),
+            name: "新工具",
+            icon: "wand.and.stars",
+            description: nil,
+            kind: .prompt(PromptTool(
+                systemPrompt: nil,
+                userPrompt: "{{selection}}",
+                contexts: [],
+                provider: .fixed(providerId: providerId, modelId: nil),
+                temperature: 0.7,
+                maxTokens: nil,
+                variables: [:]
+            )),
+            visibleWhen: nil,
+            displayMode: .window,
+            outputBinding: nil,
+            permissions: [],
+            provenance: .firstParty,
+            budget: nil,
+            hotkey: nil,
+            labelStyle: .icon,
+            tags: []
+        )
     }
 
     /// 选择默认 Agent Provider，优先使用声明 toolCalling 能力的 Provider。

@@ -87,7 +87,12 @@ public struct ToolPlaygroundRunner: ToolPlaygroundRunning {
         Self.logger.debug(
             "playground mcp allowed \(request.allowMCPToolCalls, privacy: .public)"
         )
-        let seed = ExecutionSeed(
+        return engine.execute(tool: request.tool, seed: Self.makeSeed(for: request))
+    }
+
+    /// 由 Playground 请求构造 dry-run `.playground` seed。
+    private static func makeSeed(for request: ToolPlaygroundRunRequest) -> ExecutionSeed {
+        ExecutionSeed(
             invocationId: UUID(),
             selection: SelectionSnapshot(
                 text: request.selectionText,
@@ -108,7 +113,6 @@ public struct ToolPlaygroundRunner: ToolPlaygroundRunning {
             isDryRun: true,
             runPolicy: .playground(allowMCPToolCalls: request.allowMCPToolCalls)
         )
-        return engine.execute(tool: request.tool, seed: seed)
     }
 
     /// 构造一个只产出失败事件的 stream，避免非法 draft 进入 LLM / MCP 执行链。

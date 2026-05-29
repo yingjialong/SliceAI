@@ -358,36 +358,6 @@ public struct ToolsSettingsPage: View {
         }
     }
 
-    /// 创建一个兜底 Prompt Tool 草稿。
-    /// - Returns: 可用于瞬时 fallback 的 Prompt Tool。
-    private func makeEmptyPromptDraftTool() -> Tool {
-        let providerId = viewModel.configuration.providers.first?.id ?? ""
-        return Tool(
-            id: makeNewToolID(prefix: "tool"),
-            name: "新工具",
-            icon: "wand.and.stars",
-            description: nil,
-            kind: .prompt(PromptTool(
-                systemPrompt: nil,
-                userPrompt: "{{selection}}",
-                contexts: [],
-                provider: .fixed(providerId: providerId, modelId: nil),
-                temperature: 0.7,
-                maxTokens: nil,
-                variables: [:]
-            )),
-            visibleWhen: nil,
-            displayMode: .window,
-            outputBinding: nil,
-            permissions: [],
-            provenance: .firstParty,
-            budget: nil,
-            hotkey: nil,
-            labelStyle: .icon,
-            tags: []
-        )
-    }
-
 }
 
 // MARK: - ToolReorderDropDelegate
