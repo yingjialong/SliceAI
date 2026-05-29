@@ -9,7 +9,7 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 - **时间**：2026-05-29
 - **描述**：在一台已安装 SwiftLint 的机器上补跑 Phase 3 一直缺失的 `swiftlint lint --strict` final gate，并修复它暴露的 15 个 serious 违规（均为本切片在无 SwiftLint 机器上新引入的回归）。
 - **详情**：[docs/Task-detail/2026-05-29-phase-3-swiftlint-gate-fix.md](Task-detail/2026-05-29-phase-3-swiftlint-gate-fix.md)
-- **结果**：完成。以保行为的方式做函数抽取、switch 拆分、参数收进结构体、超长文件按 `+扩展文件` 拆分，并把新 App-target 文件登记进 `project.pbxproj`。验证：`swiftlint lint --strict` exit 0（15→0）、`swift build` 通过、`swift test` 887 tests/1 skipped/0 failures、`xcodebuild` Debug BUILD SUCCEEDED、`git diff --check` 干净。未推送远端；真实 App smoke 待做。
+- **结果**：完成。以保行为的方式做函数抽取、switch 拆分、参数收进结构体、超长文件按 `+扩展文件` 拆分，并把新 App-target 文件登记进 `project.pbxproj`。验证：`swiftlint lint --strict` exit 0（15→0）、`swift build` 通过、`swift test` 887 tests/1 skipped/0 failures、`xcodebuild` Debug BUILD SUCCEEDED、`git diff --check` 干净。commit `fc61869`（未推送远端）。后续 2026-05-30 真实 App smoke 已 8/8 通过（记录见 MVP plan task detail）。
 
 ---
 

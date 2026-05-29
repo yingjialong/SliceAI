@@ -15,10 +15,10 @@
 
 | 字段 | 值 |
 |---|---|
-| 最后更新 | 2026-05-28 |
+| 最后更新 | 2026-05-30 |
 | 当前 Phase | **Phase 3 Prompt IDE + 本地模型（kickoff）** |
-| 当前 Milestone | **Phase 3 ToolEditor v2 + Prompt Playground MVP implementation** |
-| 下一个动作 | 做 Phase 3 Playground 真实 App smoke，确认后评估样本管理 / A-B / 原生 provider 的下一切片 |
+| 当前 Milestone | **Phase 3 ToolEditor v2 + Prompt Playground MVP（gate 全绿 + 真实 App smoke 8/8 通过）** |
+| 下一个动作 | 由用户选择集成路径（开 PR / 合 main / 保持分支继续下一切片）；之后评估样本管理 / A-B / 原生 provider 的下一切片 |
 | 阻塞 | 无已知产品代码阻塞；`v0.3.0` draft release 已生成并校验通过，但用户已决定暂缓人工发布 |
 
 **Milestone 状态**
