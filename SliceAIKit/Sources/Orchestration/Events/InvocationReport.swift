@@ -84,6 +84,8 @@ public struct InvocationReport: Sendable, Equatable, Codable {
 public enum InvocationFlag: String, Sendable, Codable, Hashable, Equatable {
     /// dry-run 模式执行（不产生真实副作用）
     case dryRun
+    /// Settings Playground 试跑。
+    case playground
     /// 实际触发了 Tool 未声明的权限
     case permissionUndeclared
     /// 部分步骤失败但整体流程未中止

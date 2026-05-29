@@ -1,7 +1,7 @@
 // SliceAIKit/Sources/SettingsUI/Pages/ToolsSettingsPage.swift
 //
-// Tools 设置页：列表 + 内联编辑展开区 + Reminders 风格拖拽排序
-// 用户点击列表项即展开编辑 SectionCard（单选展开，再点收起）
+// Tools 设置页：列表 + 草稿编辑展开区 + Reminders 风格拖拽排序
+// 用户点击列表项即展开 ToolEditor v2（单选展开，再点收起）
 //
 // 拖拽方案（Reminders 风格）：
 //   1. gripHandle 挂 `.onDrag`，把 tool.id 装进 NSItemProvider + 同步写 `draggedId`
@@ -10,8 +10,8 @@
 //      `dropTargetIndex`；**不做 move，只更新插入指示线位置**
 //   3. 行上/下沿以 overlay 形式画 `InsertionIndicator`（蓝细线+空心圆）
 //   4. `performDrop` 松手时才执行 `tools.move(fromOffsets:toOffset:)`
-//   5. 持久化通过 `.onChange(of: tools)` 做 debounce 保存——这也修复了
-//      "编辑提示词不保存"的 bug，因为任何 tools 变动都会被捕获
+//   5. 持久化通过 `.onChange(of: tools)` 做 debounce 保存；ToolEditor v2
+//      先写本地草稿，只有 Save 才更新 tools 并触发保存
 //
 // 这套相较于"实时挤开"方案更贴近 macOS 原生拖拽体感（Finder / Reminders）：
 // 其他行不抖、被拖项由系统预览跟手、指示线清晰表达落位点。
@@ -28,11 +28,11 @@ import UniformTypeIdentifiers
 /// 布局：
 ///   - 顶部操作区：右对齐"添加工具"按钮
 ///   - 工具列表：每行显示图标 + 工具名 + 描述；点击展开编辑区
-///   - 编辑区：ToolEditorView 内嵌于内联展开卡片；选另一行或空白处收起
+///   - 编辑区：ToolEditorV2View 内嵌于内联展开卡片；选另一行或空白处收起
 ///
-/// 持久化：通过 `.onChange(of: tools)` 驱动 debounced save——所有 tools
-/// 变动（新增、删除、拖拽排序、ToolEditorView 对 prompt / 名称等的修改）都会
-/// 在用户停手 `saveDebounceInterval` 后自动写盘。
+/// 持久化：新增或编辑先进入 `ToolEditorDraftSession`，点击 Save 后才写回
+/// `configuration.tools`；删除和拖拽仍直接修改 tools 并由 `.onChange(of: tools)`
+/// 驱动 debounced save。
 public struct ToolsSettingsPage: View {
 
     /// 写盘前的静默等待时长：用户连续编辑时避免频繁写盘
@@ -47,8 +47,11 @@ public struct ToolsSettingsPage: View {
     /// 设置视图模型，用于读写 configuration.tools
     @ObservedObject var viewModel: SettingsViewModel
 
-    /// 当前展开编辑的 Tool id；nil 表示无选中
-    @State var expandedId: String?
+    /// 当前 ToolEditor 草稿会话；nil 表示无展开编辑器。
+    @State var editingSession: ToolEditorDraftSession?
+
+    /// 当前草稿校验错误；Save 或 Run 前校验失败时展示。
+    @State var validationErrors: [ToolDraftValidationError] = []
 
     /// 待确认删除的 Tool id；非 nil 时弹出删除确认 alert
     @State var pendingDeleteId: String?
@@ -75,6 +78,9 @@ public struct ToolsSettingsPage: View {
     public var body: some View {
         SettingsPageShell(title: "Tools", subtitle: "管理工具列表、Prompt 与 Agent 配置。") {
             actionRow
+            if case .creating = editingSession {
+                creatingEditor
+            }
             if viewModel.configuration.tools.isEmpty {
                 emptyState
             } else {
@@ -91,9 +97,8 @@ public struct ToolsSettingsPage: View {
         } message: { tool in
             Text("确定要删除「\(tool.name)」吗？此操作不可撤销。")
         }
-        // 核心持久化钩子：任何对 tools 的改动（编辑 / 排序 / 新增 / 删除）
-        // 停手 saveDebounceInterval 后自动落盘；老代码里分散在 addTool / performDelete
-        // / 拖拽里的 save 全部撤销，改由这里统一处理。
+        // 核心持久化钩子：Save、排序、删除造成的 tools 变动会在停手后落盘；
+        // 未保存草稿不触碰 tools，因此不会误触发这里。
         .onChange(of: viewModel.configuration.tools) { _, _ in
             scheduleDebouncedSave()
         }
@@ -173,18 +178,19 @@ public struct ToolsSettingsPage: View {
     /// 单个工具列表项（行 + 展开编辑区 + drop 接收 + 插入指示线 overlay）
     ///
     /// - Parameters:
-    ///   - binding: Tool 的双向绑定，editor 通过此 binding 修改 configuration
+    ///   - binding: Tool 的双向绑定；行展示仍使用配置快照，编辑器改用本地草稿
     ///   - index: 当前行在 tools 数组中的索引
     @ViewBuilder
     private func toolListItem(for binding: Binding<Tool>, index: Int) -> some View {
         let tool = binding.wrappedValue
-        let isExpanded = expandedId == tool.id
+        let isExpanded = isEditing(tool.id)
         let isLast = index == viewModel.configuration.tools.count - 1
 
         VStack(spacing: 0) {
             makeToolRow(tool: tool, isExpanded: isExpanded)
             if isExpanded {
-                toolEditor(for: binding).transition(.opacity)
+                Rectangle().fill(SliceColor.divider).frame(height: 0.5)
+                toolEditorV2(fallbackTool: tool).transition(.opacity)
             }
         }
         .clipped()
@@ -229,13 +235,26 @@ public struct ToolsSettingsPage: View {
             onToggle: {
                 // 拖动中忽略 tap，避免松手瞬间误触切换
                 guard draggedId == nil else { return }
+                guard canReplaceEditingSession() else { return }
                 withAnimation(SliceAnimation.standard) {
-                    expandedId = isExpanded ? nil : tool.id
+                    if case .editingExisting(let original, _) = editingSession, original.id == tool.id {
+                        editingSession = nil
+                    } else {
+                        editingSession = .existing(
+                            original: tool,
+                            hotkeys: viewModel.configuration.hotkeys
+                        )
+                        validationErrors = []
+                    }
                 }
             },
             onDelete: { pendingDeleteId = tool.id },
             onDragStart: {
-                if expandedId != nil { expandedId = nil }
+                if editingSession != nil {
+                    guard canReplaceEditingSession() else { return }
+                    editingSession = nil
+                    validationErrors = []
+                }
                 draggedId = tool.id
                 dropTargetIndex = nil
                 print("[ToolsSettingsPage] drag: start id=\(tool.id)")
@@ -256,23 +275,86 @@ public struct ToolsSettingsPage: View {
 
     // MARK: - 内联编辑区
 
-    /// 展开的 Tool 编辑区（嵌入 ToolEditorView）
-    private func toolEditor(for binding: Binding<Tool>) -> some View {
+    /// 创建新工具时显示在操作行下方的草稿编辑器。
+    private var creatingEditor: some View {
         VStack(spacing: 0) {
-            Rectangle().fill(SliceColor.divider).frame(height: 0.5)
-            ToolEditorView(
-                tool: binding,
+            toolEditorV2(fallbackTool: nil)
+        }
+        .background(rowBackground(isExpanded: true))
+    }
+
+    /// 当前是否正在编辑指定 Tool。
+    /// - Parameter toolId: Tool id。
+    /// - Returns: 若当前 editing session 指向该 Tool 则返回 true。
+    private func isEditing(_ toolId: String) -> Bool {
+        guard case .editingExisting(let original, _) = editingSession else { return false }
+        return original.id == toolId
+    }
+
+    /// 构造 ToolEditor v2，使用本地草稿 binding 避免直接写入正式配置。
+    /// - Parameter fallbackTool: SwiftUI 关闭编辑器瞬间的兜底 Tool。
+    /// - Returns: ToolEditor v2 容器。
+    private func toolEditorV2(fallbackTool: Tool?) -> some View {
+        let binding = Binding<ToolEditorDraft>(
+            get: {
+                if let editingSession {
+                    return editingSession.draft
+                }
+                let tool = fallbackTool ?? viewModel.configuration.tools.first ?? makeEmptyPromptDraftTool()
+                return ToolEditorDraft(tool: tool, hotkeys: viewModel.configuration.hotkeys)
+            },
+            set: { newDraft in
+                editingSession?.draft = newDraft
+            }
+        )
+        return VStack(alignment: .leading, spacing: SliceSpacing.base) {
+            ToolEditorV2View(
+                draft: binding,
                 providers: viewModel.configuration.providers,
                 tools: viewModel.configuration.tools,
-                hotkeys: $viewModel.configuration.hotkeys,
                 availableSkills: viewModel.availableAgentSkills,
-                onHotkeyCommit: {
-                    Task {
-                        await viewModel.saveHotkeys()
-                    }
-                }
+                runner: viewModel.playgroundRunner,
+                validateDraft: validateDraftForRun,
+                onSave: saveEditingSession,
+                onRevert: revertEditingSession
             )
-            .padding(SliceSpacing.xl)
+            if !validationErrors.isEmpty {
+                validationErrorList
+            }
+        }
+        .padding(SliceSpacing.xl)
+    }
+
+    /// 草稿校验错误列表。
+    private var validationErrorList: some View {
+        VStack(alignment: .leading, spacing: SliceSpacing.xs) {
+            ForEach(Array(validationErrors.enumerated()), id: \.offset) { _, error in
+                Text(error.localizedDescription)
+                    .font(SliceFont.caption)
+                    .foregroundColor(SliceColor.error)
+            }
+        }
+    }
+
+    /// Save 和 Playground Run 共用的草稿校验。
+    /// - Parameter draft: 当前待校验草稿。
+    /// - Returns: 校验错误列表，空数组表示可保存或运行。
+    func validateDraftForRun(_ draft: ToolEditorDraft) -> [ToolDraftValidationError] {
+        ToolDraftValidator.validate(
+            draft: draft,
+            existingTools: viewModel.configuration.tools,
+            availableSkills: viewModel.availableAgentSkills,
+            originalToolId: editingSession?.originalToolId,
+            commandPaletteEnabled: viewModel.configuration.triggers.commandPaletteEnabled
+        )
+    }
+
+    /// 清理指向指定 Tool 的编辑会话。
+    /// - Parameter toolId: 可能被删除或移动的 Tool id。
+    func clearEditingSessionIfNeeded(toolId: String) {
+        if case .editingExisting(let original, _) = editingSession, original.id == toolId {
+            editingSession = nil
+            validationErrors = []
         }
     }
 

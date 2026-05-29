@@ -15,10 +15,10 @@
 
 | 字段 | 值 |
 |---|---|
-| 最后更新 | 2026-05-28 |
+| 最后更新 | 2026-05-30 |
 | 当前 Phase | **Phase 3 Prompt IDE + 本地模型（kickoff）** |
-| 当前 Milestone | **用户已选择跳过 Phase 2 release；下一步进入 Phase 3 spec 收敛** |
-| 下一个动作 | 在 `origin/codex/phase3-tool-editor-playground` 上继续 Phase 3 ToolEditor v2 + Prompt Playground MVP spec / plan |
+| 当前 Milestone | **Phase 3 ToolEditor v2 + Prompt Playground MVP（gate 全绿 + 真实 App smoke 8/8 通过）** |
+| 下一个动作 | 由用户选择集成路径（开 PR / 合 main / 保持分支继续下一切片）；之后评估样本管理 / A-B / 原生 provider 的下一切片 |
 | 阻塞 | 无已知产品代码阻塞；`v0.3.0` draft release 已生成并校验通过，但用户已决定暂缓人工发布 |
 
 **Milestone 状态**
@@ -76,7 +76,7 @@
 | **0** | 底层重构 | ✅ 已完成并正式发布 `v0.2.0` | 15–21 (M1+M2+M3) | **无**（只重构） | Orchestration + Capabilities 骨架、Tool 三态、ExecutionSeed/ResolvedContext、Permission + Provenance + PermissionGraph + PathSandbox hook、v2 schema + 独立 config 路径 |
 | **1** | MCP + Context 主干 | ✅ 已完成；`v0.3.0` tag + GitHub draft release 已生成，人工发布暂缓 | 20–30 | MCP 支持 / 5 个核心 ContextProvider / Per-Tool Hotkey / 基础自定义 Agent Tool | MCPClient（stdio + Streamable HTTP）+ MCPServersPage + AgentExecutor + Agent Tool 编辑器 + `web-search-summarize` 首个真 Agent Tool |
 | **2** | Skill + 多 DisplayMode | ✅ 核心 completion 已完成；Phase 2 release 已按用户决定跳过 | — | Skill 接入 / replace / bubble / structured / TTS / English Tutor | Skill Registry MVP、本地 Skill E2E、公开仓库 smoke、supporting files 只读加载、多 DisplayMode、本地 TTS、English Tutor 和真实 App smoke 已完成；Skill diagnostics、scripts 策略和完整 app 成功率矩阵可作为后续 hardening，不阻塞 Phase 3 |
-| **3** | Prompt IDE + 本地模型 | 🟨 Kickoff：需重新 spec | — | Playground / A-B / Ollama & Anthropic 原生 / Memory | 下一步先做 brainstorming/spec；不要直接按 Directional outline 写代码 |
+| **3** | Prompt IDE + 本地模型 | 🟨 首个切片 ToolEditor v2 + Prompt Playground MVP implementation 已完成 | — | Playground / A-B / Ollama & Anthropic 原生 / Memory | 下一步做真实 App smoke；样本持久化、A/B、版本历史、原生 provider、Memory 和 Cost Panel 留作后续切片 |
 | **4** | 生态与分享 | Directional | — | Tool Pack / Marketplace / SliceAI as MCP server / Shortcuts / Services | 进入前重新 spec；Pack 签名体系在 §3.9.4 已埋 hook |
 | **5** | 高级编排 | Directional | — | Pipeline / 智能路由 / Smart Actions | 进入前重新 spec |
 
@@ -519,8 +519,8 @@ fi
 | 12 | 2 | `english-tutor` 官方 Tool Pack | 语法分析、改写、朗读、结构化结果和 skill 绑定 | 完成：默认 `english-tutor` Agent Tool、内置 skill、schema v4 迁移和 structured TTS `ttsText` 已实现 |
 | 13 | 2 | Phase 2 E2E / 文档 / 回归 | Skill、DisplayMode、TTS、English Tutor 的自动化与实机回归 | 完成：automated gate、公开仓库 smoke、真实 App smoke 和最终文档 gate 均通过 |
 | 14 | 2 | Phase 2 release | 建议 `v0.4.0` tag / DMG / release notes，版本号需发布前确认 | 跳过：用户 2026-05-27 明确选择不发布，直接进入 Phase 3 |
-| 15 | 3 | `ToolEditor v2` 信息架构 | 左侧配置、右侧 Playground、kind-aware 编辑器和保存规则 | 待做 |
-| 16 | 3 | Prompt Playground 运行器 | 在 Settings 内运行 selection sample、展示 streaming / tool call / structured output | 待做 |
+| 15 | 3 | `ToolEditor v2` 信息架构 | MVP 完成：左侧 draft 编辑器、Save/Revert、kind-aware 基础编辑和保存前校验已落地；样本管理、A/B、版本历史等增强待做 | 部分完成 |
+| 16 | 3 | Prompt Playground 运行器 | MVP 完成：Settings 内可用真实 ExecutionEngine 试跑 Prompt / Agent Tool 草稿，展示 streaming、tool call lifecycle、structured / DisplayMode dry-run preview；selection sample 持久化和回归 expected output 管理待做 | 部分完成 |
 | 17 | 3 | 测试样本与 expected output 管理 | 保存 selection、上下文、期望输出和回归结果 | 待做 |
 | 18 | 3 | A/B 双栏对比 | 同一 Tool 并排跑不同 provider / model / prompt version | 待做 |
 | 19 | 3 | Tool version history | 每次保存生成 snapshot，支持查看、回滚和 diff | 待做 |
@@ -616,12 +616,14 @@ fi
 
 **目标**：Tool 编辑器升级为 Prompt Playground；原生支持 Anthropic / Gemini / Ollama 三家；Per-Tool Memory 可用。
 
+**当前进度**：首个实现切片 ToolEditor v2 + Prompt Playground MVP 已完成。MVP 边界是 Settings Tools 页面中的未保存 Tool 草稿编辑、Save/Revert、保存前校验、右侧 Playground 试跑、真实 LLM / ExecutionEngine 复用、preview output、side effects dry-run，以及 MCP tool call 默认禁用并需本次运行显式打开。测试样本持久化、expected output 管理、A/B 双栏对比、版本历史、原生 Anthropic / Gemini / Ollama provider、Memory、Cost Panel 和 ToolEditor 小宽度响应式布局仍属于后续切片。
+
 **关键交付**（粗粒度）：
 
-- [ ] `SettingsUI/ToolEditor v2`（左配置 + 右 Playground）
+- [x] `SettingsUI/ToolEditor v2 + Prompt Playground MVP`（左侧 draft 配置 + 右侧 preview Playground；真实 LLM；side effects dry-run；MCP 默认禁用）
 - [ ] 测试用例管理（保存样本 selection + expected output）
-- [ ] A/B 双栏对比
-- [ ] Version history（Tool 每次保存 snapshot）
+- [ ] A/B 双栏对比（同一 Tool 并排跑不同 provider / model / prompt version）
+- [ ] Version history（Tool 每次保存 snapshot、查看、回滚和 diff）
 - [ ] `LLMProviders/AnthropicProvider`（Prompt Caching + Extended Thinking）
 - [ ] `LLMProviders/GeminiProvider`（Grounding + JSON Schema）
 - [ ] `LLMProviders/OllamaProvider`（本地直连）
@@ -629,6 +631,7 @@ fi
 - [ ] `SettingsUI/Pages/MemoryPage`
 - [ ] Cost Panel
 - [ ] Tool 声明 `privacy: local-only`
+- [ ] ToolEditor v2 小宽度响应式布局（双栏降级为上下布局 / ViewThatFits）
 
 **Definition of Done**（抄自 spec §4.5.3，进入前可重写）：
 
@@ -1193,4 +1196,14 @@ fi
 - 用户明确选择跳过 Phase 2 release，不打 `v0.4.0` tag，不构建 / 发布 DMG，直接继续 Phase 3。
 - 新增跨机器 handoff：`docs/handoffs/2026-05-27-phase-3-prompt-ide-local-models.md`。
 - 2026-05-28 已将 Phase 2 completion 合回 `main`，Phase 3 workstream 迁移到 `origin/codex/phase3-tool-editor-playground`；Phase 3 进入实现前必须完成 spec review 和 implementation plan。
+- 2026-05-28 已生成 implementation plan：`docs/superpowers/plans/2026-05-28-phase-3-tool-editor-playground-mvp.md`；Claude review loop Round 3 已 approve。
 - 推荐首个 Phase 3 切片从 ToolEditor v2 / Prompt Playground MVP 评估开始，避免一次性同时展开原生 providers、Memory 和 Cost Panel。
+
+### 2026-05-28 — Phase 3 ToolEditor v2 + Prompt Playground MVP implementation / final gate
+
+- 已完成 Phase 3 首个实现切片：ToolEditor v2 + Prompt Playground MVP。
+- MVP 边界：Settings Tools 页面支持未保存 Tool 草稿编辑、Save/Revert、保存前校验和右侧 Playground 试跑；Prompt / Agent Tool 复用真实 `ExecutionEngine`；输出进入 preview；side effects dry-run；MCP tool call 默认禁用，必须由用户显式打开本次运行开关后才进入 allowlist + PermissionBroker + MCP client。
+- 已同步 README、AGENTS、Task history、Orchestration 模块文档和 SettingsUI 模块文档到 MVP 完成口径。
+- Final gate：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path SliceAIKit --scratch-path /tmp/sliceai-task8-full-tests` 通过（882 tests，1 skipped，0 failures）；`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build` 通过（`** BUILD SUCCEEDED **`）；`git diff --check` 通过。
+- SwiftLint 未运行成功：本机 `swiftlint` 不在 PATH，`swiftlint lint --strict` 返回 `zsh:1: command not found: swiftlint`；按任务约束未安装工具。
+- 后续切片仍待重新 spec：样本持久化 / expected output 管理、A/B 双栏对比、版本历史、原生 Anthropic / Gemini / Ollama provider、Memory、Cost Panel、ToolEditor v2 小宽度响应式布局。

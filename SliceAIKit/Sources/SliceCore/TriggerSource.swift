@@ -10,6 +10,8 @@ public enum TriggerSource: String, Sendable, Codable, CaseIterable {
     case commandPalette
     /// Per-tool hotkey 直接触发（Phase 1+）
     case hotkey
+    /// Settings Prompt Playground 试跑。
+    case playground
     /// 从 Shortcuts.app 的 AppIntent 调用（Phase 4+）
     case shortcutsApp
     /// URL Scheme `sliceai://run/<tool>`（Phase 4+）

@@ -23,7 +23,11 @@ extension ExecutionEngine {
         guard let agentExecutor else { return nil }
         let outputContext = makeOutputContext(tool: tool, context: context)
         let stream = await agentExecutor.run(
-            tool: tool, agent: agent, resolved: resolved, provider: provider
+            tool: tool,
+            agent: agent,
+            resolved: resolved,
+            provider: provider,
+            runPolicy: context.runPolicy
         )
         do {
             try await output.begin(context: outputContext)

@@ -42,18 +42,20 @@ final class ExecutionEngineTests: XCTestCase {
     ///   - id: tool id，默认 "test.tool"
     ///   - permissions: tool 静态声明的权限，默认空
     ///   - contexts: PromptTool.contexts，默认空
-    ///   - sideEffects: outputBinding.sideEffects；非空时 outputBinding.primary 与 displayMode 同为 .window
+    ///   - displayMode: Tool 展示模式；默认 .window
+    ///   - sideEffects: outputBinding.sideEffects；非空时 outputBinding.primary 与 displayMode 保持一致
     ///   - providerSelection: ProviderSelection；默认 fixed providerId="test-provider"
     private func makeStubTool(
         id: String = "test.tool",
         permissions: [Permission] = [],
         contexts: [ContextRequest] = [],
+        displayMode: DisplayMode = .window,
         sideEffects: [SideEffect] = [],
         providerSelection: ProviderSelection = .fixed(providerId: "test-provider", modelId: nil)
     ) -> Tool {
         let outputBinding: OutputBinding? = sideEffects.isEmpty
             ? nil
-            : OutputBinding(primary: .window, sideEffects: sideEffects)
+            : OutputBinding(primary: displayMode, sideEffects: sideEffects)
         return Tool(
             id: id,
             name: "Test Tool",
@@ -69,7 +71,7 @@ final class ExecutionEngineTests: XCTestCase {
                 variables: [:]
             )),
             visibleWhen: nil,
-            displayMode: .window,
+            displayMode: displayMode,
             outputBinding: outputBinding,
             permissions: permissions,
             provenance: .firstParty,
@@ -81,8 +83,15 @@ final class ExecutionEngineTests: XCTestCase {
     }
 
     /// 构造最小 ExecutionSeed 测试 stub
-    /// - Parameter isDryRun: 是否 dry-run；默认 false
-    private func makeStubSeed(isDryRun: Bool = false) -> ExecutionSeed {
+    /// - Parameters:
+    ///   - isDryRun: 是否 dry-run；默认 false。
+    ///   - triggerSource: 触发来源，默认浮条。
+    ///   - runPolicy: 可选运行策略，nil 时沿用旧生产策略推导。
+    private func makeStubSeed(
+        isDryRun: Bool = false,
+        triggerSource: TriggerSource = .floatingToolbar,
+        runPolicy: ExecutionRunPolicy? = nil
+    ) -> ExecutionSeed {
         let snapshot = SelectionSnapshot(
             text: "test selection",
             source: .accessibility,
@@ -102,8 +111,9 @@ final class ExecutionEngineTests: XCTestCase {
             frontApp: app,
             screenAnchor: .zero,
             timestamp: Date(),
-            triggerSource: .floatingToolbar,
-            isDryRun: isDryRun
+            triggerSource: triggerSource,
+            isDryRun: isDryRun,
+            runPolicy: runPolicy
         )
     }
 
@@ -123,9 +133,11 @@ final class ExecutionEngineTests: XCTestCase {
     ///     `apiKeyRef = "keychain:openai-stub"` 解析出的 account 一致；不一致会让 PromptExecutor 抛 .unauthorized
     ///   - audit: AuditLog mock；默认空 MockAuditLog
     ///   - output: OutputDispatcher mock；默认 MockOutputDispatcher
+    ///   - outputDispatcher: 任意 OutputDispatcherProtocol；用于注入 Playground 专用 dispatcher。
+    ///     传入时 return tuple 的 output 仍返回 actualOutput，避免旧测试断言字段变化。
     ///   - llmProviderOverride: 测试需要 cancellation / 阻塞行为时注入的自定义 LLMProvider；
     ///     非 nil 时**忽略** `chunks` 并直接走 override。默认 nil → MockLLMProvider(chunks:)。
-    /// - Returns: (ExecutionEngine, broker, audit, output, resolver) 元组，便于断言阶段读出注入实例
+    /// - Returns: (ExecutionEngine, broker, audit, output, resolver, costAccounting) 元组，便于断言阶段读出注入实例
     private func makeEngine(
         broker: MockPermissionBroker? = nil,
         resolver: MockProviderResolver? = nil,
@@ -134,6 +146,7 @@ final class ExecutionEngineTests: XCTestCase {
         keychainStore: [String: String] = ["openai-stub": "fake-key"],
         audit: MockAuditLog? = nil,
         output: MockOutputDispatcher? = nil,
+        outputDispatcher: (any OutputDispatcherProtocol)? = nil,
         llmProviderOverride: (any LLMProvider)? = nil,
         agentExecutor: AgentExecutor? = nil
     ) throws -> (
@@ -141,7 +154,8 @@ final class ExecutionEngineTests: XCTestCase {
         broker: MockPermissionBroker,
         audit: MockAuditLog,
         output: MockOutputDispatcher,
-        resolver: MockProviderResolver
+        resolver: MockProviderResolver,
+        costAccounting: CostAccounting
     ) {
         let registry = ContextProviderRegistry(providers: contextProviders)
         let dbURL = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -155,6 +169,7 @@ final class ExecutionEngineTests: XCTestCase {
         let actualResolver = resolver ?? MockProviderResolver()
         let actualAudit = audit ?? MockAuditLog()
         let actualOutput = output ?? MockOutputDispatcher()
+        let engineOutput: any OutputDispatcherProtocol = outputDispatcher ?? actualOutput
         let llmProvider: any LLMProvider = llmProviderOverride ?? MockLLMProvider(chunks: chunks)
         let promptExecutor = PromptExecutor(
             keychain: MockKeychain(keychainStore),
@@ -171,10 +186,10 @@ final class ExecutionEngineTests: XCTestCase {
             skillRegistry: MockSkillRegistry(),
             costAccounting: costAccounting,
             auditLog: actualAudit,
-            output: actualOutput,
+            output: engineOutput,
             agentExecutor: agentExecutor
         )
-        return (engine, actualBroker, actualAudit, actualOutput, actualResolver)
+        return (engine, actualBroker, actualAudit, actualOutput, actualResolver, costAccounting)
     }
 
     /// 顺序消费 stream 收集所有事件（含正常完成 / 抛错路径）。
@@ -218,19 +233,22 @@ final class ExecutionEngineTests: XCTestCase {
 
         let events = await collectEvents(from: bundle.engine.execute(tool: tool, seed: seed))
 
-        // 事件序列：.started → .llmChunk("Hello") → .llmChunk(" world") → .finished
-        XCTAssertEqual(events.count, 4, "happy path should produce 4 events; got: \(events)")
+        // 事件序列：.started → .promptRendered → .llmChunk("Hello") → .llmChunk(" world") → .finished
+        XCTAssertEqual(events.count, 5, "happy path should produce 5 events; got: \(events)")
         guard case .started = events.first else {
             XCTFail("event[0] expected .started, got \(events[0])"); return
         }
-        guard case .llmChunk(let delta1) = events[1], delta1 == "Hello" else {
-            XCTFail("event[1] expected .llmChunk(\"Hello\"), got \(events[1])"); return
+        guard case .promptRendered = events[1] else {
+            XCTFail("event[1] expected .promptRendered, got \(events[1])"); return
         }
-        guard case .llmChunk(let delta2) = events[2], delta2 == " world" else {
-            XCTFail("event[2] expected .llmChunk(\" world\"), got \(events[2])"); return
+        guard case .llmChunk(let delta1) = events[2], delta1 == "Hello" else {
+            XCTFail("event[2] expected .llmChunk(\"Hello\"), got \(events[2])"); return
         }
-        guard case .finished(let report) = events[3] else {
-            XCTFail("event[3] expected .finished, got \(events[3])"); return
+        guard case .llmChunk(let delta2) = events[3], delta2 == " world" else {
+            XCTFail("event[3] expected .llmChunk(\" world\"), got \(events[3])"); return
+        }
+        guard case .finished(let report) = events[4] else {
+            XCTFail("event[4] expected .finished, got \(events[4])"); return
         }
         XCTAssertEqual(report.outcome, .success)
         XCTAssertTrue(report.flags.isEmpty, "happy path should have no flags")
@@ -398,6 +416,274 @@ final class ExecutionEngineTests: XCTestCase {
             XCTFail("audit[0] expected .invocationCompleted, got \(entries[0])"); return
         }
         XCTAssertEqual(auditReport.outcome, .dryRunCompleted)
+    }
+
+    /// Playground runPolicy 应覆盖 seed.isDryRun 的旧布尔值，并在 report / cost 中标记 Playground。
+    func test_execute_playgroundRunPolicyMarksReportAndCostSource() async throws {
+        let bundle = try makeEngine(
+            chunks: [ChatChunk(delta: "ok", finishReason: nil)]
+        )
+        let tool = makeStubTool(
+            id: "tool.playground",
+            permissions: [.clipboard],
+            sideEffects: [.copyToClipboard]
+        )
+        let seed = makeStubSeed(
+            isDryRun: false,
+            triggerSource: .playground,
+            runPolicy: .playground(allowMCPToolCalls: false)
+        )
+
+        let events = await collectEvents(from: bundle.engine.execute(tool: tool, seed: seed))
+
+        guard let last = events.last, case .finished(let report) = last else {
+            XCTFail("last event expected .finished, got \(events)")
+            return
+        }
+        XCTAssertEqual(report.outcome, .dryRunCompleted)
+        XCTAssertTrue(report.flags.contains(.dryRun))
+        XCTAssertTrue(report.flags.contains(.playground))
+
+        var skippedFound = false
+        for event in events {
+            if case .sideEffectSkippedDryRun = event { skippedFound = true }
+            if case .sideEffectTriggered = event {
+                XCTFail("playground side effects must stay dry-run, got \(event)")
+                return
+            }
+        }
+        XCTAssertTrue(skippedFound)
+
+        let entries = await bundle.audit.entries
+        guard case .invocationCompleted(let auditReport) = entries.first else {
+            XCTFail("audit first entry expected .invocationCompleted, got \(entries.first as Any)")
+            return
+        }
+        XCTAssertTrue(auditReport.flags.contains(.playground))
+
+        let costRecords = try await bundle.costAccounting.findByToolId("tool.playground")
+        XCTAssertEqual(costRecords.first?.source, .playground)
+    }
+
+    /// Playground dry-run 应标记报告并跳过 side effects，且可使用专用输出 dispatcher。
+    func test_playgroundRun_marksReportAndSkipsSideEffects() async throws {
+        let output = PlaygroundOutputDispatcher()
+        let bundle = try makeEngine(chunks: [
+            ChatChunk(delta: "Hello", finishReason: nil)
+        ], outputDispatcher: output)
+        let tool = makeStubTool(
+            permissions: [.clipboard],
+            displayMode: .window,
+            sideEffects: [.copyToClipboard]
+        )
+        let runner = ToolPlaygroundRunner(engine: bundle.engine)
+
+        let events = await collectEvents(from: runner.run(ToolPlaygroundRunRequest(
+            tool: tool,
+            selectionText: "test selection",
+            appName: "Playground",
+            windowTitle: nil,
+            url: nil,
+            allowMCPToolCalls: false
+        )))
+
+        let report = try XCTUnwrap(events.compactMap { event -> InvocationReport? in
+            if case .finished(let report) = event { return report }
+            return nil
+        }.last)
+        XCTAssertTrue(report.flags.contains(.playground))
+        XCTAssertTrue(report.flags.contains(.dryRun))
+        XCTAssertEqual(report.outcome, .dryRunCompleted)
+        XCTAssertTrue(events.contains { event in
+            if case .sideEffectSkippedDryRun(.copyToClipboard) = event { return true }
+            return false
+        })
+    }
+
+    /// Playground preflight 不能复用 sideEffects dry-run；真实上下文权限需确认时必须在 LLM 前终止。
+    func test_playgroundPreflightGatesContextPermissionsAsRealBeforeContextAndLLM() async throws {
+        let broker = MockPermissionBroker(
+            outcomeFunction: { _, _, _, _, isDryRun in
+                isDryRun
+                    ? .wouldRequireConsent(permission: .clipboard, uxHint: "Clipboard access")
+                    : .requiresUserConsent(permission: .clipboard, uxHint: "Clipboard access")
+            }
+        )
+        let providers: [String: any ContextProvider] = [
+            "clipboard.current": ClipboardCurrentContextProvider(readString: {
+                XCTFail("Playground context provider must not run before real context permission consent")
+                return "clipboard secret"
+            })
+        ]
+        let bundle = try makeEngine(
+            broker: broker,
+            contextProviders: providers,
+            chunks: [ChatChunk(delta: "must not stream", finishReason: nil)]
+        )
+        let tool = makeStubTool(
+            permissions: [.clipboard],
+            contexts: [ContextRequest(
+                key: ContextKey(rawValue: "ctx.clipboard"),
+                provider: "clipboard.current",
+                args: [:],
+                cachePolicy: .none,
+                requiredness: .required
+            )]
+        )
+        let seed = makeStubSeed(
+            triggerSource: .playground,
+            runPolicy: .playground(allowMCPToolCalls: false)
+        )
+
+        let events = await collectEvents(from: bundle.engine.execute(tool: tool, seed: seed))
+
+        let gateCalls = await bundle.broker.gateCalls
+        XCTAssertEqual(gateCalls.first?.effective, [.clipboard])
+        XCTAssertEqual(gateCalls.first?.isDryRun, false)
+        XCTAssertFalse(events.contains { event in
+            if case .llmChunk = event { return true }
+            return false
+        }, "LLM must not run when real context permission requires consent")
+        XCTAssertFalse(events.contains { event in
+            if case .permissionWouldBeRequested = event { return true }
+            return false
+        }, "Context preflight consent must not be downgraded to dry-run placeholder")
+        XCTAssertTrue(events.contains { event in
+            if case .failed(.toolPermission(.notGranted(.clipboard))) = event { return true }
+            return false
+        })
+    }
+
+    /// 非 dry-run gate 若收到异常的 `.wouldRequireConsent`，必须 fail closed，不能继续读取上下文或调用 LLM。
+    func test_execute_wouldRequireConsentNonDryRun_failsClosedBeforeContextAndLLM() async throws {
+        let broker = MockPermissionBroker(
+            outcomeOverride: .wouldRequireConsent(permission: .clipboard, uxHint: "Clipboard access")
+        )
+        let llmProvider = MockLLMProvider(chunks: [
+            ChatChunk(delta: "must not stream", finishReason: nil)
+        ])
+        let providers: [String: any ContextProvider] = [
+            "clipboard.current": ClipboardCurrentContextProvider(readString: {
+                XCTFail("non-dry-run wouldRequireConsent must fail before ContextCollector reads clipboard")
+                return "clipboard secret"
+            })
+        ]
+        let bundle = try makeEngine(
+            broker: broker,
+            contextProviders: providers,
+            llmProviderOverride: llmProvider
+        )
+        let tool = makeStubTool(
+            permissions: [.clipboard],
+            contexts: [ContextRequest(
+                key: ContextKey(rawValue: "ctx.clipboard"),
+                provider: "clipboard.current",
+                args: [:],
+                cachePolicy: .none,
+                requiredness: .required
+            )]
+        )
+        let seed = makeStubSeed(isDryRun: false)
+
+        let events = await collectEvents(from: bundle.engine.execute(tool: tool, seed: seed))
+
+        let gateCalls = await bundle.broker.gateCalls
+        XCTAssertEqual(gateCalls.count, 1)
+        XCTAssertEqual(gateCalls.first?.effective, [.clipboard])
+        XCTAssertEqual(gateCalls.first?.isDryRun, false)
+        XCTAssertFalse(events.contains { event in
+            if case .permissionWouldBeRequested = event { return true }
+            return false
+        }, "non-dry-run must not downgrade wouldRequireConsent into placeholder event")
+        XCTAssertFalse(events.contains { event in
+            if case .promptRendered = event { return true }
+            return false
+        }, "Prompt preview proves the flow reached PromptExecutor and must not appear")
+        XCTAssertFalse(events.contains { event in
+            if case .llmChunk = event { return true }
+            return false
+        }, "LLM must not run after non-dry-run wouldRequireConsent")
+        XCTAssertTrue(events.contains { event in
+            if case .failed(.toolPermission(.notGranted(.clipboard))) = event { return true }
+            return false
+        })
+
+        let resolverCalls = await bundle.resolver.resolveCalls
+        XCTAssertEqual(resolverCalls, 0, "ProviderResolver must not run after permission gate fail-closed")
+        XCTAssertNil(llmProvider.capturedRequest, "LLMProvider.stream must not receive a request")
+    }
+
+    /// Prompt path 应在第一个 LLM chunk 前产出脱敏后的 prompt preview。
+    func test_promptPathYieldsPromptRenderedBeforeFirstLLMChunk() async throws {
+        let bundle = try makeEngine(
+            chunks: [ChatChunk(delta: "answer", finishReason: nil)]
+        )
+        var tool = makeStubTool()
+        if case .prompt(var prompt) = tool.kind {
+            prompt.systemPrompt = "system sk-1234567890123456"
+            prompt.userPrompt = "user {{selection}}"
+            tool.kind = .prompt(prompt)
+        }
+
+        let events = await collectEvents(from: bundle.engine.execute(tool: tool, seed: makeStubSeed()))
+
+        let promptIndex = events.firstIndex { event in
+            if case .promptRendered(let preview) = event {
+                XCTAssertTrue(preview.contains("system:"))
+                XCTAssertTrue(preview.contains("user:"))
+                XCTAssertFalse(preview.contains("sk-1234567890123456"))
+                return true
+            }
+            return false
+        }
+        let firstChunkIndex = events.firstIndex { event in
+            if case .llmChunk = event { return true }
+            return false
+        }
+        XCTAssertNotNil(promptIndex)
+        XCTAssertNotNil(firstChunkIndex)
+        XCTAssertLessThan(try XCTUnwrap(promptIndex), try XCTUnwrap(firstChunkIndex))
+    }
+
+    /// Runner 应在进入 ExecutionEngine 前拒绝非法草稿，避免 LLM / MCP 被误触发。
+    func test_toolPlaygroundRunner_rejectsInvalidToolBeforeEngineRun() async throws {
+        let output = PlaygroundOutputDispatcher()
+        let bundle = try makeEngine(chunks: [
+            ChatChunk(delta: "must not stream", finishReason: nil)
+        ], outputDispatcher: output)
+        let runner = ToolPlaygroundRunner(engine: bundle.engine)
+        var tool = makeStubTool(displayMode: .window)
+        tool.outputBinding = OutputBinding(primary: .file, sideEffects: [])
+
+        let events = await collectEvents(from: runner.run(ToolPlaygroundRunRequest(
+            tool: tool,
+            selectionText: "hello",
+            appName: "Playground",
+            windowTitle: nil,
+            url: nil,
+            allowMCPToolCalls: false
+        )))
+
+        XCTAssertEqual(events.count, 1)
+        XCTAssertTrue(events.contains { event in
+            if case .failed(.configuration(.validationFailed(_))) = event { return true }
+            return false
+        })
+        XCTAssertFalse(events.contains { event in
+            if case .started = event { return true }
+            return false
+        })
+        XCTAssertFalse(events.contains { event in
+            if case .llmChunk = event { return true }
+            return false
+        })
+        let entries = await bundle.audit.entries
+        XCTAssertTrue(entries.isEmpty)
+        let gateCalls = await bundle.broker.gateCalls
+        XCTAssertTrue(gateCalls.isEmpty)
+        let probeInvocationId = UUID()
+        let snapshot = await output.snapshot(for: probeInvocationId)
+        XCTAssertNil(snapshot)
     }
 
     /// 6. requiresUserConsent (non-dry-run) —— Mock 返回 .requiresUserConsent → .failed(.toolPermission(.notGranted))
@@ -609,6 +895,93 @@ final class ExecutionEngineTests: XCTestCase {
         XCTAssertEqual(report.outcome, .success)
         let resolverCalls = await bundle.resolver.resolveCalls
         XCTAssertEqual(resolverCalls, 1)
+    }
+
+    /// Agent pipeline 必须把 Playground runPolicy 继续传给 AgentExecutor 的 MCP gate。
+    func test_execute_agentKind_playgroundPolicyDisabledMCPReachesAgentExecutor() async throws {
+        let readRef = MCPToolRef(server: "fs", tool: "read")
+        let llm = MockToolCallingLLMProvider(turns: [
+            [
+                .toolCallDelta(ChatToolCallDelta(
+                    index: 0,
+                    id: "call-1",
+                    name: "read",
+                    argumentsDelta: "{\"path\":\"/tmp/a.txt\"}"
+                )),
+                .finished(.toolCalls)
+            ],
+            [.textDelta("done"), .finished(.stop)]
+        ])
+        let agentBroker = MockPermissionBroker()
+        let agentMCP = MockMCPClient(
+            tools: [Self.fsDescriptor: [Self.readToolDescriptor]],
+            responses: [
+                readRef: MCPCallResult(
+                    content: [.text("file contents")],
+                    structuredContent: nil,
+                    isError: false,
+                    meta: nil
+                )
+            ]
+        )
+        let agentExecutor = AgentExecutor(
+            providerResolver: MockProviderResolver(),
+            mcpClient: agentMCP,
+            permissionBroker: agentBroker,
+            keychain: MockKeychain(["openai-stub": "fake-key"]),
+            llmProviderFactory: MockLLMProviderFactory(provider: llm),
+            mcpDescriptors: { [Self.fsDescriptor] }
+        )
+        let bundle = try makeEngine(agentExecutor: agentExecutor)
+        let agent = AgentTool(
+            systemPrompt: "agent system",
+            initialUserPrompt: "read {{selection}}",
+            contexts: [],
+            provider: .fixed(providerId: "openai-stub", modelId: nil),
+            skills: [],
+            mcpAllowlist: [readRef],
+            builtinCapabilities: [],
+            maxSteps: 2,
+            stopCondition: .finalAnswerProvided
+        )
+        let agentTool = Tool(
+            id: "tool.agent.playground",
+            name: "Agent Playground",
+            icon: "A",
+            description: nil,
+            kind: .agent(agent),
+            visibleWhen: nil,
+            displayMode: .window,
+            outputBinding: nil,
+            permissions: [.mcp(server: "fs", tools: ["read"])],
+            provenance: .firstParty,
+            budget: nil,
+            hotkey: nil,
+            labelStyle: .iconAndName,
+            tags: []
+        )
+        let seed = makeStubSeed(
+            isDryRun: true,
+            triggerSource: .playground,
+            runPolicy: .playground(allowMCPToolCalls: false)
+        )
+
+        let events = await collectEvents(from: bundle.engine.execute(tool: agentTool, seed: seed))
+
+        XCTAssertTrue(events.contains { event in
+            if case .toolCallDenied(_, let reason) = event {
+                return reason.contains("MCP calls are disabled")
+            }
+            return false
+        })
+        XCTAssertTrue(events.contains { event in
+            if case .llmChunk(let delta) = event, delta == "done" { return true }
+            return false
+        })
+        let agentGateCalls = await agentBroker.gateCalls
+        XCTAssertTrue(agentGateCalls.isEmpty)
+        let agentMCPCallCount = await agentMCP.callCount
+        XCTAssertEqual(agentMCPCallCount, 0)
     }
 
     /// .pipeline ToolKind 同样应直接 `finishNotImplementedKind`。
@@ -1245,6 +1618,33 @@ final class ExecutionEngineTests: XCTestCase {
         XCTAssertFalse(hasCompleted,
                        "cancelled-during-prompt-stream must NOT write .invocationCompleted; got=\(entries)")
     }
+
+    // MARK: - Shared MCP descriptors
+
+    /// Agent pipeline 测试用 `fs` MCP server descriptor。
+    private static let fsDescriptor = MCPDescriptor(
+        id: "fs",
+        transport: .stdio,
+        command: "mock-fs",
+        args: nil,
+        url: nil,
+        env: nil,
+        capabilities: [.tools(["read"])],
+        provenance: .selfManaged(userAcknowledgedAt: Date(timeIntervalSince1970: 0))
+    )
+
+    /// Agent pipeline 测试用 `fs.read` MCP tool descriptor。
+    private static let readToolDescriptor = MCPToolDescriptor(
+        ref: MCPToolRef(server: "fs", tool: "read"),
+        title: "Read File",
+        description: "Read a file",
+        inputSchema: [
+            "type": .string("object"),
+            "properties": .object([
+                "path": .object(["type": .string("string")])
+            ])
+        ]
+    )
 }
 
 // MARK: - 辅助：cancellation 测试用 LLMProvider

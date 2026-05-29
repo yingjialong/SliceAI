@@ -11,7 +11,7 @@ import SwiftUI
 ///   - 详情区（detail）：根据当前选中条目渲染对应页面；
 ///   - 每个页面自行负责即时保存，无全局保存栏。
 ///
-/// 窗口固定宽度 720pt、高度 520pt（与前版本保持一致，避免 AppDelegate 改动）。
+/// 窗口固定宽度 980pt、高度 620pt，为 ToolEditor v2 双栏编辑器预留空间。
 public struct SettingsScene: View {
 
     /// 设置视图模型；由宿主创建并注入，生命周期与窗口一致
@@ -39,7 +39,7 @@ public struct SettingsScene: View {
         } detail: {
             detailView
         }
-        .frame(width: 720, height: 520)
+        .frame(width: 980, height: 620)
         // NavigationSplitView 在 macOS 上默认会有 sidebar 收折按钮，
         // 关闭设置窗口内不需要的导航控件（toolbar 由宿主 WindowGroup 控制）
         .navigationSplitViewStyle(.balanced)

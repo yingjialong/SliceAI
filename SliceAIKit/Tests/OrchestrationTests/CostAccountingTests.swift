@@ -1,5 +1,6 @@
 import Foundation
 import SliceCore
+import SQLite3
 import XCTest
 @testable import Orchestration
 
@@ -98,6 +99,40 @@ final class CostAccountingTests: XCTestCase {
         let results = try await sut.findByToolId("translate")
         XCTAssertEqual(results.count, 1, "应返回 1 条记录")
         XCTAssertEqual(results[0], original, "find 出来的记录应与原记录字段全等")
+    }
+
+    /// 写入 Playground source 后，查询结果应能保留该执行来源。
+    func test_record_playgroundSource_roundtrips() async throws {
+        let usd = try XCTUnwrap(Decimal(string: "0.00003"))
+        let record = CostRecord(
+            invocationId: UUID(),
+            toolId: "tool.playground",
+            providerId: "openai",
+            model: "gpt-4o-mini",
+            inputTokens: 10,
+            outputTokens: 20,
+            usd: usd,
+            recordedAt: Date(timeIntervalSince1970: 1),
+            source: .playground
+        )
+
+        try await sut.record(record)
+        let records = try await sut.findByToolId("tool.playground")
+
+        XCTAssertEqual(records.first?.source, .playground)
+    }
+
+    /// 旧 cost_records schema 没有 source 列，初始化时应轻量迁移并保留旧数据。
+    func test_init_migratesOldCostSchemaByAddingNullableSourceColumn() async throws {
+        sut = nil
+        try? FileManager.default.removeItem(at: dbURL)
+        try createLegacyCostDatabase(at: dbURL)
+
+        sut = try CostAccounting(dbURL: dbURL)
+        let records = try await sut.findByToolId("legacy-tool")
+
+        XCTAssertEqual(records.count, 1)
+        XCTAssertNil(records[0].source)
     }
 
     // MARK: - 3. 同 toolId 多条 → 全部返回 + 按时间升序
@@ -222,6 +257,30 @@ final class CostAccountingTests: XCTestCase {
         let results = try await sut.findByToolId(first.toolId)
         XCTAssertEqual(results.count, 1, "第一条不应被覆盖")
         XCTAssertEqual(results[0], first)
+    }
+
+    /// 创建旧版 cost_records 表，模拟已安装用户升级前的 sqlite 文件。
+    private func createLegacyCostDatabase(at url: URL) throws {
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nil), SQLITE_OK)
+        defer { sqlite3_close(db) }
+        let sql = """
+        CREATE TABLE cost_records (
+            invocation_id TEXT PRIMARY KEY,
+            tool_id       TEXT,
+            provider_id   TEXT,
+            model         TEXT,
+            input_tokens  INTEGER,
+            output_tokens INTEGER,
+            usd           TEXT NOT NULL,
+            recorded_at   INTEGER
+        );
+        INSERT INTO cost_records
+            (invocation_id, tool_id, provider_id, model, input_tokens, output_tokens, usd, recorded_at)
+        VALUES
+            ('00000000-0000-0000-0000-000000000001', 'legacy-tool', 'openai', 'gpt-4o-mini', 1, 2, '0.1', 1000);
+        """
+        XCTAssertEqual(sqlite3_exec(db, sql, nil, nil, nil), SQLITE_OK)
     }
 }
 

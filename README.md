@@ -23,6 +23,8 @@ Phase 1 MCP + Context 主干已完成 `v0.3` release prep：stdio / Streamable H
 - Output lifecycle、`.silent`、`.file` final text 写入、`.replace` 选区替换、`.bubble` final text 气泡和 `.structured` JSON 结构化渲染
 - 本地 TTS side effect：permission gate 通过后用 macOS AVSpeech 朗读 final text，dry-run 不发声
 - English Tutor 默认工具：绑定内置 `english-tutor` skill，输出 structured JSON，并优先朗读 `ttsText`
+- ToolEditor v2 + Prompt Playground MVP：支持在 Settings 中编辑未保存 Tool 草稿并试跑；Prompt / Agent Tool 复用真实 ExecutionEngine，输出进入右侧 preview，side effects dry-run，MCP tool call 默认禁用并需本次运行显式确认
+- Playground review hardening：试跑上下文权限使用真实 preflight gate，Prompt / Agent 运行前展示脱敏 prompt preview，右侧面板可输入 App / Window / URL 并正确显示取消状态
 - API Key 存 macOS Keychain
 
 ## Build from source
@@ -56,6 +58,17 @@ open SliceAI.xcodeproj
 | `DesignSystem` / `Permissions` | 设计 token、主题管理、共享控件与 Accessibility onboarding / monitor。 |
 
 ## 项目修改变动记录
+
+### 2026-05-28 · Phase 3 Playground Review Fix
+
+**范围**：`codex/phase3-tool-editor-playground`，ToolEditor v2 + Prompt Playground MVP review-fix
+
+**当前状态**：
+- Playground preflight 不再复用 side-effect dry-run；只对 LLM 前真实读取的 context / builtin 权限做真实 gate，需确认时不会继续读取剪贴板或进入 LLM。
+- Prompt / Agent 执行链都会在首个 LLM chunk 前产出已脱敏截断的 `promptRendered` preview。
+- Playground UI 新增 App / Window / URL 输入和 run status 展示；Cancel 完成后落到 `cancelled`，不再永久停在 `cancelling`。
+
+**验证状态**：已通过 review-fix focused tests、PromptExecutor focused tests、全量 SwiftPM 886 tests（1 skipped）和 `git diff --check`；SwiftLint 未运行，因为本机 `swiftlint` 不在 PATH。
 
 ### 2026-05-24 · Phase 2 Skill Registry MVP Implementation Complete
 

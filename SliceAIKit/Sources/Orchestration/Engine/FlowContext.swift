@@ -17,6 +17,8 @@ final class FlowContext {
     let toolId: String
     /// `tool.permissions` 静态声明集合（去重后的 Set）
     let declared: Set<Permission>
+    /// 本次执行的运行策略。
+    let runPolicy: ExecutionRunPolicy
     /// 主流程启动时刻；finishSuccess / finishFailure 写 InvocationReport.startedAt 时使用
     let startedAt: Date
     /// 触发时的屏幕锚点，供 output lifecycle sink 定位。
@@ -35,12 +37,14 @@ final class FlowContext {
     ///   - invocationId: 本次 invocation 唯一标识
     ///   - toolId: Tool.id 透传
     ///   - declared: 静态 declared 权限集合
+    ///   - runPolicy: 本次执行的运行策略
     ///   - startedAt: 主流程启动时刻
     ///   - continuation: 事件流 continuation（actor 隔离内传递）
     init(
         invocationId: UUID,
         toolId: String,
         declared: Set<Permission>,
+        runPolicy: ExecutionRunPolicy,
         startedAt: Date,
         screenAnchor: CGPoint,
         continuation: AsyncThrowingStream<ExecutionEvent, any Error>.Continuation
@@ -48,6 +52,7 @@ final class FlowContext {
         self.invocationId = invocationId
         self.toolId = toolId
         self.declared = declared
+        self.runPolicy = runPolicy
         self.startedAt = startedAt
         self.screenAnchor = screenAnchor
         self.continuation = continuation

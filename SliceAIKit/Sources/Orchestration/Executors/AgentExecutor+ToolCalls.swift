@@ -20,6 +20,7 @@ struct AgentToolCallProcessingResult: Sendable {
 struct AgentToolTurnProcessingContext: Sendable {
     let catalog: AgentToolCatalog
     let tool: Tool
+    let runPolicy: ExecutionRunPolicy
     let continuation: AgentEventContinuation
 }
 
@@ -215,10 +216,8 @@ extension AgentExecutor {
         ))
         let processingResult = await processToolCalls(
             turn.toolCalls,
-            catalog: context.catalog,
-            tool: context.tool,
-            toolCallState: &toolCallState,
-            continuation: context.continuation
+            turnContext: context,
+            toolCallState: &toolCallState
         )
         messages.append(contentsOf: processingResult.messages)
         return toolCallState.shouldStopRequestingTools
@@ -227,20 +226,16 @@ extension AgentExecutor {
     /// 执行当前 assistant turn 的所有 tool calls。
     func processToolCalls(
         _ calls: [ChatToolCall],
-        catalog: AgentToolCatalog,
-        tool: Tool,
-        toolCallState: inout AgentToolCallRunState,
-        continuation: AgentEventContinuation
+        turnContext: AgentToolTurnProcessingContext,
+        toolCallState: inout AgentToolCallRunState
     ) async -> AgentToolCallProcessingResult {
         var messages: [ChatMessage] = []
         toolCallState.beginTurn()
         for call in calls {
             let message = await processOneToolCall(
                 call,
-                catalog: catalog,
-                tool: tool,
-                toolCallState: &toolCallState,
-                continuation: continuation
+                turnContext: turnContext,
+                toolCallState: &toolCallState
             )
             messages.append(message)
         }
@@ -250,105 +245,44 @@ extension AgentExecutor {
     /// 执行一个 tool call，并生成回填给模型的 tool message。
     func processOneToolCall(
         _ call: ChatToolCall,
-        catalog: AgentToolCatalog,
-        tool: Tool,
-        toolCallState: inout AgentToolCallRunState,
-        continuation: AgentEventContinuation
+        turnContext: AgentToolTurnProcessingContext,
+        toolCallState: inout AgentToolCallRunState
     ) async -> ChatMessage {
-        let context = AgentToolCallContext(uiId: UUID(), call: call, continuation: continuation)
-        let ref = catalog.ref(forToolName: call.name)
-        continuation.yield(.toolCallProposed(
+        let context = AgentToolCallContext(uiId: UUID(), call: call, continuation: turnContext.continuation)
+        let ref = turnContext.catalog.ref(forToolName: call.name)
+        context.continuation.yield(.toolCallProposed(
             id: context.uiId,
             ref: ref,
             argsDescription: describeArguments(call)
         ))
-        if call.name == AgentBuiltInTool.loadSkillName {
-            return await handleLoadSkill(
-                context,
-                catalog: catalog,
-                toolCallState: &toolCallState
-            )
+        if let builtIn = await handleBuiltInToolCall(
+            context,
+            catalog: turnContext.catalog,
+            toolCallState: &toolCallState
+        ) {
+            return builtIn
         }
-        if call.name == AgentBuiltInTool.loadSkillResourceName {
-            return await handleLoadSkillResource(
-                context,
-                catalog: catalog,
-                toolCallState: toolCallState
-            )
-        }
-        guard catalog.isAllowed(ref) else { return denyToolCall(context) }
+        guard turnContext.catalog.isAllowed(ref) else { return denyToolCall(context) }
         guard let args = call.arguments else {
             return failToolCall(context, summary: "invalid tool arguments", content: "invalid tool arguments")
+        }
+        if turnContext.runPolicy.mcpToolCalls == .disabled {
+            return denyDisabledMCPToolCall(context)
         }
         if let reason = toolCallState.skipReason(ref: ref, args: args) {
             logger.debug("agent tool call skipped reason=\(reason.summary, privacy: .public)")
             return skipToolCall(context, reason: reason)
         }
         toolCallState.recordExecution(ref: ref, args: args)
-        let message = await callAllowedTool(context, ref: ref, args: args, tool: tool)
+        let message = await callAllowedTool(
+            context,
+            ref: ref,
+            args: args,
+            tool: turnContext.tool,
+            runPolicy: turnContext.runPolicy
+        )
         toolCallState.recordToolMessageContent(message.content)
         return message
-    }
-
-    /// 本地处理 `sliceai_load_skill` pseudo-tool，不进入 MCP allowlist、权限 gate 或 MCP client。
-    /// - Parameters:
-    ///   - context: 当前 provider tool call 上下文。
-    ///   - catalog: 当前 Agent 可用工具 catalog。
-    ///   - toolCallState: 当前运行状态，用于去重已加载 skill。
-    /// - Returns: 回填给 provider 的 tool message。
-    func handleLoadSkill(
-        _ context: AgentToolCallContext,
-        catalog: AgentToolCatalog,
-        toolCallState: inout AgentToolCallRunState
-    ) async -> ChatMessage {
-        context.continuation.yield(.toolCallApproved(id: context.uiId))
-        guard let args = context.call.arguments,
-              case .string(let name) = args["name"],
-              !name.isEmpty else {
-            return failToolCall(
-                context,
-                summary: "invalid skill load arguments",
-                content: "Use {\"name\":\"<skill name>\"} to load a bound skill"
-            )
-        }
-        guard let skill = catalog.skillByName[name] else {
-            return failToolCall(
-                context,
-                summary: "Skill not bound: \(Redaction.scrub(name))",
-                content: "Skill not bound to this Agent Tool: \(Redaction.scrub(name))"
-            )
-        }
-        if toolCallState.loadedSkillNames.contains(name) {
-            let summary = "Skill already loaded: \(Redaction.scrub(name))"
-            context.continuation.yield(.toolCallResult(id: context.uiId, summary: summary))
-            return toolMessage(call: context.call, content: summary)
-        }
-        do {
-            let payload = try await skillRegistry.loadSkillInstructions(id: skill.id)
-            toolCallState.recordLoadedSkill(name: name)
-            let summary = "Loaded skill: \(Redaction.scrub(name))"
-            context.continuation.yield(.toolCallResult(id: context.uiId, summary: summary))
-            logger.debug("loaded SliceAI skill \(name, privacy: .public)")
-            return toolMessage(call: context.call, content: skillToolMessage(payload))
-        } catch {
-            let summary = summarize(error: error)
-            return failToolCall(context, summary: summary, content: summary)
-        }
-    }
-
-    /// 构造回填给模型的 skill 指令内容。
-    /// - Parameter payload: registry 加载出的 SKILL.md payload。
-    /// - Returns: 包含 frontmatter 摘要和完整 instructions 的 tool message。
-    func skillToolMessage(_ payload: SkillInstructionPayload) -> String {
-        let content = """
-        Loaded SliceAI skill: \(payload.canonicalName)
-        Path: \(payload.skillFile.path)
-        Description: \(payload.frontmatterSummary.description)
-
-        Instructions:
-        \(payload.instructions)
-        """
-        return sanitizeToolMessageContent(content)
     }
 
     /// 按策略跳过工具调用时，回填 provider 要求的 tool message，但不再执行 MCP。
@@ -377,14 +311,28 @@ extension AgentExecutor {
         )
     }
 
+    /// Playground 禁用 MCP 时的受控拒绝分支。
+    ///
+    /// 该分支只在 allowlist 与参数校验通过后触发，且必须早于预算记录，
+    /// 避免 disabled Playground 运行污染真实 MCP 调用统计。
+    func denyDisabledMCPToolCall(_ context: AgentToolCallContext) -> ChatMessage {
+        let reason = "MCP calls are disabled for this Playground run"
+        context.continuation.yield(.toolCallDenied(id: context.uiId, reason: reason))
+        return toolMessage(call: context.call, content: reason)
+    }
+
     /// 已允许 tool 的权限 gate + MCP call 分支。
     func callAllowedTool(
         _ context: AgentToolCallContext,
         ref: MCPToolRef,
         args: MCPJSONValue.Object,
-        tool: Tool
+        tool: Tool,
+        runPolicy: ExecutionRunPolicy
     ) async -> ChatMessage {
-        let gate = await gateMCP(ref: ref, tool: tool)
+        guard runPolicy.mcpToolCalls == .realWithPermissionBroker else {
+            return denyDisabledMCPToolCall(context)
+        }
+        let gate = await gateMCP(ref: ref, tool: tool, runPolicy: runPolicy)
         switch gate {
         case .approved:
             context.continuation.yield(.toolCallApproved(id: context.uiId))
@@ -400,12 +348,12 @@ extension AgentExecutor {
     }
 
     /// 对一个 MCP permission 做 one-time gate。
-    func gateMCP(ref: MCPToolRef, tool: Tool) async -> GateOutcome {
+    func gateMCP(ref: MCPToolRef, tool: Tool, runPolicy: ExecutionRunPolicy) async -> GateOutcome {
         await permissionBroker.gate(
             effective: [.mcp(server: ref.server, tools: [ref.tool])],
             provenance: tool.provenance,
             scope: .oneTime,
-            isDryRun: false
+            isDryRun: runPolicy.mcpToolCalls != .realWithPermissionBroker
         )
     }
 

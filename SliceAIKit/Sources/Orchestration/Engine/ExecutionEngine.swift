@@ -165,6 +165,7 @@ public actor ExecutionEngine {
             invocationId: seed.invocationId,
             toolId: tool.id,
             declared: Set(tool.permissions),
+            runPolicy: seed.effectiveRunPolicy,
             startedAt: Date(),
             screenAnchor: seed.screenAnchor,
             continuation: continuation
@@ -181,7 +182,11 @@ public actor ExecutionEngine {
 
         // Step 2.5：PermissionBroker 整体 gate（dry-run 仍走 lowerBound 计算）
         guard await runPermissionGate(
-            tool: tool, effective: effective, isDryRun: seed.isDryRun, context: context
+            tool: tool,
+            effective: effective,
+            gatePermissions: preflightGatePermissions(for: effective, runPolicy: context.runPolicy),
+            isDryRun: preflightGateIsDryRun(for: context.runPolicy),
+            context: context
         ) else { return }
 
         // Step 5/6 分流：.agent 现在进入真实 AgentExecutor；.pipeline 仍保留 M2 stub。

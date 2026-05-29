@@ -1,4 +1,5 @@
 import Foundation
+import SliceCore
 
 /// 单次 invocation 的成本记录（spec §4.4.2 / §4.5.2）。
 ///
@@ -28,6 +29,8 @@ public struct CostRecord: Sendable, Equatable, Codable {
     public let usd: Decimal
     /// invocation 结束时间戳
     public let recordedAt: Date
+    /// 执行来源；nil 表示旧数据或尚未标记的生产触发。
+    public let source: ExecutionRunSource?
 
     /// Designated initializer
     /// - Parameters:
@@ -39,6 +42,7 @@ public struct CostRecord: Sendable, Equatable, Codable {
     ///   - outputTokens: 估算输出 token 数
     ///   - usd: 估算成本（美元，Decimal）
     ///   - recordedAt: invocation 结束时间戳
+    ///   - source: 执行来源；nil 表示旧记录或未标记生产触发
     public init(
         invocationId: UUID,
         toolId: String,
@@ -47,7 +51,8 @@ public struct CostRecord: Sendable, Equatable, Codable {
         inputTokens: Int,
         outputTokens: Int,
         usd: Decimal,
-        recordedAt: Date
+        recordedAt: Date,
+        source: ExecutionRunSource? = nil
     ) {
         self.invocationId = invocationId
         self.toolId = toolId
@@ -57,5 +62,6 @@ public struct CostRecord: Sendable, Equatable, Codable {
         self.outputTokens = outputTokens
         self.usd = usd
         self.recordedAt = recordedAt
+        self.source = source
     }
 }

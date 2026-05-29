@@ -50,16 +50,18 @@ extension ExecutionEngine {
     /// Step 2.5：PermissionBroker 对整体 effective set 做 gate 决策。
     ///
     /// 返回 false 表示已 finishFailure / 决策失败终止 / 被取消；返回 true 主流程继续。
-    /// `.wouldRequireConsent` 在 dry-run 路径下 yield 占位事件后继续主流程。
+    /// `.wouldRequireConsent` 只允许 dry-run 路径 yield 占位事件后继续主流程；
+    /// 非 dry-run 若收到该 outcome，说明 broker 契约异常，必须 fail closed。
     /// gate await 后查 `Task.isCancelled`，防止取消后仍写 .failed audit / yield 多余事件。
     func runPermissionGate(
         tool: Tool,
         effective: EffectivePermissions,
+        gatePermissions: Set<Permission>,
         isDryRun: Bool,
         context: FlowContext
     ) async -> Bool {
         let outcome = await permissionBroker.gate(
-            effective: effective.union,
+            effective: gatePermissions,
             provenance: tool.provenance,
             scope: .session,
             isDryRun: isDryRun
@@ -82,10 +84,43 @@ extension ExecutionEngine {
             )
             return false
         case .wouldRequireConsent(let permission, let uxHint):
+            guard isDryRun else {
+                // 防御性 fail-closed：mock / future broker 不应在真实运行返回 dry-run outcome。
+                await finishFailure(
+                    error: .toolPermission(.notGranted(permission: permission)),
+                    effective: effective.union, context: context
+                )
+                return false
+            }
             // dry-run 路径上 broker 返回 wouldRequireConsent —— yield 占位事件后**继续**主流程
             context.continuation.yield(.permissionWouldBeRequested(permission: permission, uxHint: uxHint))
             return true
         }
+    }
+
+    /// 计算主流程 preflight 应 gate 的权限集合。
+    ///
+    /// Playground 只提前 gate LLM 前会真实读取的上下文与内置能力权限；side effect 保持后续
+    /// dry-run gate，MCP tool call 继续交由 AgentExecutor 的逐次 gate 处理。
+    func preflightGatePermissions(
+        for effective: EffectivePermissions,
+        runPolicy: ExecutionRunPolicy
+    ) -> Set<Permission> {
+        if runPolicy.source == .playground {
+            return effective.fromContexts.union(effective.fromBuiltins)
+        }
+        return effective.union
+    }
+
+    /// 计算主流程 preflight 是否使用 dry-run gate。
+    ///
+    /// Playground 的上下文 / builtin preflight 必须是真实 gate，避免需确认权限被
+    /// `.wouldRequireConsent` 静默放行；生产 dry-run 继续保留原有 wouldRequireConsent 语义。
+    func preflightGateIsDryRun(for runPolicy: ExecutionRunPolicy) -> Bool {
+        if runPolicy.source == .playground {
+            return false
+        }
+        return runPolicy.sideEffects == .dryRun
     }
 
     /// Step 3：ContextCollector 平铺并发解析 ContextRequest。
@@ -202,6 +237,8 @@ extension ExecutionEngine {
             try await output.begin(context: outputContext)
             for try await element in stream {
                 switch element {
+                case .promptRendered(let preview):
+                    context.continuation.yield(.promptRendered(preview: preview))
                 case .chunk(let chunk):
                     guard try await dispatchPromptChunk(
                         chunk,
@@ -328,7 +365,6 @@ extension ExecutionEngine {
         tool: Tool,
         provider: Provider,
         usage: UsageStats,
-        isDryRun: Bool,
         context: FlowContext
     ) async {
         let costUSD = estimateCostUSD(usage: usage)
@@ -344,95 +380,20 @@ extension ExecutionEngine {
             inputTokens: usage.inputTokens,
             outputTokens: usage.outputTokens,
             usd: costUSD,
-            recordedAt: Date()
+            recordedAt: Date(),
+            source: context.runPolicy.source
         ))
         if Task.isCancelled { return }
-        if isDryRun { context.flags.insert(.dryRun) }
+        if context.runPolicy.sideEffects == .dryRun { context.flags.insert(.dryRun) }
+        if context.runPolicy.source == .playground { context.flags.insert(.playground) }
         let report = makeReport(
             context: context,
             finishedAt: Date(),
             tokens: usage.inputTokens + usage.outputTokens,
             costUSD: costUSD,
-            outcome: isDryRun ? .dryRunCompleted : .success
+            outcome: context.runPolicy.sideEffects == .dryRun ? .dryRunCompleted : .success
         )
         await finishSuccess(report: report, continuation: context.continuation)
-    }
-
-    // MARK: - 终态 helpers
-
-    /// 构造 InvocationReport —— 把"declared / effective / flags / 时间 / token / cost / outcome"汇总为最终快照。
-    func makeReport(
-        context: FlowContext,
-        finishedAt: Date,
-        tokens: Int,
-        costUSD: Decimal,
-        outcome: InvocationOutcome
-    ) -> InvocationReport {
-        InvocationReport(
-            invocationId: context.invocationId,
-            toolId: context.toolId,
-            declaredPermissions: context.declared,
-            effectivePermissions: context.effective,
-            flags: context.flags,
-            startedAt: context.startedAt, finishedAt: finishedAt,
-            totalTokens: tokens,
-            estimatedCostUSD: costUSD,
-            outcome: outcome
-        )
-    }
-
-    /// 失败终态：写一条 `.invocationCompleted(report.failed(...))` audit + yield `.failed(error)` + finish。
-    ///
-    /// 不读 `context.effective`：失败发生时 effective 可能尚未算出（Step 2 早期失败），
-    /// 所以单独以参数注入 effective 集合，让调用方明确传入"当前已知的 effective"。
-    /// `try?` 吞 audit 错误：失败路径已经在 yield .failed 通知调用方，audit 写失败属于二次故障，不应叠加。
-    func finishFailure(
-        error: SliceError,
-        effective: Set<Permission>,
-        context: FlowContext
-    ) async {
-        let report = InvocationReport(
-            invocationId: context.invocationId,
-            toolId: context.toolId,
-            declaredPermissions: context.declared,
-            effectivePermissions: effective,
-            flags: context.flags,
-            startedAt: context.startedAt, finishedAt: Date(),
-            totalTokens: 0,
-            estimatedCostUSD: 0,
-            outcome: .failed(errorKind: InvocationOutcome.ErrorKind.from(error))
-        )
-        try? await auditLog.append(.invocationCompleted(report))
-        context.continuation.yield(.failed(error))
-        context.continuation.finish()
-    }
-
-    /// 成功终态：写 audit + yield `.finished(report)` + finish。
-    func finishSuccess(
-        report: InvocationReport,
-        continuation: AsyncThrowingStream<ExecutionEvent, any Error>.Continuation
-    ) async {
-        try? await auditLog.append(.invocationCompleted(report))
-        continuation.yield(.finished(report: report))
-        continuation.finish()
-    }
-
-    /// `.agent` / `.pipeline` 在 M2 阶段未实现 —— yield `.notImplemented` 后走 success 终态（stub 报告）。
-    ///
-    /// 选择 success 而非 failure，是因为本路径**没有真正执行任何动作**（既没采集 / 也没调 LLM），
-    /// audit 上记一条 `.success` stub 让调用方能看出"M2 范围内已挑战 .agent / .pipeline kind"。
-    func finishNotImplementedKind(context: FlowContext) async {
-        context.continuation.yield(.notImplemented(
-            reason: "ToolKind not supported in M2 (Phase 1+ for .agent / Phase 5+ for .pipeline)"
-        ))
-        let stub = makeReport(
-            context: context,
-            finishedAt: Date(),
-            tokens: 0,
-            costUSD: 0,
-            outcome: .success
-        )
-        await finishSuccess(report: stub, continuation: context.continuation)
     }
 
     // MARK: - Pure helpers

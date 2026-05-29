@@ -33,6 +33,7 @@ private struct RuntimeDependencies {
     let outputDispatcher: any OutputDispatcherProtocol
     let invocationGate: InvocationGate
     let resultPanelAdapter: ResultPanelWindowSinkAdapter
+    let playgroundRunner: any ToolPlaygroundRunning
 }
 
 /// bootstrap 期间创建出的输出依赖集合。
@@ -54,7 +55,10 @@ private struct V2RuntimeDependencyInputs {
 }
 
 /// 创建 `ExecutionEngine` 所需的内部依赖集合，避免 helper 参数列表继续膨胀。
-private struct ExecutionEngineDependencies {
+///
+/// `internal`（非 `private`）：`makeExecutionEngine` / `makePlaygroundRunner` 已拆到
+/// `AppContainer+Factories.swift`，需跨文件访问本类型。
+struct ExecutionEngineDependencies {
     let providerRegistry: ContextProviderRegistry
     let permissionBroker: any PermissionBrokerProtocol
     let providerResolver: any ProviderResolverProtocol
@@ -185,8 +189,35 @@ final class AppContainer {
             bubblePanel: ui.bubblePanel,
             skillRegistry: skillRegistry
         ))
+        ui.settingsViewModel.playgroundRunner = v2Runtime.playgroundRunner
 
-        return AppContainer(
+        return assemble(
+            ui: ui,
+            runtime: v2Runtime,
+            configStore: configStore,
+            skillRegistry: skillRegistry,
+            keychain: keychain
+        )
+    }
+
+    /// 把 UI / runtime 依赖集合组装成最终 AppContainer。
+    ///
+    /// 抽出此 helper 让 `bootstrap()` 函数体落在 swiftlint function_body 40 行以内。
+    /// - Parameters:
+    ///   - ui: UI 面板与 Settings 依赖集合。
+    ///   - runtime: v2 runtime 依赖集合。
+    ///   - configStore: v2 配置存储。
+    ///   - skillRegistry: 生产 SkillRegistry。
+    ///   - keychain: Keychain 访问器。
+    /// - Returns: 完整装配的 AppContainer。
+    private static func assemble(
+        ui: UIDependencies,
+        runtime: RuntimeDependencies,
+        configStore: ConfigurationStore,
+        skillRegistry: any SkillRegistryProtocol,
+        keychain: KeychainStore
+    ) -> AppContainer {
+        AppContainer(
             configStore: configStore,
             skillRegistry: skillRegistry,
             keychain: keychain,
@@ -199,10 +230,10 @@ final class AppContainer {
             accessibilityMonitor: ui.accessibilityMonitor,
             settingsViewModel: ui.settingsViewModel,
             themeManager: ui.themeManager,
-            executionEngine: v2Runtime.executionEngine,
-            outputDispatcher: v2Runtime.outputDispatcher,
-            invocationGate: v2Runtime.invocationGate,
-            resultPanelAdapter: v2Runtime.resultPanelAdapter
+            executionEngine: runtime.executionEngine,
+            outputDispatcher: runtime.outputDispatcher,
+            invocationGate: runtime.invocationGate,
+            resultPanelAdapter: runtime.resultPanelAdapter
         )
     }
 
@@ -235,18 +266,6 @@ final class AppContainer {
         )
     }
 
-    /// 创建生产 SkillRegistry，并从配置存储读取最新 skill settings。
-    private static func makeSkillRegistry(configStore: ConfigurationStore) -> any SkillRegistryProtocol {
-        LocalSkillRegistry(settingsProvider: { [configStore] in
-            do {
-                return try await configStore.current().skillSettings
-            } catch {
-                print("[AppContainer] skill settings load failed - \(error.localizedDescription)")
-                return .empty
-            }
-        })
-    }
-
     /// 创建 v2 additive runtime，并触发 v2 配置首次加载。
     ///
     /// - Parameter inputs: v2 runtime 装配所需的输入依赖集合。
@@ -269,10 +288,7 @@ final class AppContainer {
             permissionBroker: permissionBroker,
             inputs: inputs
         )
-        let costAccounting = try CostAccounting(dbURL: inputs.appSupport.appendingPathComponent("cost.sqlite"))
-        let auditLog: any AuditLogProtocol = try JSONLAuditLog(
-            fileURL: inputs.appSupport.appendingPathComponent("audit.jsonl")
-        )
+        let telemetry = try makeTelemetry(appSupport: inputs.appSupport)
         let outputs = makeOutputDependencies(resultPanel: inputs.resultPanel, bubblePanel: inputs.bubblePanel)
         let sideEffectExecutor = makeSideEffectExecutor(mcpClient: mcpRuntime.client)
         let engineDependencies = ExecutionEngineDependencies(
@@ -283,18 +299,20 @@ final class AppContainer {
             agentExecutor: agentExecutor,
             mcpClient: mcpRuntime.client,
             skillRegistry: inputs.skillRegistry,
-            costAccounting: costAccounting,
-            auditLog: auditLog,
+            costAccounting: telemetry.cost,
+            auditLog: telemetry.audit,
             outputDispatcher: outputs.outputDispatcher,
             sideEffectExecutor: sideEffectExecutor
         )
         let executionEngine = makeExecutionEngine(dependencies: engineDependencies)
+        let playgroundRunner = makePlaygroundRunner(dependencies: engineDependencies)
 
         return RuntimeDependencies(
             executionEngine: executionEngine,
             outputDispatcher: outputs.outputDispatcher,
             invocationGate: outputs.invocationGate,
-            resultPanelAdapter: outputs.resultPanelAdapter
+            resultPanelAdapter: outputs.resultPanelAdapter,
+            playgroundRunner: playgroundRunner
         )
     }
 
@@ -322,17 +340,6 @@ final class AppContainer {
         )
     }
 
-    /// 创建生产 SideEffectExecutor。
-    private static func makeSideEffectExecutor(mcpClient: any MCPClientProtocol) -> any SideEffectExecutorProtocol {
-        SideEffectExecutor(
-            clipboard: AppClipboardWriter(),
-            notifier: AppUserNotifier(),
-            speaker: AVSpeechTTSCapability(),
-            mcpClient: mcpClient,
-            pathSandbox: PathSandbox()
-        )
-    }
-
     /// 创建生产 AgentExecutor，并注入 MCP runtime 与 SkillRegistry。
     private static func makeAgentExecutor(
         providerResolver: any ProviderResolverProtocol,
@@ -351,148 +358,4 @@ final class AppContainer {
         )
     }
 
-    /// 创建生产 v2 `ExecutionEngine`，集中保留 runtime 依赖的装配边界。
-    ///
-    /// - Parameter dependencies: 创建执行引擎所需的 v2 内部依赖集合。
-    /// - Returns: 完整装配但尚未接入 caller 的 v2 执行引擎。
-    private static func makeExecutionEngine(dependencies: ExecutionEngineDependencies) -> ExecutionEngine {
-        ExecutionEngine(
-            contextCollector: ContextCollector(registry: dependencies.providerRegistry),
-            permissionBroker: dependencies.permissionBroker,
-            permissionGraph: PermissionGraph(providerRegistry: dependencies.providerRegistry),
-            providerResolver: dependencies.providerResolver,
-            promptExecutor: dependencies.promptExecutor,
-            mcpClient: dependencies.mcpClient,
-            skillRegistry: dependencies.skillRegistry,
-            costAccounting: dependencies.costAccounting,
-            auditLog: dependencies.auditLog,
-            output: dependencies.outputDispatcher,
-            agentExecutor: dependencies.agentExecutor,
-            sideEffectExecutor: dependencies.sideEffectExecutor
-        )
-    }
-}
-
-/// AppContainer 生产 MCP runtime 依赖。
-private struct AppMCPRuntimeDependencies {
-    let descriptorsProvider: @Sendable () async throws -> [MCPDescriptor]
-    let client: any MCPClientProtocol
-}
-
-private extension AppContainer {
-
-    /// 创建生产 PermissionBroker。
-    /// - Parameter appSupport: app support 目录。
-    /// - Returns: 完整配置 presenter 与 persistent grant store 的 broker。
-    static func makePermissionBroker(appSupport: URL) -> any PermissionBrokerProtocol {
-        PermissionBroker(
-            store: PermissionGrantStore(),
-            persistentStore: PersistentPermissionGrantStore(
-                fileURL: appSupport.appendingPathComponent("permission-grants.json")
-            ),
-            consentPresenter: AppPermissionConsentPresenter()
-        )
-    }
-
-    /// 创建生产 MCP runtime。
-    /// - Parameter appSupport: app support 目录。
-    /// - Returns: MCP descriptor provider 与 routing client。
-    static func makeMCPRuntime(appSupport: URL) -> AppMCPRuntimeDependencies {
-        let mcpServerStore = MCPServerStore(fileURL: appSupport.appendingPathComponent("mcp.json"))
-        let descriptorsProvider: @Sendable () async throws -> [MCPDescriptor] = {
-            try await mcpServerStore.snapshot()
-        }
-        let stdioMCPClient = StdioMCPClient(descriptors: descriptorsProvider)
-        let streamableHTTPMCPClient = StreamableHTTPMCPClient(descriptors: descriptorsProvider)
-        let routingMCPClient = RoutingMCPClient(
-            descriptors: descriptorsProvider,
-            stdio: stdioMCPClient,
-            streamableHTTP: streamableHTTPMCPClient
-        )
-        return AppMCPRuntimeDependencies(descriptorsProvider: descriptorsProvider, client: routingMCPClient)
-    }
-
-    /// 创建生产 ProviderResolver。
-    /// - Parameter configStore: v2 配置存储。
-    /// - Returns: 使用最新配置快照解析 ProviderSelection 的 resolver。
-    static func makeProviderResolver(configStore: ConfigurationStore) -> any ProviderResolverProtocol {
-        DefaultProviderResolver(
-            configurationProvider: { [configStore] in try await configStore.current() }
-        )
-    }
-
-    /// 创建生产上下文 provider 注册表。
-    ///
-    /// - Returns: 包含 Task 7 五个核心 provider 的 registry。
-    private static func makeContextProviderRegistry() -> ContextProviderRegistry {
-        let providers: [String: any ContextProvider] = [
-            "selection": SelectionContextProvider(),
-            "app.windowTitle": AppWindowTitleContextProvider(),
-            "app.url": AppURLContextProvider(),
-            "clipboard.current": ClipboardCurrentContextProvider(
-                readString: AppContextAdapters.readClipboardString
-            ),
-            "file.read": FileReadContextProvider(sandbox: PathSandbox())
-        ]
-        return ContextProviderRegistry(providers: providers)
-    }
-
-    /// 创建选区捕获服务：AX 为主路径，剪贴板为 fallback。
-    ///
-    /// - Returns: 完整配置 primary/fallback 的 `SelectionService`。
-    private static func makeSelectionService() -> SelectionService {
-        SelectionService(
-            primary: AXSelectionSource(),
-            fallback: ClipboardSelectionSource(
-                pasteboard: SystemPasteboard(),
-                copyInvoker: SystemCopyKeystrokeInvoker(),
-                focusProvider: { @MainActor in
-                    guard let app = NSWorkspace.shared.frontmostApplication else {
-                        return nil
-                    }
-                    return FocusInfo(
-                        bundleID: app.bundleIdentifier ?? "",
-                        appName: app.localizedName ?? "",
-                        url: nil,
-                        screenPoint: NSEvent.mouseLocation
-                    )
-                }
-            )
-        )
-    }
-
-    /// 创建 ThemeManager，并把外观变化持久化回 v2 配置。
-    ///
-    /// - Parameter configStore: v2 配置存储。
-    /// - Returns: 初始为 `.auto` 的主题管理器。
-    private static func makeThemeManager(configStore: ConfigurationStore) -> ThemeManager {
-        let themeManager = ThemeManager(initialMode: .auto)
-        themeManager.onModeChange = { @MainActor mode in
-            Task {
-                do {
-                    // 磁盘写失败不阻断 UI 切换；后续 Settings 保存路径仍会暴露真实错误。
-                    var configuration = try await configStore.current()
-                    configuration.appearance = mode
-                    try await configStore.update(configuration)
-                } catch {
-                    // 主题 UI 已即时切换，配置写盘失败不打断用户操作。
-                }
-            }
-        }
-        return themeManager
-    }
-
-    /// 创建 `~/Library/Application Support/SliceAI/` 目录。
-    ///
-    /// - Returns: SliceAI app support 目录 URL。
-    /// - Throws: 目录创建失败时上抛，由 AppDelegate 转为启动失败 alert。
-    private static func makeAppSupportDir() throws -> URL {
-        // swiftlint:disable:next force_unwrapping
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("SliceAI", isDirectory: true)
-        if !FileManager.default.fileExists(atPath: appSupport.path) {
-            try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
-        }
-        return appSupport
-    }
 }

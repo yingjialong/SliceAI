@@ -31,6 +31,13 @@ public struct ExecutionSeed: Sendable, Equatable, Codable {
     public let triggerSource: TriggerSource
     /// 预览模式；true 时 OutputDispatcher 跳过所有副作用、只展示流
     public let isDryRun: Bool
+    /// 可选运行策略；nil 表示按旧语义从 `isDryRun` 推导生产策略。
+    public let runPolicy: ExecutionRunPolicy?
+
+    /// 解析后的运行策略。
+    public var effectiveRunPolicy: ExecutionRunPolicy {
+        runPolicy ?? .production(isDryRun: isDryRun)
+    }
 
     /// 构造 ExecutionSeed
     /// - Parameters:
@@ -41,6 +48,7 @@ public struct ExecutionSeed: Sendable, Equatable, Codable {
     ///   - timestamp: 触发时间戳
     ///   - triggerSource: 触发通路
     ///   - isDryRun: 是否预览模式
+    ///   - runPolicy: 可选运行策略，nil 时沿用生产默认推导
     public init(
         invocationId: UUID,
         selection: SelectionSnapshot,
@@ -48,7 +56,8 @@ public struct ExecutionSeed: Sendable, Equatable, Codable {
         screenAnchor: CGPoint,
         timestamp: Date,
         triggerSource: TriggerSource,
-        isDryRun: Bool
+        isDryRun: Bool,
+        runPolicy: ExecutionRunPolicy? = nil
     ) {
         self.invocationId = invocationId
         self.selection = selection
@@ -57,5 +66,6 @@ public struct ExecutionSeed: Sendable, Equatable, Codable {
         self.timestamp = timestamp
         self.triggerSource = triggerSource
         self.isDryRun = isDryRun
+        self.runPolicy = runPolicy
     }
 }

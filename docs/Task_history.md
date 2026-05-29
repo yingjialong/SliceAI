@@ -4,6 +4,113 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 
 ---
 
+## Task 77 · Phase 3 SwiftLint Gate Fix
+
+- **时间**：2026-05-29
+- **描述**：在一台已安装 SwiftLint 的机器上补跑 Phase 3 一直缺失的 `swiftlint lint --strict` final gate，并修复它暴露的 15 个 serious 违规（均为本切片在无 SwiftLint 机器上新引入的回归）。
+- **详情**：[docs/Task-detail/2026-05-29-phase-3-swiftlint-gate-fix.md](Task-detail/2026-05-29-phase-3-swiftlint-gate-fix.md)
+- **结果**：完成。以保行为的方式做函数抽取、switch 拆分、参数收进结构体、超长文件按 `+扩展文件` 拆分，并把新 App-target 文件登记进 `project.pbxproj`。验证：`swiftlint lint --strict` exit 0（15→0）、`swift build` 通过、`swift test` 887 tests/1 skipped/0 failures、`xcodebuild` Debug BUILD SUCCEEDED、`git diff --check` 干净。commit `fc61869`（未推送远端）。后续 2026-05-30 真实 App smoke 已 8/8 通过（记录见 MVP plan task detail）。
+
+---
+
+## Task 76 · Phase 3 Plan Compliance Audit
+
+- **时间**：2026-05-29
+- **描述**：逐项检查 Phase 3 ToolEditor v2 + Prompt Playground MVP implementation 与 implementation plan 是否一致；按 Task 1-8 核对源码、测试、文档和 final gate，发现不一致即修复。
+- **详情**：[docs/Task-detail/2026-05-29-phase-3-plan-compliance-audit.md](Task-detail/2026-05-29-phase-3-plan-compliance-audit.md)
+- **结果**：完成。Task 1-8 源码、测试和文档均与 plan 一致；已修复 plan checklist 状态漂移，把 52 个已完成步骤标记为完成，并补充 SwiftLint 本机缺失的 final gate 例外说明。Focused compliance tests、SwiftPM full tests、`git diff --check` 和 App Debug build 通过；SwiftLint 因本机 `swiftlint` 不在 PATH 未运行成功。
+
+---
+
+## Task 75 · Phase 3 Playground Review Fix
+
+- **时间**：2026-05-28
+- **描述**：修复 Phase 3 ToolEditor v2 + Prompt Playground MVP code review 发现的问题：Playground preflight 权限 gate 不再复用 side-effect dry-run，Prompt / Agent 执行链补齐 `.promptRendered` 生产者，Playground UI 补 app/window/url 输入和取消终态；second review-fix 追加 `runPermissionGate` 非 dry-run `.wouldRequireConsent` fail-closed 和 PromptExecutor public doc 修订。
+- **详情**：[docs/Task-detail/2026-05-28-phase-3-tool-editor-playground-mvp-plan.md](Task-detail/2026-05-28-phase-3-tool-editor-playground-mvp-plan.md)
+- **结果**：完成。按 TDD 先写失败测试并确认红灯，再实现最小修复；首轮 review-fix focused tests、PromptExecutor tests、全量 SwiftPM tests 和 `git diff --check` 均通过。Second review-fix 已确认红灯并转绿：ExecutionEngine focused tests 26 tests / 0 failures，PromptExecutor focused tests 21 tests / 0 failures，`git diff --check` 通过。未推送远端。
+
+---
+
+## Task 74 · Phase 3 Task 8 Documentation And Final Gate
+
+- **时间**：2026-05-28
+- **描述**：执行 Phase 3 ToolEditor v2 + Prompt Playground MVP implementation plan 的 Task 8，完成模块文档、项目状态文档和 final gate，并提交本阶段收尾 commit。
+- **详情**：[docs/Task-detail/2026-05-28-phase-3-tool-editor-playground-mvp-plan.md](Task-detail/2026-05-28-phase-3-tool-editor-playground-mvp-plan.md)
+- **结果**：完成。已更新 README、AGENTS、master todolist、Orchestration 和 SettingsUI 模块文档，并复用同一个 MVP plan task detail 记录 Task 8。Final gate：SwiftPM full tests 882 tests / 1 skipped / 0 failures，通过；`git diff --check` 通过；App Debug build 通过；SwiftLint 因本机 `swiftlint` 不在 PATH 未运行成功，已按环境缺失记录。
+
+## Task 73 · Phase 3 Task 7 Settings UI Integration
+
+- **时间**：2026-05-28
+- **描述**：执行 Phase 3 ToolEditor v2 + Prompt Playground MVP implementation plan 的 Task 7，把 ToolEditor 草稿会话、ToolEditor v2 双栏编辑器和 Prompt Playground 接入 Settings Tools 页面。
+- **详情**：[docs/Task-detail/2026-05-28-phase-3-task-7-settings-ui-integration.md](Task-detail/2026-05-28-phase-3-task-7-settings-ui-integration.md)
+- **结果**：完成。已新增 `ToolEditorV2View` 与 `ToolPlaygroundView`，Tools 页改为 draft session + Save/Revert + Playground；Add Prompt / Add Agent 不再直接写 `configuration.tools`，Settings 窗口调整为 `980×620`。Review follow-up 已补 Playground run token 隔离、dirty guard、当前工具 hotkey 合并和 DisplayMode summary 可见性；SettingsUI tests、App Debug build 和 `git diff --check` 均通过。
+
+## Task 72 · Phase 3 Task 6 Playground State Reducer
+
+- **时间**：2026-05-28
+- **描述**：执行 Phase 3 ToolEditor v2 + Prompt Playground MVP implementation plan 的 Task 6，新增 SettingsUI Playground 状态 reducer，把 Orchestration `ExecutionEvent` 转换为右侧 Playground UI 可展示的状态、DisplayMode dry-run 预览、权限提示、tool-call 行、report 和错误摘要。
+- **详情**：[docs/Task-detail/2026-05-28-phase-3-task-6-playground-state-reducer.md](Task-detail/2026-05-28-phase-3-task-6-playground-state-reducer.md)
+- **结果**：完成。已新增 `ToolPlaygroundState` reducer 与 focused tests；`SettingsUITests` 已补 `Orchestration` test dependency。focused reducer tests 与 `git diff --check` 通过。
+
+## Task 71 · Phase 3 Task 5 ToolEditor Draft State
+
+- **时间**：2026-05-28
+- **描述**：执行 Phase 3 ToolEditor v2 + Prompt Playground MVP implementation plan 的 Task 5，新增 ToolEditor 本地草稿会话和保存前校验，确保编辑已有 Tool 不会在 Save 前污染正式配置，并校验重复 id、disabled/unknown skills、无效或冲突热键。
+- **详情**：[docs/Task-detail/2026-05-28-phase-3-task-5-tool-editor-draft-state.md](Task-detail/2026-05-28-phase-3-task-5-tool-editor-draft-state.md)
+- **结果**：完成。已新增 `ToolEditorDraft`、`ToolEditorDraftSession` 和 `ToolDraftValidator`；保存前校验覆盖重复 Tool id、`Tool.validate()` 不变量、Agent disabled/unknown skills、无效工具热键、命令面板冲突和其它工具热键冲突。focused SettingsUI tests 通过。
+
+## Task 70 · Phase 3 Task 4 Tool Playground Runner
+
+- **时间**：2026-05-28
+- **描述**：执行 Phase 3 ToolEditor v2 + Prompt Playground MVP implementation plan 的 Task 4，新增 Tool Playground Runner，并在 AppContainer 中创建 Playground 专用 ExecutionEngine，支持未保存 Tool 草稿 dry-run 试跑。
+- **详情**：[docs/Task-detail/2026-05-28-phase-3-task-4-tool-playground-runner.md](Task-detail/2026-05-28-phase-3-task-4-tool-playground-runner.md)
+- **结果**：完成。已新增 `ToolPlaygroundRunner`，非法草稿会在进入 engine 前失败；AppContainer 创建 Playground 专用 engine，共享生产上下文 / 权限 / Provider / MCP / Skill / Cost / Audit 依赖，仅替换 preview output 并禁用 side effect executor。为修正 plan 前置依赖，已提前给 `SettingsViewModel` 增加最小 `playgroundRunner` 注入点，未展开 UI 集成。focused tests 与 App Debug build 通过。
+
+## Task 69 · Phase 3 Task 3 Agent MCP Run Policy
+
+- **时间**：2026-05-28
+- **描述**：执行 Phase 3 ToolEditor v2 + Prompt Playground MVP implementation plan 的 Task 3，把 `ExecutionRunPolicy` 传入 AgentExecutor，并按 Playground MCP 开关控制 Agent MCP tool call。
+- **详情**：[docs/Task-detail/2026-05-28-phase-3-task-3-agent-mcp-run-policy.md](Task-detail/2026-05-28-phase-3-task-3-agent-mcp-run-policy.md)
+- **结果**：完成。Playground 禁用 MCP 时，AgentExecutor 在 allowlist / 参数校验后、预算记录前拒绝 MCP tool call，不触发 Agent 内部 PermissionBroker 或 MCP client；Playground 显式允许 MCP 时继续以非 dry-run one-time gate 调用 PermissionBroker。focused AgentExecutor / ExecutionEngine tests 通过。
+
+---
+
+## Task 68 · Phase 3 Task 2 Playground Output Dispatcher
+
+- **时间**：2026-05-28
+- **描述**：执行 Phase 3 ToolEditor v2 + Prompt Playground MVP implementation plan 的 Task 2，新增 Settings Playground 专用 OutputDispatcher，收集 preview 输出快照并确保试跑不触发生产 UI、文件写入、选区替换、剪贴板或气泡副作用。
+- **详情**：[docs/Task-detail/2026-05-28-phase-3-task-2-playground-output-dispatcher.md](Task-detail/2026-05-28-phase-3-task-2-playground-output-dispatcher.md)
+- **结果**：完成。已新增 `PlaygroundOutputDispatcher` 与 `PlaygroundOutputSnapshot`，Playground preview 只记录 begin / chunk / finish / fail 状态，不持有生产输出 sink；focused output tests 通过。
+
+---
+
+## Task 67 · Phase 3 Task 1 Run Policy And Telemetry Foundation
+
+- **时间**：2026-05-28
+- **描述**：执行 Phase 3 ToolEditor v2 + Prompt Playground MVP implementation plan 的 Task 1，为 Playground 试跑新增 run policy、telemetry source 标记、CostAccounting 轻量迁移，并把策略传递到 ExecutionEngine report / cost / dry-run outcome。
+- **详情**：[docs/Task-detail/2026-05-28-phase-3-task-1-run-policy-telemetry-foundation.md](Task-detail/2026-05-28-phase-3-task-1-run-policy-telemetry-foundation.md)
+- **结果**：完成。已新增 `ExecutionRunPolicy`、`TriggerSource.playground`、`ExecutionSeed.runPolicy` / `effectiveRunPolicy`，InvocationReport / CostRecord 可标记 Playground source，CostAccounting 会幂等迁移旧 sqlite source 列；ExecutionEngine 现在用 run policy 决定权限 dry-run、副作用 dry-run、report flags、cost source 和 dry-run outcome。验证通过 Task 1 focused tests 与 `git diff --check`。
+
+---
+
+## Task 66 · Phase 3 ToolEditor v2 + Prompt Playground MVP Plan
+
+- **时间**：2026-05-28
+- **描述**：使用 `superpowers:writing-plans` 将已 review 的 Phase 3 ToolEditor v2 + Prompt Playground MVP spec 转换为可执行 implementation plan。
+- **详情**：[docs/Task-detail/2026-05-28-phase-3-tool-editor-playground-mvp-plan.md](Task-detail/2026-05-28-phase-3-tool-editor-playground-mvp-plan.md)
+- **结果**：完成。已创建 plan `docs/superpowers/plans/2026-05-28-phase-3-tool-editor-playground-mvp.md`，按 TDD 拆分 run policy / telemetry、Playground output dispatcher、Agent MCP policy、ToolEditor draft state、Playground reducer / UI、AppContainer wiring、文档与 final gate；Claude review loop Round 3 已 approve（`findings: []`）；等待用户选择执行方式。
+
+---
+
+## Task 65 · Phase 3 ToolEditor v2 + Prompt Playground MVP Spec
+
+- **时间**：2026-05-28
+- **描述**：启动 Phase 3 首个可实施切片的规格收敛，冻结 ToolEditor v2 + Prompt Playground MVP，明确未保存草稿试跑、Prompt / Agent Tool 覆盖、真实 LLM、权限闭环下真实 MCP、side effects dry-run、右侧预览和后续技术债务。
+- **详情**：[docs/Task-detail/2026-05-28-phase-3-tool-editor-playground-mvp-spec.md](Task-detail/2026-05-28-phase-3-tool-editor-playground-mvp-spec.md)
+- **结果**：Codex review 后条件通过。已创建并修订 spec `docs/superpowers/specs/2026-05-28-phase-3-tool-editor-playground-mvp.md`：补齐 Phase 3 分支口径、Playground telemetry 兼容、MCP 显式确认安全边界、ToolEditor draft 校验 / reload 策略和相关测试要求；本任务不包含代码实现和 release。
+
+---
+
 ## Task 64 · Phase 3 Handoff And Remote Sync
 
 - **时间**：2026-05-27
