@@ -59,6 +59,17 @@ open SliceAI.xcodeproj
 
 ## 项目修改变动记录
 
+### 2026-05-30 · Phase 3 ToolEditor v2 + Prompt Playground MVP 合入 main
+
+**范围**：`main`，Phase 3 首个冻结切片收口
+
+**当前状态**：
+- 补齐此前因开发机缺少 SwiftLint 而一直未跑的 `swiftlint lint --strict` final gate，并以保行为方式修复它暴露的 15 个 serious 违规（函数抽取、switch 拆分、参数收进结构体、超长文件按 `+扩展文件` 拆分；新 App-target 文件登记进 `project.pbxproj`）。
+- 真实 App smoke 8/8 通过：草稿不污染配置、真实 LLM 进右侧 preview、MCP 默认禁用、side-effect dry-run、Cancel 终态、Save 才写配置。
+- 通过 PR #6 合入 main（merge commit `038e254`），原 `codex/phase3-tool-editor-playground` 分支已删除。
+
+**验证状态**：本地 `swift test` 887 tests/1 skipped/0 failures、`swiftlint lint --strict` 0 violations、`xcodebuild` Debug BUILD SUCCEEDED、`git diff --check` 干净；PR #6 CI（macos-latest 全 gate）全绿（Build & Test pass，3m9s）。
+
 ### 2026-05-28 · Phase 3 Playground Review Fix
 
 **范围**：`codex/phase3-tool-editor-playground`，ToolEditor v2 + Prompt Playground MVP review-fix

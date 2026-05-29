@@ -6,8 +6,8 @@
 
 - 项目定位：macOS 原生、开源的划词触发型 LLM / Agent 工具栏。
 - 平台基线：macOS 14+、Xcode 26+、Swift 6.0、SwiftPM local package。
-- 当前分支：`codex/phase3-tool-editor-playground`；`main` 已包含 Phase 2 completion，Phase 3 spec / plan / implementation 留在该分支继续。
-- 当前阶段：用户已选择跳过 Phase 2 release，进入 Phase 3 Prompt IDE + 本地模型 kickoff。Task 63 Phase 2 completion 已完成；Skill Registry MVP、真实本地 Skill E2E、公开 Anthropic / OpenAI / Codex skill 仓库 smoke、supporting files 只读加载、Output lifecycle、SideEffect executor、`.silent` / `.file` / `.replace` / `.bubble` / `.structured` DisplayMode、本地 TTS capability 和首方 English Tutor 默认工具均已完成；最终 automated gate、公开仓库 smoke 和真实 App smoke 均已通过。Phase 3 ToolEditor v2 + Prompt Playground MVP 已完成首个实现切片。
+- 当前分支：`main`（无活跃 feature 分支）；Phase 3 ToolEditor v2 + Prompt Playground MVP 已通过 PR #6 合入 main（merge commit `038e254`），原 `codex/phase3-tool-editor-playground` 分支已删除。下一个 Phase 3 切片进入前需新开分支并重新 spec。
+- 当前阶段：用户已选择跳过 Phase 2 release，进入 Phase 3 Prompt IDE + 本地模型 kickoff。Task 63 Phase 2 completion 已完成；Skill Registry MVP、真实本地 Skill E2E、公开 Anthropic / OpenAI / Codex skill 仓库 smoke、supporting files 只读加载、Output lifecycle、SideEffect executor、`.silent` / `.file` / `.replace` / `.bubble` / `.structured` DisplayMode、本地 TTS capability 和首方 English Tutor 默认工具均已完成；最终 automated gate、公开仓库 smoke 和真实 App smoke 均已通过。Phase 3 ToolEditor v2 + Prompt Playground MVP 已完成首个实现切片并合入 main（PR #6）；自动化 gate（含 SwiftLint strict）与真实 App smoke 8/8 均已通过。
 - 已发布状态：`v0.2.0` 已正式发布；`v0.3.0` tag 和 GitHub draft release 已生成并校验通过，但用户明确暂缓人工发布。
 - 根工程是 Swift/macOS 项目，不是 Python 项目；PEP 8、Alembic、uv 规则通常不适用于当前仓库。
 

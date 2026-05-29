@@ -4,6 +4,15 @@ SliceAI 项目任务历史记录索引。每条记录对应 `docs/Task-detail/` 
 
 ---
 
+## Task 78 · Phase 3 MVP Real App Smoke And Merge
+
+- **时间**：2026-05-30
+- **描述**：完成 Phase 3 ToolEditor v2 + Prompt Playground MVP 的真实 App smoke，并将整条切片通过 PR #6 合入 main。
+- **详情**：[docs/Task-detail/2026-05-28-phase-3-tool-editor-playground-mvp-plan.md](Task-detail/2026-05-28-phase-3-tool-editor-playground-mvp-plan.md)（“2026-05-30 Real App Smoke”节）
+- **结果**：完成。真实 App smoke 8/8 通过（草稿不污染配置、真实 LLM preview、MCP 默认禁用、side-effect dry-run、cancel 终态、Save 才写配置）。PR #6 创建后 CI（macos-latest：swift build + test + xcodebuild + SwiftLint strict）全绿（Build & Test pass，3m9s），以 merge commit `038e254` 合入 main，远端分支 `codex/phase3-tool-editor-playground` 已删除。下一个 Phase 3 切片进入前需新开分支并重新 spec。
+
+---
+
 ## Task 77 · Phase 3 SwiftLint Gate Fix
 
 - **时间**：2026-05-29

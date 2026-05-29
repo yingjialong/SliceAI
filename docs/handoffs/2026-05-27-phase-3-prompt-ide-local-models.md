@@ -1,13 +1,15 @@
 ---
 topic: phase-3-prompt-ide-local-models
 title: Phase 3 Prompt IDE 与本地模型
-branch: codex/phase3-tool-editor-playground
-status: needs-review
+branch: main (merged)
+status: done-merged
 created: 2026-05-27 17:28
-last_updated: 2026-05-29 09:34
+last_updated: 2026-05-30
 ---
 
 # Phase 3 Prompt IDE 与本地模型
+
+> **2026-05-30 收口**：本 handoff 的 workstream（Phase 3 ToolEditor v2 + Prompt Playground MVP）已完成补 SwiftLint gate（15→0）、真实 App smoke 8/8、并通过 PR #6 合入 main（merge commit `038e254`）；`codex/phase3-tool-editor-playground` 分支已删除。下一个 Phase 3 切片需新开分支并重新 spec。下方内容保留为历史接续记录。
 
 ## Goal
 
