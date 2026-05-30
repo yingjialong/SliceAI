@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 SliceAI 是 macOS 原生、开源的划词触发 LLM 工具栏。划词后弹出浮条工具栏（PopClip 风格），或按 `⌥Space` 调出命令面板（Raycast 风格），通过 OpenAI 兼容协议调用大模型并流式渲染结果。
 
 - 平台：macOS 14 Sonoma+，Xcode 26+，Swift 6.0
-- 状态：Phase 2 Skill Registry MVP、真实本地 Skill E2E、公开 skill 仓库 smoke、supporting files 只读加载、非 window DisplayMode、本地 TTS、English Tutor 默认工具和真实 App smoke 已完成；用户已选择跳过 Phase 2 release，下一步进入 Phase 3 Prompt IDE + 本地模型规格收敛；`v0.2.0` 已正式发布，`v0.3.0` tag 与 GitHub draft release 已生成但用户暂缓人工发布（unsigned，不上架 App Store，需 Accessibility 权限）
+- 状态：Phase 2 Skill Registry MVP、真实本地 Skill E2E、公开 skill 仓库 smoke、supporting files 只读加载、非 window DisplayMode、本地 TTS、English Tutor 默认工具和真实 App smoke 已完成；用户已选择跳过 Phase 2 release。Phase 3 ToolEditor v2 + Prompt Playground MVP 已通过 PR #6（merge commit `038e254`）合入 `main`，自动化 gate（含 SwiftLint strict）与真实 App smoke 8/8 通过；下一个 Phase 3 切片（Prompt IDE 深化 + 本地模型规格收敛）进入前需新开分支并重新 spec。`v0.2.0` 已正式发布，`v0.3.0` tag 与 GitHub draft release 已生成但用户暂缓人工发布（unsigned，不上架 App Store，需 Accessibility 权限）
 
 ## 常用命令
 
@@ -46,7 +46,7 @@ SliceAI.app  (Xcode App target, SliceAIApp/)
 
 SliceAIKit  (SliceAIKit/Package.swift, 10 个 library target)
   ├─ SliceCore         领域层，Foundation only，零 UI 依赖；含 canonical Tool/Provider/Configuration
-  ├─ Orchestration     ExecutionEngine + ContextCollector + PermissionGraph/Broker + PromptExecutor + AgentExecutor + Audit/Cost
+  ├─ Orchestration     ExecutionEngine + ContextCollector + PermissionGraph/Broker + PromptExecutor + AgentExecutor + OutputDispatcher/SideEffectExecutor + Playground runner + Audit/Cost
   ├─ Capabilities      PathSandbox + ContextProviders + MCP store/import/client + LocalSkillRegistry + TTS
   ├─ LLMProviders      OpenAI 兼容协议 + SSE 流式
   ├─ SelectionCapture  AX 主路径 + Cmd+C 备份恢复路径
@@ -54,7 +54,7 @@ SliceAIKit  (SliceAIKit/Package.swift, 10 个 library target)
   ├─ DesignSystem      颜色/字体/间距/圆角 token + ThemeManager + 共享组件（IconButton/PillButton/SectionCard…）
   ├─ Windowing         FloatingToolbar / CommandPalette / ResultPanel / BubblePanel / StructuredResultView（依赖 DesignSystem）
   ├─ Permissions       Accessibility 权限轮询 + Onboarding 视图（依赖 DesignSystem）
-  └─ SettingsUI        SwiftUI 设置界面 + Provider / Tool / MCP Servers / Skills 页面（依赖 DesignSystem）
+  └─ SettingsUI        SwiftUI 设置界面 + Provider / Tool / MCP Servers / Skills 页面 + ToolEditor v2 / Prompt Playground（依赖 DesignSystem）
 ```
 
 ### 模块依赖（关键不变量）
@@ -66,8 +66,8 @@ SliceAIKit  (SliceAIKit/Package.swift, 10 个 library target)
 - **配置与密钥严格分离**：`Configuration` 走 JSON（`~/Library/Application Support/SliceAI/config-v2.json`）；旧 `config.json` 只作为 migrator 输入保留。API Key 永远在 Keychain（`service: com.sliceai.app.providers`），通过 `Provider.apiKeyRef = "keychain:<account>"` 间接引用。
 - **Composition Root 集中在 `SliceAIApp/AppContainer.swift`**：所有跨模块依赖在 App 启动时一次性装配，业务层不再分散 init。
 - **主题切换中枢是 `DesignSystem/Theme/ThemeManager`**：读写 `Configuration.appearance`（auto / light / dark），由 `AppContainer` 在启动时注入一次；切换时通过 `onModeChange` 回调把变更持久化回 `ConfigurationStore`。UI 层只读环境里的 `ThemeManager`，不直接碰 `NSApp.appearance`。
-- **ExecutionEngine 是唯一执行入口**：生产触发链不再使用旧 `ToolExecutor`；所有工具调用都进入 `Orchestration.ExecutionEngine`。`.prompt` 走 `PromptExecutor`，`.agent` 走 `AgentExecutor` ReAct loop，`.pipeline` 仍是未实现的 Phase 5 占位。
-- **Skill Registry 已接入 Agent Tool**：用户可配置本地 skill roots，Settings Skills 页面展示 registry snapshot；Agent Tool 最多绑定 5 个 enabled skills，运行时通过 `sliceai.load_skill` pseudo-tool 渐进式加载完整 `SKILL.md`，并可通过 `sliceai.load_skill_resource` 只读加载已列出的 `references/` 与文本型 `assets/`。`LocalSkillRegistry` 还默认提供首方内置 `english-tutor` skill，供默认 English Tutor 工具绑定。
+- **ExecutionEngine 是唯一执行入口**：生产触发链不再使用旧 `ToolExecutor`；所有工具调用都进入 `Orchestration.ExecutionEngine`。`.prompt` 走 `PromptExecutor`，`.agent` 走 `AgentExecutor` ReAct loop，`.pipeline` 仍是未实现的 Phase 5 占位。Settings 的 Prompt Playground（`Orchestration/Playground/ToolPlaygroundRunner` + `Output/PlaygroundOutputDispatcher`）复用同一条执行链试跑未保存的 Tool 草稿，但输出只进 preview、side effects 一律 dry-run、MCP tool call 默认禁用且需本次运行显式打开。
+- **Skill Registry 已接入 Agent Tool**：用户可配置本地 skill roots，Settings Skills 页面展示 registry snapshot；Agent Tool 最多绑定 5 个 enabled skills，运行时通过 `sliceai_load_skill` pseudo-tool 渐进式加载完整 `SKILL.md`，并可通过 `sliceai_load_skill_resource` 只读加载已列出的 `references/` 与文本型 `assets/`（运行时 function name 用下划线——OpenAI function name 不允许点号；源码与文档里出现的 `sliceai.load_skill` 只是概念写法，真实 catalog 名见 `AgentExecutor+ToolCatalog.loadSkillName`）。`LocalSkillRegistry` 还默认提供首方内置 `english-tutor` skill，供默认 English Tutor 工具绑定。
 
 ### 触发与执行流（核心数据流）
 
@@ -121,6 +121,9 @@ mouseDown → 记录起点 → mouseUp → 算位移 ≥ 5pt → debounce(trigge
 - `HotkeyManagerTests`：只测 `Hotkey.parse` 等纯逻辑；Carbon 注册靠手动验收。
 - `WindowingTests`：只测 `ScreenAwarePositioner` 这种纯算法；NSPanel 行为靠手动验收。
 - `DesignSystemTests`：只测 token 常量、`ThemeManager` 状态切换等纯逻辑；SwiftUI 视图渲染靠手动验收。
+- `OrchestrationTests`：执行链核心覆盖面——`ExecutionEngine` / `AgentExecutor`（含 skill E2E）/ `PromptExecutor` / `ContextCollector` / `PermissionGraph` / `PermissionBroker` / `OutputDispatcher` / `PlaygroundOutputDispatcher` / `CostAccounting` / `JSONLAuditLog` / 脱敏全单测。
+- `CapabilitiesTests`：能力层逻辑——`PathSandbox`、MCP store/importer、stdio / Streamable HTTP / routing MCP client、Skill parser/scanner/registry、TTS 边界；从 `Tests/CapabilitiesTests/Fixtures/` 喂真实 skill / 配置固件，并含公开 skill 仓库 smoke。
+- `SettingsUITests`：纯状态逻辑——`SettingsViewModel` 类、`ToolEditorDraftState`、`ToolPlaygroundState` reducer、skill 绑定 / allowlist 编解码；SwiftUI 视图渲染靠手动验收。
 
 新增依赖外部状态（系统权限、网络、剪贴板）的代码时，先抽 protocol 让生产实现走真实路径、测试注入 Fake，而不是直接在测试里 mock 系统 API。
 
@@ -129,6 +132,7 @@ mouseDown → 记录起点 → mouseUp → 算位移 ≥ 5pt → debounce(trigge
 - **新增 Provider 时，`apiKeyRef` 必须用 `keychain:<provider.id>` 形式**（见 `SettingsViewModel.addProvider()` / Provider editor 相关逻辑）。这样 `SettingsViewModel.setAPIKey(_:for:)`（写）与 `PromptExecutor`（读）通过 `Provider.keychainAccount` 解析出同一个 account。
 - 修改 `Provider.apiKeyRef` 时不会自动迁移 Keychain 槽位；UI 层需要提示用户重新填写 API Key。
 - 删除 Provider 时**不**主动清除 Keychain 槽位（`SettingsScene.deleteSelectedProvider`），保留以兼容"误删后重建同 id"。
+- **仓库根的 `config.schema.json` 是 `Configuration` 的 JSON Schema，当前对齐 `Configuration.currentSchemaVersion = 4`**：修改配置模型（新增字段、改 DisplayMode / SideEffect / Tool 形状等）时必须同步更新该 schema，否则运行时模型与 schema 会漂移。
 
 ## 文档与流程
 

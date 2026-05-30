@@ -39,12 +39,12 @@
 - `SliceAIKit/Package.swift`：本地 SwiftPM package，包含 10 个 library target。
 - `SliceCore`：领域模型、配置、权限、MCP/Skill canonical 类型和跨模块协议，原则上零 UI、零网络、零文件系统副作用。
 - `Capabilities`：PathSandbox、ContextProviders、MCP store/import/client、persistent permission grants、Skill registry parser/scanner/local actor、内置首方 skill catalog 和本地 TTS capability。
-- `Orchestration`：ExecutionEngine、ContextCollector、PermissionGraph/Broker、PromptExecutor、AgentExecutor、OutputDispatcher、SideEffectExecutor、审计和成本记录。
+- `Orchestration`：ExecutionEngine、ContextCollector、PermissionGraph/Broker、PromptExecutor、AgentExecutor、OutputDispatcher、SideEffectExecutor、Playground runner（`ToolPlaygroundRunner` / `PlaygroundOutputDispatcher`）、审计和成本记录。
 - `LLMProviders`：OpenAI-compatible Chat Completions / SSE / tool calling provider。
 - `SelectionCapture`：Accessibility 选区读取 + Cmd+C fallback。
 - `HotkeyManager`：Carbon 全局快捷键注册与解析。
 - `Windowing`：FloatingToolbar、CommandPalette、ResultPanel、BubblePanel、StructuredResultView 和屏幕定位。
-- `SettingsUI`：SwiftUI 设置界面、Provider / Tool / MCP Servers / Skills 页面。
+- `SettingsUI`：SwiftUI 设置界面、Provider / Tool / MCP Servers / Skills 页面、ToolEditor v2 / Prompt Playground。
 - `DesignSystem` / `Permissions`：UI tokens、共享控件、主题、Accessibility onboarding / monitor。
 
 ## 当前已落地功能

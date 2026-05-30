@@ -16,9 +16,9 @@
 | 字段 | 值 |
 |---|---|
 | 最后更新 | 2026-05-30 |
-| 当前 Phase | **Phase 3 Prompt IDE + 本地模型（kickoff）** |
-| 当前 Milestone | **Phase 3 ToolEditor v2 + Prompt Playground MVP 已合入 main（PR #6，merge commit `038e254`）** |
-| 下一个动作 | 重新 spec 下一个 Phase 3 切片（样本管理 / A-B / 原生 provider / Memory），进入前用 brainstorming 走设计并 freeze |
+| 当前 Phase | **v1.0 收口（精简范围）** —— v1.0 范围决策见 §5.0（2026-05-30） |
+| 当前 Milestone | **Phase 3 ToolEditor v2 + Prompt Playground MVP 已合入 main（PR #6，merge commit `038e254`）；下一步进入 v1.0 唯一新功能切片：续聊 + 历史** |
+| 下一个动作 | 为「续聊 + 历史」走 brainstorming→spec→plan→实现（v1.0 唯一新功能切片，范围见 §5.0「v1.0 范围决策」） |
 | 阻塞 | 无已知产品代码阻塞；`v0.3.0` draft release 已生成并校验通过，但用户已决定暂缓人工发布 |
 
 **Milestone 状态**
@@ -39,7 +39,8 @@
 | 2 | Public Skill Repository Smoke | ✅ 已完成：3 个公开仓库 / 9 个真实 skill 的扫描、解析、启用和 `SKILL.md` 加载 smoke 通过 |
 | 2 | Supporting Files Read-Only Loading | ✅ 已完成：`references/` 与文本型 `assets/` 可按需只读加载；`scripts/` 仍不读取、不执行 |
 | 2 | Phase 2 Completion | ✅ 已完成：Output lifecycle、SideEffect executor、多 DisplayMode、本地 TTS、English Tutor、automated gate、公开仓库 smoke 和真实 App smoke 均完成 |
-| 3–5 | — | 🟦 Directional，进入前需重新 spec |
+| 3 | 续聊 + 历史（v1.0 唯一新功能切片） | 🟦 设计已冻结（2026-05-30），待 writing-plans 出 plan 后实施 |
+| 3 其余 / 4 / 5 | 原生 provider、样本/A-B/版本历史、Memory、Cost Panel、marketplace、pipeline 等 | ⬜ 移出 v1.0，推到 1.0 之后（见 §5.0） |
 
 ---
 
@@ -69,16 +70,18 @@
 
 ## 2. 全项目 Phase 全景
 
-（摘自 v2 roadmap spec §4.1，状态按 2026-05-24 当前源码与发布记录更新）
+（摘自 v2 roadmap spec §4.1，状态按 2026-05-30 当前源码与发布记录更新）
+
+> **v1.0 范围口径（2026-05-30）**：v1.0 精简为「现有读取链 + 续聊 + 历史」。Phase 3 的 ToolEditor v2 + Prompt Playground MVP 已合入 main；Phase 3 其余条目（原生 provider、样本/A-B/版本历史、Memory、Cost Panel 等）与 Phase 4/5 **全部移出 v1.0，推到 1.0 之后**。下表 Phase 3–5 行保留为 1.0 之后的方向性参考。详见 §5.0「v1.0 范围决策」。
 
 | Phase | 主题 | 状态 | 时长（人天） | 对外可见新功能 | 关键产出 |
 |---|---|---|---|---|---|
 | **0** | 底层重构 | ✅ 已完成并正式发布 `v0.2.0` | 15–21 (M1+M2+M3) | **无**（只重构） | Orchestration + Capabilities 骨架、Tool 三态、ExecutionSeed/ResolvedContext、Permission + Provenance + PermissionGraph + PathSandbox hook、v2 schema + 独立 config 路径 |
 | **1** | MCP + Context 主干 | ✅ 已完成；`v0.3.0` tag + GitHub draft release 已生成，人工发布暂缓 | 20–30 | MCP 支持 / 5 个核心 ContextProvider / Per-Tool Hotkey / 基础自定义 Agent Tool | MCPClient（stdio + Streamable HTTP）+ MCPServersPage + AgentExecutor + Agent Tool 编辑器 + `web-search-summarize` 首个真 Agent Tool |
 | **2** | Skill + 多 DisplayMode | ✅ 核心 completion 已完成；Phase 2 release 已按用户决定跳过 | — | Skill 接入 / replace / bubble / structured / TTS / English Tutor | Skill Registry MVP、本地 Skill E2E、公开仓库 smoke、supporting files 只读加载、多 DisplayMode、本地 TTS、English Tutor 和真实 App smoke 已完成；Skill diagnostics、scripts 策略和完整 app 成功率矩阵可作为后续 hardening，不阻塞 Phase 3 |
-| **3** | Prompt IDE + 本地模型 | 🟨 首个切片 ToolEditor v2 + Prompt Playground MVP 已合入 main（PR #6） | — | Playground / A-B / Ollama & Anthropic 原生 / Memory | gate 全绿 + 真实 App smoke 8/8 通过并合入 main；样本持久化、A/B、版本历史、原生 provider、Memory 和 Cost Panel 留作后续切片 |
-| **4** | 生态与分享 | Directional | — | Tool Pack / Marketplace / SliceAI as MCP server / Shortcuts / Services | 进入前重新 spec；Pack 签名体系在 §3.9.4 已埋 hook |
-| **5** | 高级编排 | Directional | — | Pipeline / 智能路由 / Smart Actions | 进入前重新 spec |
+| **3** | Prompt IDE + 本地模型 | 🟨 首个切片 ToolEditor v2 + Prompt Playground MVP 已合入 main（PR #6） | — | Playground / A-B / Ollama & Anthropic 原生 / Memory | gate 全绿 + 真实 App smoke 8/8 通过并合入 main；样本持久化、A/B、版本历史、原生 provider、Memory 和 Cost Panel **移出 v1.0，留作 1.0 之后切片** |
+| **4** | 生态与分享 | Directional（移出 v1.0，1.0 之后） | — | Tool Pack / Marketplace / SliceAI as MCP server / Shortcuts / Services | 进入前重新 spec；Pack 签名体系在 §3.9.4 已埋 hook |
+| **5** | 高级编排 | Directional（移出 v1.0，1.0 之后） | — | Pipeline / 智能路由 / Smart Actions | 进入前重新 spec |
 
 **冻结等级定义**：
 - **Freeze**（Phase 0–1）：设计锁定可直接出 plan 进入实施；scope 不增不减。
@@ -499,9 +502,31 @@ fi
 > 5. plan 完成后再过一轮 Codex 评审，直到 APPROVED / COMMENT（与 §8 阶段 2 对齐）
 > 6. 本文件的 §0 Dashboard 更新 + 在对应 phase 章节展开子任务
 
-### 5.0 从当前到 v1.0 的剩余任务总表
+### 5.0 v1.0 范围决策（2026-05-30）+ 1.0 之后路线图全景
 
-> 这张表按当前 spec / 源码事实把剩余工作拆成 **60 个主任务**。Phase 3–5 仍是 Directional，所以这些条目是 v1.0 路线图级任务，不是已经冻结的实施 plan；真正开工前仍必须重新 spec、review、拆成更细的开发任务。
+> **v1.0 范围决策（2026-05-30，最新口径，优先于下方 60 行路线图表）**
+>
+> 经 2026-05-30 一轮 brainstorming，v1.0 收敛为**精简可闭环**范围：
+> - **v1.0 IN**：现有核心读取链（划词 / ⌥Space → `.prompt` / `.agent` → 流式结果）+ **续聊**（多轮追问 + 上下文管理）+ **历史**（Settings 查看过往交互）。
+> - **v1.0 OUT（全部推到 1.0 之后）**：原生 Anthropic / Gemini / Ollama provider 与能力级联（下表 #20–23）、Playground 样本/expected（#17）、A/B（#18）、Tool 版本历史（#19）、Tool Memory + MemoryPage（#24/#25）、Cost Panel（#26）、privacy local-only（#27）、InlineReplaceOverlay 确认撤销（#8）、`.pipeline` 与 Phase 4/5 全部（#28–50）。
+> - **闭环底线**：读取链不撞墙；`.replace` / `.file` / `.bubble` / `.tts` 保持现状。
+> - **分发**：未签名 DMG + 文档绕过；签名 / 公证留到 release 决定。
+> - 设计冻结文档：`docs/superpowers/specs/2026-05-30-v1-scope-and-conversation-followup-design.md`（在分支 `codex/v1-scope-conversation-followup`，PR 合入 main 后该路径在 main 上可见）。
+>
+> **下方 60 行表的定位因此变更**：它现在是**「1.0 之后的完整路线图」参考，不再是 v1.0 的剩余任务**。v1.0 实际剩余任务见下面「v1.0 剩余任务（精简范围）」小表；原 #51–60 的 v1.0 Gate 条目按精简范围重写，见 §5.5。
+
+#### v1.0 剩余任务（精简范围，2026-05-30）
+
+| # | 切片 | 任务 | 交付结果 | 状态 |
+|---|---|---|---|---|
+| V1-1 | 续聊 + 历史 | 会话模型 + 持久化基座 | SliceCore 会话值类型（Conversation / Turn）+ 落盘（App Support，独立于 config / Keychain）+ 脱敏边界（History 明文本地、audit 仍脱敏） | 设计冻结，待 plan |
+| V1-2 | 续聊 + 历史 | 续聊 UX（ResultPanel 多轮） | 结果后底部输入框 + 多轮对话视图；能力随发起工具继承（agent 续聊带 skill + MCP，prompt 续聊纯多轮）；10 轮滑动窗口 + 友好提示 | 设计冻结，待 plan |
+| V1-3 | 续聊 + 历史 | History 页 | Settings 只读列表 + 查看完整多轮 + 删除（单条 / 清空）；不做 re-open 续聊 | 设计冻结，待 plan |
+| V1-4 | v1.0 gate | 收口 gate | 见 §5.5（精简版）：tests / lint / build / 真实 App smoke / 文档同步 / 未签名 DMG | 待做 |
+
+#### 1.0 之后路线图全景（原"剩余任务总表"，保留为方向性参考）
+
+> 下表按当前 spec / 源码事实把工作拆成 **60 个主任务**，**现定位为 1.0 之后的完整路线图**：其中 #15 / #16（Phase 3 MVP）已部分完成并合入 main，#17–50 移出 v1.0、推到 1.0 之后，#51–60 由 §5.5 精简版 v1.0 Gate 替代。Phase 3–5 仍是 Directional，真正开工前必须重新 spec、review、拆成更细任务。
 
 | # | Phase | 任务 | 交付结果 | 状态 |
 |---|---|---|---|---|
@@ -687,13 +712,17 @@ fi
 - [ ] 选中代码时浮条首位自动变成"Explain Code"，选中 URL 时自动变成"Summarize Webpage"
 - [ ] Cascade 规则在"长文本 > 8k token 走 Claude Haiku"场景下工作正确
 
-### 5.5 v1.0 Gate
+### 5.5 v1.0 Gate（精简范围，2026-05-30 重写）
 
-- [ ] Phase 0–5 全部 DoD 达成
-- [ ] 决策是否 Signing + Notarization（Phase 4 遗留决策）
-- [ ] 实机打包 + Marketplace 5 个 Starter Pack 全部安装成功
-- [ ] Release Notes / 官网 / Homepage
-- [ ] tag `v1.0.0`
+> 旧版（Phase 0–5 全 DoD + Marketplace 5 Starter Pack + 签名 / 公证）已作废——Phase 4 / 5 移出 v1.0。新 gate 对齐 2026-05-30 v1.0 范围决策（见 §5.0）。
+
+- [ ] 续聊 + 历史切片实现并通过 review（V1-1 ~ V1-3）
+- [ ] 全量 SwiftPM tests 绿（新增：prompt 续聊多轮 / agent 续聊继承 skill + MCP / 历史持久化删除 / 既有读取链回归）
+- [ ] `swiftlint lint --strict` 0 违规 + `xcodebuild` Debug build 绿
+- [ ] 真实 App smoke：prompt 续聊、agent 续聊继承 skill + MCP、历史查看 / 删除、读取链回归、10 轮窗口裁剪 + 友好提示
+- [ ] 文档同步：README / AGENTS / CLAUDE / 本文件 / Task_history / Module(Orchestration / SettingsUI / SliceCore)
+- [ ] 分发：未签名 DMG 可构建（`scripts/build-dmg.sh`）；签名 / 公证留 release 决定，不阻塞 v1.0
+- [ ] tag `v1.0.0`（发布与否由用户决定）
 
 ---
 
@@ -1207,3 +1236,16 @@ fi
 - Final gate：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --package-path SliceAIKit --scratch-path /tmp/sliceai-task8-full-tests` 通过（882 tests，1 skipped，0 failures）；`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild -project SliceAI.xcodeproj -scheme SliceAI -configuration Debug build` 通过（`** BUILD SUCCEEDED **`）；`git diff --check` 通过。
 - SwiftLint 未运行成功：本机 `swiftlint` 不在 PATH，`swiftlint lint --strict` 返回 `zsh:1: command not found: swiftlint`；按任务约束未安装工具。
 - 后续切片仍待重新 spec：样本持久化 / expected output 管理、A/B 双栏对比、版本历史、原生 Anthropic / Gemini / Ollama provider、Memory、Cost Panel、ToolEditor v2 小宽度响应式布局。
+
+### 2026-05-30 — Phase 3 MVP 合入 main 收口 + v1.0 范围决策（精简）
+
+- **Phase 3 MVP 收口**：补跑此前缺失的 `swiftlint lint --strict` gate，修复 15 处 file_length / type_body / function_body / cyclomatic / function_parameter_count 违规（行为不变的拆分 / 参数打包 / +extension 拆文件），lint 归零；真实 App smoke 8/8 通过；通过 PR #6 合入 `main`（merge commit `038e254`），`codex/phase3-tool-editor-playground` 分支已删除。
+- **v1.0 范围决策（brainstorming 一轮）**：v1.0 收敛为「现有读取链 + 续聊 + 历史」精简可闭环范围。
+  - 续聊：在 ResultPanel 多轮追问，能力随发起工具继承（agent 续聊带 skill + MCP 并走既有 allowlist + PermissionBroker，prompt 续聊纯多轮）；上下文质量优先、不激进裁剪，默认 10 轮滑动窗口、超出从最老整轮 FIFO 裁剪并给友好提示。
+  - 历史：Settings 只读列表 + 查看完整多轮 + 删除；History 存完整明文（用户数据、只存本地、不外发、可删除），audit / cost 仍脱敏；只存用户可见轮次。
+  - 移出 v1.0（1.0 之后）：原生 provider、样本 / A-B / 版本历史、Memory / MemoryPage、Cost Panel、privacy local-only、InlineReplaceOverlay、Phase 4 / 5 全部。
+  - 分发维持未签名 DMG + 文档绕过；签名 / 公证留 release 决定。
+- 设计冻结文档：`docs/superpowers/specs/2026-05-30-v1-scope-and-conversation-followup-design.md`（在分支 `codex/v1-scope-conversation-followup`）。
+- 本文件、`AGENTS.md`、`CLAUDE.md` 已同步到上述口径（§0 Dashboard、§2 Phase 全景、§5.0 v1.0 范围决策、§5.5 精简版 v1.0 Gate）。
+
+**下一步**：为「续聊 + 历史」走 writing-plans 出实施 plan（设计已冻结并经用户 review），再按 §8 SOP 实施；M1 实现内部顺序为 会话模型 / 持久化基座 → 续聊 UX → History 页。
